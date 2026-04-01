@@ -5,6 +5,7 @@ global _chromiumCache           := Map()
 global _focusTabLast            := Map()
 global _chromiumProfileDirCache := Map()
 global _chromiumExe             := ""
+global _origFgLockTimeout       := 0
 
 ; Returns array of active-tab titles for the given profile (via AltTabSucks server)
 GetProfileWindowTitles(profileName) {
@@ -50,12 +51,22 @@ GetChromiumProfileDirMap() {
 
 ; One-time startup: derive exe filename from CHROMIUM_EXE and pre-populate profile dir cache
 ; from the browser's Local State. CHROMIUM_EXE and CHROMIUM_USERDATA are set in config.ahk.
+; Restores the foreground-lock timeout saved at startup. Called by OnExit so other
+; apps are not left with an unrestricted ability to steal focus after AHK closes.
+_RestoreFgLockTimeout(ExitReason, ExitCode) {
+    global _origFgLockTimeout
+    DllCall("SystemParametersInfo", "UInt", 0x2001, "UInt", 0, "Ptr", _origFgLockTimeout, "UInt", 0)
+    return 0  ; 0 = allow exit to proceed
+}
+
 _InitChromiumState() {
-    global _chromiumExe, _chromiumProfileDirCache
+    global _chromiumExe, _chromiumProfileDirCache, _origFgLockTimeout
     ; Disable foreground-lock timeout so WinActivate/SwitchToThisWindow can always steal
     ; focus. Default is 200 000 ms which blocks focus-steal for the entire lock period.
-    ; This change is session-only (not persisted to registry).
+    ; Save the original value first so _RestoreFgLockTimeout can put it back on exit.
+    DllCall("SystemParametersInfo", "UInt", 0x2000, "UInt", 0, "UIntP", &_origFgLockTimeout, "UInt", 0)
     DllCall("SystemParametersInfo", "UInt", 0x2001, "UInt", 0, "Ptr", 0, "UInt", 0)
+    OnExit(_RestoreFgLockTimeout)
 
     SplitPath(CHROMIUM_EXE, &exeName)
     _chromiumExe := exeName
