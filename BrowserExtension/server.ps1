@@ -84,12 +84,13 @@ try { while ($listener.IsListening) {
             # returns one line per matching tab: "windowId|tabId"
             $profile    = $req.QueryString["profile"]
             $urlPattern = $req.QueryString["url"]
+            $safePattern = [WildcardPattern]::Escape($urlPattern)
             $found = [System.Collections.Generic.List[PSCustomObject]]::new()
             $windows = $store[$profile]
             if ($windows) {
                 foreach ($w in $windows) {
                     foreach ($tab in $w.tabs) {
-                        if ($tab.url -like "*$urlPattern*") {
+                        if ($tab.url -like "*$safePattern*") {
                             $found.Add([PSCustomObject]@{
                                 line      = "$($w.id)|$($tab.id)"
                                 micActive = [bool]$tab.micActive
