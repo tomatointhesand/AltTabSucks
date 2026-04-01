@@ -154,9 +154,13 @@ try { while ($listener.IsListening) {
             }
 
         } elseif ($method -eq "GET" -and $path -eq "/switchtab") {
-            # extension polls this to dequeue a pending switch command
+            # extension polls this to dequeue a pending switch command.
+            # Reject simple-request GETs from browser page origins — they send no preflight
+            # so CORS alone doesn't block them from consuming queued switch commands.
             $profile = $req.QueryString["profile"]
-            if ($switchQueue.ContainsKey($profile) -and $null -ne $switchQueue[$profile]) {
+            if ($origin -and $origin -notlike "chrome-extension://*") {
+                $res.StatusCode = 204
+            } elseif ($switchQueue.ContainsKey($profile) -and $null -ne $switchQueue[$profile]) {
                 $cmd = $switchQueue[$profile]
                 $switchQueue[$profile] = $null
                 $out   = $cmd | ConvertTo-Json -Compress
