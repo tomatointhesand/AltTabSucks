@@ -4,6 +4,7 @@
 global _chromiumCache           := Map()
 global _focusTabLast            := Map()
 global _focusTabOpenedAt        := Map()
+global _cycleProfileOpenedAt    := Map()
 global _chromiumProfileDirCache := Map()
 global _chromiumExe             := ""
 global _origFgLockTimeout       := 0
@@ -149,8 +150,12 @@ CycleChromiumProfile(profileName) {
     }
 
     if matchingWindows.Length = 0 {
+        if _cycleProfileOpenedAt.Has(profileName) && (A_TickCount - _cycleProfileOpenedAt[profileName]) < 3000
+            return
         if !RunChromiumProfile(profileName)
             ShowTextGui("Profile not found", "Could not resolve a Chromium profile directory for '" . profileName . "'.", 600, 5)
+        else
+            _cycleProfileOpenedAt[profileName] := A_TickCount
         return
     }
 
