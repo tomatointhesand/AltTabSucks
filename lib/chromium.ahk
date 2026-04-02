@@ -240,12 +240,18 @@ FocusTab(profileName, urlPattern, openUrl) {
             return
         dbg .= "no matching tabs - attempting to open " . openUrl . "`n"
         profileTitles := GetProfileWindowTitles(profileName)
-        if profileTitles.Length = 0
+        _focusTabOpenedAt[cooldownKey] := A_TickCount
+        if profileTitles.Length = 0 {
+            ; No windows exist for this profile — launch the browser with both
+            ; the profile directory and the URL so it opens directly to the right tab.
+            profileDir := GetChromiumProfileDir(profileName)
+            if CHROMIUM_EXE != "" && profileDir != ""
+                Run('"' . CHROMIUM_EXE . '" --profile-directory="' . profileDir . '" "' . openUrl . '"')
             return
+        }
         hwnd := FindHwndByAnyTitle(profileTitles)
         if hwnd = 0
             return
-        _focusTabOpenedAt[cooldownKey] := A_TickCount
         WinActivate("ahk_id " hwnd)
         Run(openUrl)
         return
