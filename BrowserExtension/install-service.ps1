@@ -1,18 +1,17 @@
 <#
 .SYNOPSIS
-    Manages the AltTabSucks scheduled task (auto-start at logon, restarts on crash).
+    Installs or removes the full AltTabSucks setup: scheduled task + startup script.
 
 .DESCRIPTION
-    Registers server.ps1 as a Task Scheduler task that starts at logon in your
-    user session. This is preferable to a Windows service when the script lives
-    on a mapped drive (G:) that is only available after you log in.
-
-.PARAMETER Action
-    install   - register and immediately start the task (default)
-    uninstall - stop and remove the task
-    status    - show current task state
-    start     - start the task manually (if not already running)
-    stop      - stop the running task
+    install   - Registers server.ps1 as a Task Scheduler task (auto-start at logon,
+                restarts on crash) AND copies a startup script to shell:startup that
+                waits for the repo drive to become available then launches AltTabSucks.ahk.
+                Preferable to a Windows service because both the repo and the browser
+                profile live on a mapped drive (G:) that is only available after logon.
+    uninstall - Stops and removes the task; deletes the startup script.
+    status    - Shows current task state.
+    start     - Starts the task manually (if not already running).
+    stop      - Stops the task and kills any orphaned server.ps1 processes.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File install-service.ps1
@@ -36,8 +35,12 @@ if ($Action -in "install","uninstall") {
     }
 }
 
-$TaskName   = "AltTabSucks"
-$ScriptPath = Join-Path $PSScriptRoot "server.ps1"
+$TaskName      = "AltTabSucks"
+$ScriptPath    = Join-Path $PSScriptRoot "server.ps1"
+$RepoRoot      = Split-Path $PSScriptRoot -Parent
+$AhkScript     = Join-Path $RepoRoot "AltTabSucks.ahk"
+$StartupDir    = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+$StartupScript = Join-Path $StartupDir "AltTabSucks.bat"
 
 switch ($Action) {
 
@@ -46,6 +49,12 @@ switch ($Action) {
             Write-Error "server.ps1 not found at: $ScriptPath"
             exit 1
         }
+        if (-not (Test-Path $AhkScript)) {
+            Write-Error "AltTabSucks.ahk not found at: $AhkScript"
+            exit 1
+        }
+
+        # --- Scheduled task (server.ps1) ---
 
         $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         if ($existing) {
@@ -88,11 +97,11 @@ switch ($Action) {
         Start-ScheduledTask -TaskName $TaskName
 
         Start-Sleep -Seconds 2
-        $info = Get-ScheduledTask -TaskName $TaskName
+        $info  = Get-ScheduledTask -TaskName $TaskName
         $state = $info.State
         Write-Host "Task state: $state"
         if ($state -eq "Running") {
-            Write-Host "AltTabSucks is running."
+            Write-Host "AltTabSucks server is running."
             $tokenPath = Join-Path $PSScriptRoot "token.txt"
             if (Test-Path $tokenPath) {
                 $token = (Get-Content $tokenPath -Raw -Encoding UTF8).Trim()
@@ -104,6 +113,28 @@ switch ($Action) {
         } else {
             Write-Warning "Task did not reach Running state. Check Event Viewer > Task Scheduler."
         }
+
+        # --- Startup script (AltTabSucks.ahk) ---
+        # Polls every second for the repo directory to appear (mapped drive may not be
+        # available immediately at logon), then launches AltTabSucks.ahk.
+
+        $batContent = @"
+@echo off
+set "repoDir=$RepoRoot"
+
+:loop
+if exist "%repoDir%\" (
+    start "" "%repoDir%\AltTabSucks.ahk"
+    exit
+)
+timeout /t 1 /nobreak >nul
+goto :loop
+"@
+        Set-Content -Path $StartupScript -Value $batContent -Encoding ASCII
+        Write-Host "Startup script written to: $StartupScript"
+
+        Write-Host "Launching AltTabSucks.ahk..."
+        Start-Process $AhkScript
     }
 
     "uninstall" {
@@ -115,6 +146,13 @@ switch ($Action) {
             Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
             Write-Host "Task removed."
         }
+
+        if (Test-Path $StartupScript) {
+            Remove-Item $StartupScript -Force
+            Write-Host "Startup script removed: $StartupScript"
+        } else {
+            Write-Host "Startup script not found (already removed?)."
+        }
     }
 
     "status" {
@@ -123,11 +161,13 @@ switch ($Action) {
             Write-Host "'$TaskName' is not registered."
         } else {
             $info = Get-ScheduledTaskInfo -TaskName $TaskName
-            Write-Host "State     : $($task.State)"
-            Write-Host "Last run  : $($info.LastRunTime)"
+            Write-Host "State      : $($task.State)"
+            Write-Host "Last run   : $($info.LastRunTime)"
             Write-Host "Last result: $($info.LastTaskResult)"
-            Write-Host "Next run  : $($info.NextRunTime)"
+            Write-Host "Next run   : $($info.NextRunTime)"
         }
+        $startupExists = Test-Path $StartupScript
+        Write-Host "Startup script: $(if ($startupExists) { $StartupScript } else { 'not installed' })"
     }
 
     "start" {

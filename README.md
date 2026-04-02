@@ -18,13 +18,19 @@ AutoHotkey v2 automation scripts for Windows productivity — window cycling, Ch
 | `BrowserExtension/server.ps1` | PowerShell HTTP server on `localhost:9876` |
 | `BrowserExtension/background.js` | Chromium MV3 extension service worker |
 | `BrowserExtension/install-service.ps1` | Registers `server.ps1` as a Windows scheduled task |
-| `startServer.ps1` | Manually start the server (no task) |
+| `startServer.ps1` | Manually start the server (no scheduled task) |
 | `screenOff.ps1` | Turn off monitor |
 | `make-template.sh` | Regenerate sanitized templates from the gitignored source files |
 | `hooks/pre-commit` | Git pre-commit hook — auto-runs `make-template.sh` on commit |
 | `install-hooks.sh` | Install tracked hooks into `.git/hooks/` (run once after cloning) |
 
 ---
+
+## Requirements
+
+- Windows with [AutoHotkey v2](https://www.autohotkey.com/)
+- PowerShell 5+ (for AltTabSucks server)
+- A Chromium-based browser (Brave, Chrome, Edge, Vivaldi) for tab-switching features
 
 ## Quick Start
 
@@ -52,10 +58,14 @@ Run from any PowerShell prompt (triggers a UAC prompt):
 powershell -ExecutionPolicy Bypass -File ".\BrowserExtension\install-service.ps1"
 ```
 
-This registers a Task Scheduler task named **AltTabSucks** that:
-- Starts automatically at logon (runs hidden, no console window)
-- Restarts automatically if it crashes (up to 10 times, 1 minute apart)
-- Runs with elevated privileges so `HttpListener` can bind to port 9876
+This does two things:
+
+1. Registers a Task Scheduler task named **AltTabSucks** that runs `server.ps1`:
+   - Starts automatically at logon (runs hidden, no console window)
+   - Restarts automatically if it crashes (up to 10 times, 1 minute apart)
+   - Runs with elevated privileges so `HttpListener` can bind to port 9876
+
+2. Writes `AltTabSucks.bat` to your `shell:startup` folder. This script polls every second for the repo directory to appear (the mapped drive may not be ready immediately at logon), then launches `AltTabSucks.ahk` automatically.
 
 On first run the server generates a random auth token and saves it to `BrowserExtension\token.txt` (gitignored). The token is printed to the console — copy it for the next step. To retrieve it later:
 
@@ -84,7 +94,7 @@ Get-Content ".\BrowserExtension\token.txt"
 # Stop the task and kill any orphaned server.ps1 processes
 .\BrowserExtension\install-service.ps1 -Action stop
 
-# Remove the task entirely
+# Remove the task and startup script
 .\BrowserExtension\install-service.ps1 -Action uninstall
 ```
 
@@ -178,11 +188,3 @@ The port may be held by an orphaned process from a previous manual run:
 .\BrowserExtension\install-service.ps1 -Action stop
 .\BrowserExtension\install-service.ps1 -Action start
 ```
-
----
-
-## Requirements
-
-- Windows with [AutoHotkey v2](https://www.autohotkey.com/)
-- PowerShell 5+ (for AltTabSucks server)
-- A Chromium-based browser (Brave, Chrome, Edge, Vivaldi) for tab-switching features
