@@ -14,6 +14,16 @@ sanitize_paths() {
     -e 's|"\\[A-Za-z][^"\\]*\\[^"]*"|"C:\\YOUR\\PATH"|g'
 }
 
+# Same patterns but skipping AHK comment lines (leading ;).
+# Used for config.ahk where example paths in comments must be preserved.
+sanitize_paths_skip_comments() {
+  sed \
+    -e '/^[[:space:]]*;/!s|"https\?://\(localhost\|127\.0\.0\.1\)[^"]*"|\0|g' \
+    -e '/^[[:space:]]*;/!s|"https\?://[^"]*"|"https://YOUR_URL"|g' \
+    -e '/^[[:space:]]*;/!s|"[A-Za-z]:\\[^"]*"|"C:\\YOUR\\PATH"|g' \
+    -e '/^[[:space:]]*;/!s|"\\[A-Za-z][^"\\]*\\[^"]*"|"C:\\YOUR\\PATH"|g'
+}
+
 # app-hotkeys.ahk → app-hotkeys.template.ahk
 sanitize_paths < "$root/app-hotkeys.ahk" \
   | sed \
@@ -23,6 +33,7 @@ sanitize_paths < "$root/app-hotkeys.ahk" \
   > "$root/app-hotkeys.template.ahk"
 echo "Written: $root/app-hotkeys.template.ahk"
 
-# config.ahk → config.template.ahk (only path sanitization needed)
-sanitize_paths < "$root/config.ahk" > "$root/config.template.ahk"
+# config.ahk → config.template.ahk
+# Uses comment-aware sanitizer to preserve example paths in ; comment lines.
+sanitize_paths_skip_comments < "$root/config.ahk" > "$root/config.template.ahk"
 echo "Written: $root/config.template.ahk"
