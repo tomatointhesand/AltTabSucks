@@ -3,7 +3,7 @@
     Installs or removes the full AltTabSucks setup: scheduled task + startup script.
 
 .DESCRIPTION
-    install   - Registers server.ps1 as a Task Scheduler task (auto-start at logon,
+    install   - Registers AltTabSucksServer.ps1 as a Task Scheduler task (auto-start at logon,
                 restarts on crash) AND copies a startup script to shell:startup that
                 waits for the repo drive to become available then launches AltTabSucks.ahk.
                 Preferable to a Windows service because both the repo and the browser
@@ -11,7 +11,7 @@
     uninstall - Stops and removes the task; deletes the startup script.
     status    - Shows current task state.
     start     - Starts the task manually (if not already running).
-    stop      - Stops the task and kills any orphaned server.ps1 processes.
+    stop      - Stops the task and kills any orphaned AltTabSucksServer.ps1 processes.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File install-service.ps1
@@ -36,8 +36,8 @@ if ($Action -in "install","uninstall") {
 }
 
 $TaskName      = "AltTabSucks"
-$ScriptPath    = Join-Path $PSScriptRoot "server.ps1"
-$RepoRoot      = Split-Path $PSScriptRoot -Parent
+$ScriptPath    = Join-Path $PSScriptRoot "AltTabSucksServer.ps1"
+$RepoRoot      = $PSScriptRoot
 $AhkScript     = Join-Path $RepoRoot "AltTabSucks.ahk"
 $StartupDir    = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $StartupScript = Join-Path $StartupDir "AltTabSucks.bat"
@@ -46,7 +46,7 @@ switch ($Action) {
 
     "install" {
         if (-not (Test-Path $ScriptPath)) {
-            Write-Error "server.ps1 not found at: $ScriptPath"
+            Write-Error "AltTabSucksServer.ps1 not found at: $ScriptPath"
             exit 1
         }
         if (-not (Test-Path $AhkScript)) {
@@ -54,13 +54,24 @@ switch ($Action) {
             exit 1
         }
 
-        # --- Scheduled task (server.ps1) ---
+        # --- Stop any existing task and orphaned processes first ---
+        # Ensures the port is free before registering the new task, regardless of
+        # whether the previous AltTabSucksServer.ps1 lived in a different directory.
 
         $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         if ($existing) {
-            Write-Host "Removing existing '$TaskName' task..."
+            Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
             Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+            Write-Host "Removed existing '$TaskName' task."
         }
+        $orphans = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
+                   Where-Object { $_.CommandLine -like "*AltTabSucksServer.ps1*" }
+        foreach ($proc in $orphans) {
+            Stop-Process -Id $proc.ProcessId -Force
+            Write-Host "Killed orphaned AltTabSucksServer.ps1 process (PID $($proc.ProcessId))."
+        }
+
+        # --- Scheduled task (AltTabSucksServer.ps1) ---
 
         $taskAction = New-ScheduledTaskAction `
             -Execute "powershell.exe" `
@@ -195,10 +206,10 @@ goto :loop
         # Kill any orphaned PowerShell processes still holding the port
         # (e.g. from a manual startServer.ps1 run alongside the scheduled task).
         $orphans = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
-                   Where-Object { $_.CommandLine -like "*server.ps1*" }
+                   Where-Object { $_.CommandLine -like "*AltTabSucksServer.ps1*" }
         foreach ($proc in $orphans) {
             Stop-Process -Id $proc.ProcessId -Force
-            Write-Host "Killed orphaned server.ps1 process (PID $($proc.ProcessId))."
+            Write-Host "Killed orphaned AltTabSucksServer.ps1 process (PID $($proc.ProcessId))."
         }
     }
 }

@@ -72,7 +72,7 @@ _InitChromiumState() {
     DllCall("SystemParametersInfo", "UInt", 0x2001, "UInt", 0, "Ptr", 0, "UInt", 0)
     OnExit(_RestoreFgLockTimeout)
 
-    tokenPath := A_ScriptDir . "\BrowserExtension\token.txt"
+    tokenPath := A_ScriptDir . "\token.txt"
     if FileExist(tokenPath)
         _serverToken := Trim(FileRead(tokenPath, "UTF-8"))
 

@@ -1,1 +1,1 @@
-powershell -NoExit -File ".\BrowserExtension\server.ps1"
+powershell -NoExit -File ".\AltTabSucksServer.ps1"

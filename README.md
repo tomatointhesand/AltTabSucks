@@ -4,32 +4,37 @@ AutoHotkey v2 automation scripts for Windows productivity — window cycling, Ch
 
 ## Components
 
-| Path | Purpose |
-|---|---|
-| `AltTabSucks.ahk` | Entry point — self-elevates and includes all libs |
-| `lib/utils.ahk` | Window management (`ManageAppWindows`, `ShowTextGui`) |
-| `lib/config.ahk` | Machine-local config: `CHROMIUM_EXE`, `CHROMIUM_USERDATA` (**gitignored**, see `config.template.ahk`) |
-| `lib/config.template.ahk` | Sanitized config template, tracked in git |
-| `lib/chromium.ahk` | Chromium profile cycling + tab focus via AltTabSucks |
-| `lib/toast.ahk` | Visual feedback overlays |
-| `lib/star-citizen.ahk` | Star Citizen–scoped hotkeys |
-| `lib/app-hotkeys.ahk` | General app/browser hotkeys (**gitignored** — contains real paths/URLs) |
-| `lib/app-hotkeys.template.ahk` | Sanitized version of above, tracked in git |
-| `BrowserExtension/server.ps1` | PowerShell HTTP server on `localhost:9876` |
-| `BrowserExtension/background.js` | Chromium MV3 extension service worker |
-| `BrowserExtension/install-service.ps1` | Full install: scheduled task + startup script + immediate launch |
-| `startServer.ps1` | Manually start the server (no scheduled task) |
-| `screenOff.ps1` | Turn off monitor |
-| `make-template.sh` | Regenerate sanitized templates from the gitignored source files |
-| `hooks/pre-commit` | Git pre-commit hook — auto-runs `make-template.sh` on commit |
-| `install-hooks.sh` | Install tracked hooks into `.git/hooks/` (run once after cloning) |
+
+| Path                                   | Purpose                                                                                               |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `AltTabSucks.ahk`                      | Entry point — self-elevates and includes all libs                                                     |
+| `lib/utils.ahk`                        | Window management (`ManageAppWindows`, `ShowTextGui`)                                                 |
+| `lib/config.ahk`                       | Machine-local config: `CHROMIUM_EXE`, `CHROMIUM_USERDATA` (**gitignored**, see `config.template.ahk`) |
+| `lib/config.template.ahk`              | Sanitized config template, tracked in git                                                             |
+| `lib/chromium.ahk`                     | Chromium profile cycling + tab focus via AltTabSucks                                                  |
+| `lib/toast.ahk`                        | Visual feedback overlays                                                                              |
+| `lib/star-citizen.ahk`                 | Star Citizen–scoped hotkeys                                                                           |
+| `lib/app-hotkeys.ahk`                  | General app/browser hotkeys (**gitignored** — contains real paths/URLs)                               |
+| `lib/app-hotkeys.template.ahk`         | Sanitized version of above, tracked in git                                                            |
+| `AltTabSucksServer.ps1`                           | PowerShell HTTP server on `localhost:9876`                                                            |
+| `install-service.ps1`                  | Full install: scheduled task + startup script + immediate launch                                      |
+| `startServer.ps1`                      | Manually start the server (no scheduled task)                                                         |
+| `BrowserExtension/background.js`       | Chromium MV3 extension service worker                                                                 |
+| `screenOff.ps1`                        | Turn off monitor                                                                                      |
+| `make-template.sh`                     | Regenerate sanitized templates from the gitignored source files                                       |
+| `hooks/pre-commit`                     | Git pre-commit hook — auto-runs `make-template.sh` on commit                                          |
+| `install-hooks.sh`                     | Install tracked hooks into `.git/hooks/` (run once after cloning)                                     |
+
 
 ---
 
 ## Requirements
 
 - Windows with [AutoHotkey v2](https://www.autohotkey.com/)
-- PowerShell 5+ (for AltTabSucks server)
+- PowerShell 7.6+ (for AltTabSucks server):
+  ```powershell
+  winget install Microsoft.PowerShell
+  ```
 - A Chromium-based browser (Brave, Chrome, Edge, Vivaldi) for tab-switching features
 
 ## Quick Start
@@ -45,27 +50,25 @@ global CHROMIUM_USERDATA := "C:\Users\YourName\AppData\Local\BraveSoftware\Brave
 
 ### 2. Run the installer
 
-Run from any PowerShell prompt (triggers a UAC prompt):
+Run from any PowerShell 7.6+ prompt (triggers a UAC prompt):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ".\BrowserExtension\install-service.ps1"
+.\install-service.ps1 -Action install
 ```
 
 This does three things:
 
-1. Registers a Task Scheduler task named **AltTabSucks** that runs `server.ps1`:
-   - Starts automatically at logon (runs hidden, no console window)
-   - Restarts automatically if it crashes (up to 10 times, 1 minute apart)
-   - Runs with elevated privileges so `HttpListener` can bind to port 9876
-
+1. Registers a Task Scheduler task named **AltTabSucks** that runs `AltTabSucksServer.ps1`:
+  - Starts automatically at logon (runs hidden, no console window)
+  - Restarts automatically if it crashes (up to 10 times, 1 minute apart)
+  - Runs with elevated privileges so `HttpListener` can bind to port 9876
 2. Writes `AltTabSucks.bat` to your `shell:startup` folder, which polls every second for the repo directory (handles mapped drive delay at logon) then launches `AltTabSucks.ahk` automatically on future logons.
-
 3. Launches `AltTabSucks.ahk` immediately so the current session is live without a logon cycle.
 
-On first run the server generates a random auth token and saves it to `BrowserExtension\token.txt` (gitignored). The token is printed to the console — copy it for the next step. To retrieve it later:
+On first run the server generates a random auth token and saves it to `token.txt` (gitignored). The token is printed to the console — copy it for the next step. To retrieve it later:
 
 ```powershell
-Get-Content ".\BrowserExtension\token.txt"
+Get-Content ".\token.txt"
 ```
 
 ### 3. Load the browser extension
@@ -83,16 +86,16 @@ After the first install, everything starts automatically at logon. To reload the
 
 ```powershell
 # Check current state (Running / Ready / Disabled)
-.\BrowserExtension\install-service.ps1 -Action status
+.\install-service.ps1 -Action status
 
 # Start manually (if stopped)
-.\BrowserExtension\install-service.ps1 -Action start
+.\install-service.ps1 -Action start
 
-# Stop the task and kill any orphaned server.ps1 processes
-.\BrowserExtension\install-service.ps1 -Action stop
+# Stop the task and kill any orphaned AltTabSucksServer.ps1 processes
+.\install-service.ps1 -Action stop
 
 # Remove the task and startup script
-.\BrowserExtension\install-service.ps1 -Action uninstall
+.\install-service.ps1 -Action uninstall
 ```
 
 You can also manage it in **Task Scheduler** (`taskschd.msc`) under **Task Scheduler Library > AltTabSucks**.
@@ -100,20 +103,22 @@ You can also manage it in **Task Scheduler** (`taskschd.msc`) under **Task Sched
 To run the server manually without a task:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ".\BrowserExtension\server.ps1"
+.\AltTabSucksServer.ps1
 ```
 
 ---
 
 ## Hotkey Conventions
 
-| Modifier | Meaning |
-|---|---|
-| `^` | Ctrl |
-| `!` | Alt |
-| `+` | Shift |
-| `#` | Win |
-| `~` | Pass-through |
+
+| Modifier | Meaning      |
+| -------- | ------------ |
+| `^`      | Ctrl         |
+| `!`      | Alt          |
+| `+`      | Shift        |
+| `#`      | Win          |
+| `~`      | Pass-through |
+
 
 General hotkeys use `Ctrl+Alt+Shift+<key>`. App-scoped hotkeys are wrapped in `#HotIf WinActive(...)`.
 
@@ -153,10 +158,10 @@ Look for errors referencing the AltTabSucks task.
 
 **Port 9876 already in use**
 
-Another instance of `server.ps1` is running. Stop it:
+Another instance of `AltTabSucksServer.ps1` is running. Stop it:
 
 ```powershell
-.\BrowserExtension\install-service.ps1 -Action stop
+.\install-service.ps1 -Action stop
 # or find the PID manually:
 netstat -ano | findstr :9876
 # then: taskkill /PID <pid> /F
@@ -164,7 +169,7 @@ netstat -ano | findstr :9876
 
 **Extension shows "server offline"**
 
-- Confirm the task is running: `.\BrowserExtension\install-service.ps1 -Action status`
+- Confirm the task is running: `.\install-service.ps1 -Action status`
 - Check the extension Options page has the correct profile name set
 
 **Extension shows "server: error (403)"**
@@ -172,7 +177,7 @@ netstat -ano | findstr :9876
 The auth token in the extension Options doesn't match `token.txt`. Retrieve the correct token:
 
 ```powershell
-Get-Content ".\BrowserExtension\token.txt"
+Get-Content ".\token.txt"
 ```
 
 Paste it into the extension **Options** page and save.
@@ -182,6 +187,7 @@ Paste it into the extension **Options** page and save.
 The port may be held by an orphaned process from a previous manual run:
 
 ```powershell
-.\BrowserExtension\install-service.ps1 -Action stop
-.\BrowserExtension\install-service.ps1 -Action start
+.\install-service.ps1 -Action stop
+.\install-service.ps1 -Action start
 ```
+
