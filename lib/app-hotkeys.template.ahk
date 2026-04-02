@@ -1,6 +1,6 @@
 ; app-hotkeys.ahk - General application hotkeys (non-Star Citizen)
 
-; --- Brave tab focus (dab profile) ---
+; --- Brave tab focus (profile 1) ---
 ^!+m:: FocusTab("YOUR_BROWSER_PROFILE", "google.com/maps",     "https://YOUR_URL")
 ^!+v:: FocusTab("YOUR_BROWSER_PROFILE", "chat.google.com",     "https://YOUR_URL")
 ^!+g:: FocusTab("YOUR_BROWSER_PROFILE", "mail.google.com",     "https://YOUR_URL")
@@ -8,7 +8,7 @@
 ^!+r:: FocusTab("YOUR_BROWSER_PROFILE", "reddit.com",          "https://YOUR_URL")
 ^!+x:: FocusTab("YOUR_BROWSER_PROFILE", "messages.google.com", "https://YOUR_URL")
 
-; --- Brave tab focus (zb profile) ---
+; --- Brave tab focus (profile 2) ---
 ^!+o:: FocusTab("YOUR_BROWSER_PROFILE", "outlook.cloud.microsoft", "https://YOUR_URL")
 ^!+u:: FocusTab("YOUR_BROWSER_PROFILE", "teams.microsoft.com",     "https://YOUR_URL")
 ^!+s:: FocusTab("YOUR_BROWSER_PROFILE", "app.slack.com",           "https://YOUR_URL")
