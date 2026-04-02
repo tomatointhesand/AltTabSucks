@@ -179,6 +179,13 @@ goto :loop
         }
         $startupExists = Test-Path $StartupScript
         Write-Host "Startup script: $(if ($startupExists) { $StartupScript } else { 'not installed' })"
+
+        Write-Host ""
+        Write-Host "Running AltTabSucksServer.ps1 processes:"
+        $procs = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
+                 Where-Object { $_.CommandLine -like "*AltTabSucksServer.ps1*" } |
+                 Select-Object ProcessId, CommandLine
+        if ($procs) { $procs | Format-Table -AutoSize } else { Write-Host "  (none)" }
     }
 
     "start" {
