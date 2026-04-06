@@ -7,6 +7,10 @@
 ^!+y:: FocusTab("YOUR_BROWSER_PROFILE", "youtube.com",         "https://YOUR_URL")
 ^!+r:: FocusTab("YOUR_BROWSER_PROFILE", "reddit.com",          "https://YOUR_URL")
 ^!+x:: FocusTab("YOUR_BROWSER_PROFILE", "messages.google.com", "https://YOUR_URL")
+^!+k:: FocusTab("YOUR_BROWSER_PROFILE", "keep.google.com", "https://YOUR_URL")
+^!#g:: FocusTab("YOUR_BROWSER_PROFILE", "gemini.google.com", "https://YOUR_URL")
+^!#c:: FocusTab("YOUR_BROWSER_PROFILE", "claude.ai", "https://YOUR_URL")
+^!+p:: FocusTab("YOUR_BROWSER_PROFILE", "ebay.com", "https://YOUR_URL")
 
 ; --- Brave tab focus (profile 2) ---
 ^!+o:: FocusTab("YOUR_BROWSER_PROFILE", "outlook.cloud.microsoft", "https://YOUR_URL")

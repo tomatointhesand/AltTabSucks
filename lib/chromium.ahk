@@ -139,6 +139,28 @@ _AutoConfigIfNeeded() {
     ShowSetupToast(name, exePath, userDataPath)
 }
 
+; Pushes the profile display-name list to the server so the extension Options page can
+; populate a dropdown without the user having to type. Called with a short delay at startup
+; to give the server time to finish initialising.
+_PostProfilesToServer() {
+    global _chromiumProfileDirCache, _serverToken
+    if _chromiumProfileDirCache.Count = 0
+        return
+    parts := ""
+    for displayName in _chromiumProfileDirCache {
+        escaped := StrReplace(StrReplace(displayName, "\", "\\"), '"', '\"')
+        parts .= (parts ? "," : "") . '"' . escaped . '"'
+    }
+    try {
+        http := ComObject("WinHttp.WinHttpRequest.5.1")
+        http.Open("POST", "http://localhost:9876/profiles", false)
+        http.SetRequestHeader("Content-Type", "application/json")
+        http.SetRequestHeader("X-AltTabSucks-Token", _serverToken)
+        http.Send("[" . parts . "]")
+    }
+    ; Silently ignore — server may not be running yet
+}
+
 ; One-time startup: derive exe filename from CHROMIUM_EXE and pre-populate profile dir cache
 ; from the browser's Local State. CHROMIUM_EXE and CHROMIUM_USERDATA are set in config.ahk.
 ; Restores the foreground-lock timeout saved at startup. Called by OnExit so other
@@ -184,6 +206,8 @@ _InitChromiumState() {
         }
         pos := dm.Pos + 1
     }
+    ; Push profile list to the server with a short delay so the server has time to start.
+    SetTimer(_PostProfilesToServer, -2000)
 }
 _InitChromiumState()
 

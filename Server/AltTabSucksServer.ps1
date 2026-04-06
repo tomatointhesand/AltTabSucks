@@ -33,6 +33,9 @@ $store = @{}
 # pending tab-switch commands keyed by profile name
 $switchQueue = @{}
 
+# profile display names pushed by AHK at startup: ["Default", "Work", ...]
+$profileList = @()
+
 try { while ($listener.IsListening) {
     try {
         $async = $listener.BeginGetContext($null, $null)
@@ -73,6 +76,26 @@ try { while ($listener.IsListening) {
 
         if ($method -eq "OPTIONS") {
             $res.StatusCode = 204
+
+        } elseif ($method -eq "POST" -and $path -eq "/profiles") {
+            # AHK pushes the browser's profile display-name list at startup
+            if ($req.ContentLength64 -gt 4KB) {
+                $res.StatusCode = 413
+            } else {
+                $reader  = [System.IO.StreamReader]::new($req.InputStream, [System.Text.Encoding]::UTF8)
+                $body    = $reader.ReadToEnd()
+                $reader.Close()
+                $script:profileList = $body | ConvertFrom-Json
+                $res.StatusCode = 204
+            }
+
+        } elseif ($method -eq "GET" -and $path -eq "/profiles") {
+            # Extension Options page fetches this to populate the profile dropdown
+            $out   = $profileList | ConvertTo-Json -Compress
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($out)
+            $res.ContentType     = "application/json; charset=utf-8"
+            $res.ContentLength64 = $bytes.Length
+            $res.OutputStream.Write($bytes, 0, $bytes.Length)
 
         } elseif ($method -eq "POST" -and $path -eq "/tabs") {
             if ($req.ContentLength64 -gt 1MB) {

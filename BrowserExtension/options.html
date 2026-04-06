@@ -5,19 +5,27 @@
   <style>
     body { font-family: monospace; font-size: 13px; padding: 16px; max-width: 360px; }
     label { display: block; margin-bottom: 6px; }
+    .input-row { display: flex; gap: 6px; }
+    .input-row input { flex: 1; min-width: 0; }
     input { width: 100%; box-sizing: border-box; padding: 4px; font-family: monospace; }
-    button { margin-top: 10px; padding: 4px 12px; }
+    button { padding: 4px 12px; font-family: monospace; }
+    #fetch-profiles { padding: 4px 8px; }
+    #save { margin-top: 10px; }
     #status { margin-top: 8px; color: green; min-height: 1em; }
   </style>
 </head>
 <body>
   <h2>AltTabSucks Options</h2>
   <label>
-    Profile label (must be unique per browser profile)
-    <input id="profile-name" type="text" placeholder="e.g. Default, Work, Personal">
+    Profile name
+    <div class="input-row">
+      <input id="profile-name" list="profiles-list" placeholder="e.g. Default, Work, Personal">
+      <button id="fetch-profiles" title="Fetch profiles from AltTabSucks server">↺</button>
+    </div>
+    <datalist id="profiles-list"></datalist>
   </label>
   <label>
-    Auth token (shown by install-service.ps1 or in token.txt)
+    Auth token (shown by installer.ps1 or in Server\token.txt)
     <input id="auth-token" type="text" placeholder="paste token here">
   </label>
   <button id="save">Save</button>

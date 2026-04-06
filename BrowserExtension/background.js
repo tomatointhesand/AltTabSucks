@@ -21,7 +21,9 @@ async function postTabs() {
           title: t.title,
           active: t.active,
           pinned: t.pinned,
-          index: t.index
+          index: t.index,
+          audible: t.audible ?? false,
+          micActive: false  // Chrome API doesn't expose microphone usage; audible is used as proxy
         }))
     }))
   };
