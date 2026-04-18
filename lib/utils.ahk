@@ -120,7 +120,7 @@ _HotkeyDesc(action, profiles) {
             patterns .= (patterns ? ", " : "") . RegExReplace(all[A_Index], "^https?://")
         return (patterns ? patterns . "  →  " : "") . openUrl
     }
-    if InStr(action, "ManageAppWindows(") {
+    if InStr(action, "ManageAppWindows(") || InStr(action, "ShowTextGui(") {
         if RegExMatch(action, '"([^"]+)"', &m)
             return m[1]
     }
