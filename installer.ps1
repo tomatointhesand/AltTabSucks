@@ -151,6 +151,13 @@ start "" "$RepoRoot\AltTabSucks.ahk"
             Write-Host "Created lib\app-hotkeys.ahk from template — edit it to add your hotkeys."
         }
 
+        # Disable the Ctrl+Alt+Win+Shift shortcut that opens Copilot/Office by redirecting
+        # the ms-officeapp protocol handler to a no-op (rundll32 with no arguments).
+        $regPath = "HKCU:\Software\Classes\ms-officeapp\Shell\Open\Command"
+        if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+        Set-ItemProperty -Path $regPath -Name "(default)" -Value "rundll32"
+        Write-Host "Disabled Copilot/Office Ctrl+Alt+Win+Shift shortcut."
+
         Write-Host "Launching AltTabSucks.ahk..."
         Start-Process $AhkScript
     }
