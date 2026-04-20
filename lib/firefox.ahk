@@ -195,7 +195,30 @@ FocusTabFirefox(profileName, urlPatterns, openUrl) {
     for p in cleanPatterns
         patternKey .= (patternKey ? "|" : "") . p
 
-    winFilter          := "ahk_class MozillaWindowClass ahk_exe firefox.exe"
+    winFilter := "ahk_class MozillaWindowClass ahk_exe firefox.exe"
+
+    ; Fast path: Firefox not running — skip server queries (stale data would produce
+    ; a /switchtab POST that nobody picks up) and launch directly.
+    firefoxRunning := false
+    for _hwnd in WinGetList(winFilter) {
+        if !(WinGetStyle("ahk_id " _hwnd) & 0x10000000)
+            continue
+        if DllCall("GetWindow", "Ptr", _hwnd, "UInt", 4, "Ptr")
+            continue
+        if WinGetTitle("ahk_id " _hwnd) = ""
+            continue
+        firefoxRunning := true
+        break
+    }
+    if !firefoxRunning {
+        cooldownKey := profileName . ":" . patternKey
+        if _focusTabOpenedAtFF.Has(cooldownKey) && (A_TickCount - _focusTabOpenedAtFF[cooldownKey]) < 2000
+            return
+        _focusTabOpenedAtFF[cooldownKey] := A_TickCount
+        Run('"' . FIREFOX_EXE . '" -P "' . profileName . '" "' . openUrl . '"')
+        return
+    }
+
     arrivedFromOutside := !WinActive(winFilter)
     if arrivedFromOutside {
         for _hwnd in WinGetList(winFilter) {
