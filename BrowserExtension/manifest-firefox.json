@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AltTabSucks",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Hotkey based browser tab and application focus control management suite",
   "permissions": [
     "tabs",
