@@ -187,6 +187,12 @@ _PromptBrowserChoice() {
             FileDelete(configPath)
         FileAppend(content, configPath, "UTF-8")
     }
+
+    if defaultExe = "" || StrLower(b.exe) != StrLower(defaultExe) {
+        if MsgBox("Open Windows Default Apps to set " . b.name . " as your default browser?",
+                  "Set default browser?", "YesNo Icon?") = "Yes"
+            Run("ms-settings:defaultapps")
+    }
 }
 
 ; Pushes the profile display-name list to the server so the extension Options page can
