@@ -53,7 +53,7 @@ Get-Content ".\Server\token.txt"
             
 After the first install, everything starts automatically at logon. To reload the AHK script manually: `Ctrl+Alt+Shift+'`.
 
-### 4. Edit app-hotkeys.ahk
+### 4. Edit lib\app-hotkeys.ahk
 
 1. Set the P1 var value to the same profile name as set in the extension options. P2 can be set for a second browser profile if you use one.
    * Note: Depending how you have your applications installed, some of the included app paths included may need editing.
