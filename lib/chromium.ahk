@@ -127,11 +127,8 @@ _GetHttpsHandlerExe() {
             }
         }
     }
-    try {
-        exe := _ParseExeFromCmd(RegRead("HKLM\SOFTWARE\Classes\https\shell\open\command"))
-        if exe != ""
-            return exe
-    }
+    ; Do NOT fall back to the machine-level HKLM\SOFTWARE\Classes\https key — it often
+    ; retains a stale entry from a previously-default browser and produces false matches.
     return ""
 }
 
