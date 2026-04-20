@@ -464,8 +464,7 @@ FocusTab(profileName, urlPatterns, openUrl) {
     tabId    := Integer(SubStr(line, pipe + 1))
 
     ; POST switch command - extension picks it up on its next poll and handles focus natively
-    escapedProfile := StrReplace(StrReplace(profileName, "\", "\\"), '"', '\"')
-    postBody := '{"profile":"' . escapedProfile . '","windowId":' . windowId . ',"tabId":' . tabId . '}'
+    postBody := '{"profile":"' . JsonEscape(profileName) . '","windowId":' . windowId . ',"tabId":' . tabId . '}'
     http2 := ComObject("WinHttp.WinHttpRequest.5.1")
     http2.Open("POST", "http://localhost:9876/switchtab", false)
     http2.SetRequestHeader("Content-Type", "application/json")

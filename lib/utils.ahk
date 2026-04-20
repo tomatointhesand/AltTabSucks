@@ -1,5 +1,15 @@
 ; utils.ahk - General-purpose UI helpers and window management
 
+; Escapes a string for safe embedding in a JSON double-quoted value.
+JsonEscape(s) {
+    s := StrReplace(s, "\",  "\\")
+    s := StrReplace(s, '"',  '\"')
+    s := StrReplace(s, "`n", "\n")
+    s := StrReplace(s, "`r", "\r")
+    s := StrReplace(s, "`t", "\t")
+    return s
+}
+
 ShowTextGui(title, text, width := 700, rows := 20) {
     g := Gui("+Resize", title)
     editCtrl := g.Add("Edit", "r" rows " w" width " ReadOnly", text)

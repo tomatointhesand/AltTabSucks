@@ -79,7 +79,7 @@ try { while ($listener.IsListening) {
 
         } elseif ($method -eq "POST" -and $path -eq "/profiles") {
             # AHK pushes the browser's profile display-name list at startup
-            if ($req.ContentLength64 -gt 4KB) {
+            if ($req.ContentLength64 -lt 0 -or $req.ContentLength64 -gt 4KB) {
                 $res.StatusCode = 413
             } else {
                 $reader  = [System.IO.StreamReader]::new($req.InputStream, [System.Text.Encoding]::UTF8)
@@ -98,7 +98,7 @@ try { while ($listener.IsListening) {
             $res.OutputStream.Write($bytes, 0, $bytes.Length)
 
         } elseif ($method -eq "POST" -and $path -eq "/tabs") {
-            if ($req.ContentLength64 -gt 1MB) {
+            if ($req.ContentLength64 -lt 0 -or $req.ContentLength64 -gt 1MB) {
                 $res.StatusCode = 413
             } else {
                 $reader  = [System.IO.StreamReader]::new($req.InputStream, [System.Text.Encoding]::UTF8)
@@ -172,7 +172,7 @@ try { while ($listener.IsListening) {
 
         } elseif ($method -eq "POST" -and $path -eq "/switchtab") {
             # queue a tab-switch command for the extension to pick up
-            if ($req.ContentLength64 -gt 4KB) {
+            if ($req.ContentLength64 -lt 0 -or $req.ContentLength64 -gt 4KB) {
                 $res.StatusCode = 413
             } else {
                 $reader  = [System.IO.StreamReader]::new($req.InputStream, [System.Text.Encoding]::UTF8)

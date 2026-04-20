@@ -252,9 +252,7 @@ FocusTabFirefox(profileName, urlPatterns, openUrl) {
         }
         if hwnd != 0 {
             WinActivate("ahk_id " hwnd)
-            escapedProfile := StrReplace(StrReplace(profileName, "\", "\\"), '"', '\"')
-            escapedUrl     := StrReplace(StrReplace(openUrl, "\", "\\"), '"', '\"')
-            postBody := '{"profile":"' . escapedProfile . '","openUrl":"' . escapedUrl . '"}'
+            postBody := '{"profile":"' . JsonEscape(profileName) . '","openUrl":"' . JsonEscape(openUrl) . '"}'
             try {
                 http := ComObject("WinHttp.WinHttpRequest.5.1")
                 http.Open("POST", "http://localhost:9876/switchtab", false)
