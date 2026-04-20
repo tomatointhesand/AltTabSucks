@@ -215,7 +215,18 @@ FocusTabFirefox(profileName, urlPatterns, openUrl) {
         if _focusTabOpenedAtFF.Has(cooldownKey) && (A_TickCount - _focusTabOpenedAtFF[cooldownKey]) < 2000
             return
         _focusTabOpenedAtFF[cooldownKey] := A_TickCount
-        Run('"' . FIREFOX_EXE . '" -P "' . profileName . '" "' . openUrl . '"')
+        ; Clear stale server data, launch without URL so session restore runs cleanly,
+        ; then poll /findtab until a restored tab matches (reuses Chromium helper).
+        try {
+            httpDel := ComObject("WinHttp.WinHttpRequest.5.1")
+            httpDel.Open("DELETE", "http://localhost:9876/tabs?profile=" . profileName, false)
+            httpDel.SetRequestHeader("X-AltTabSucks-Token", _serverToken)
+            httpDel.Send()
+        }
+        Run('"' . FIREFOX_EXE . '" -P "' . profileName . '"')
+        _deadline := A_TickCount + 8000
+        _pats     := cleanPatterns
+        SetTimer(() => _WaitForTabOrOpen(profileName, _pats, openUrl, _deadline), -1000)
         return
     }
 
