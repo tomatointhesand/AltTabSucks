@@ -64,17 +64,21 @@ After the first install, everything starts automatically at logon. To reload the
 
 ---
 MORE INFO
-installer.ps1 does three things:
+
+`installer.ps1 -Action install` does four things:
 
 1. Registers a Task Scheduler task named **AltTabSucks** that runs `AltTabSucksServer.ps1`:
    - Starts automatically at logon (runs hidden, no console window)
    - Runs with elevated privileges so `HttpListener` can bind to port 9876
 2. Writes `AltTabSucks.bat` to your `shell:startup` folder, which waits for the repo directory (handles mapped drive delay at logon) to be available, then launches `AltTabSucks.ahk` automatically on future logons.
-3. Launches `AltTabSucks.ahk` immediately so the current session is live without a logon cycle.
----
-Browser auto-detection:
+3. Disables the **Ctrl+Alt+Win+Shift** shortcut that opens Copilot/Office by redirecting the `ms-officeapp` protocol handler to a no-op (`rundll32`).
+4. Launches `AltTabSucks.ahk` immediately so the current session is live without a logon cycle.
 
-* On first launch, AltTabSucks reads your system's default browser from the registry. If it's a supported Chromium browser (Brave, Chrome, Edge, Vivaldi, or Opera), it writes `lib/config.ahk` automatically and shows a brief toast confirming the browser name and paths used. If auto-detection fails (browser not set as the system default, or unsupported), you'll see a dialog — copy `lib/config.template.ahk` to `lib/config.ahk` and fill in the paths manually.
+---
+Browser selection:
+
+On first launch (or after reinstalling), AltTabSucks scans for installed browsers and presents a choice dialog. Supported browsers: **Brave, Chrome, Edge, Vivaldi, Opera, and Firefox**. After choosing, you will be offered the option to open Windows Default Apps to set it as your system default browser. The chosen browser and its paths are saved to `lib/config.ahk` (gitignored). To switch browsers later, re-run the installer — it deletes `lib/config.ahk` so the choice dialog reappears on next launch.
+
 ---
 
 ## Managing the server task

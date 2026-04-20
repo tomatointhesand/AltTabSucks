@@ -55,9 +55,6 @@ P2 := "Profile 1"
     return
 }
 
-; -- Disable hardcoded copilot shortcut
-^!#+::return
-
 ; Sleep screens
 ^!+Esc:: {
     psScript := psScript := A_ScriptDir "\lib\screenOff.ps1"
