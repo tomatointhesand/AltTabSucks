@@ -108,29 +108,6 @@ _ParseExeFromCmd(cmd) {
     return ""
 }
 
-; Returns the exe path of the current https handler, trying:
-;   1. UserChoice ProgId → HKLM class command (the actual per-user default set by Windows Settings
-;      or a browser's "Set as default" flow that successfully passed the UserChoice hash check)
-;   2. HKLM machine-level command (fallback — often points to Edge on machines where Edge is
-;      installed, regardless of the user's chosen default, so we only use it if UserChoice fails)
-; Returns "" if neither resolves.
-_GetHttpsHandlerExe() {
-    try {
-        progId := RegRead("HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice", "ProgId")
-        ; Firefox registers its handler classes under HKCU; Chromium browsers use HKLM.
-        ; Check both so we correctly identify the current default regardless of browser family.
-        for regBase in ["HKCU\SOFTWARE\Classes", "HKLM\SOFTWARE\Classes"] {
-            try {
-                exe := _ParseExeFromCmd(RegRead(regBase . "\" . progId . "\shell\open\command"))
-                if exe != ""
-                    return exe
-            }
-        }
-    }
-    ; Do NOT fall back to the machine-level HKLM\SOFTWARE\Classes\https key — it often
-    ; retains a stale entry from a previously-default browser and produces false matches.
-    return ""
-}
 
 ; Called at startup when CHROMIUM_EXE is unset. Scans installed browsers, presents a
 ; blocking choice dialog, and writes the selection to lib/config.ahk.
@@ -149,16 +126,13 @@ _PromptBrowserChoice() {
         return
     }
 
-    ; Mark whichever installed browser is the current https handler
-    defaultExe := _GetHttpsHandlerExe()
-    choices    := []
+    choices := []
     for b in installed
-        choices.Push({label: b.name . (defaultExe != "" && StrLower(b.exe) = StrLower(defaultExe) ? "  ★" : ""),
-                      detail: b.exe})
+        choices.Push({label: b.name, detail: b.exe})
 
     idx := ShowChoiceDialog(
         "Choose target browser",
-        "Select the browser AltTabSucks will control with hotkeys.`n★ = current https handler",
+        "Select the browser AltTabSucks will control with hotkeys.",
         choices)
 
     if idx = 0
@@ -191,11 +165,9 @@ _PromptBrowserChoice() {
         FileAppend(content, configPath, "UTF-8")
     }
 
-    if defaultExe = "" || StrLower(b.exe) != StrLower(defaultExe) {
-        if MsgBox("Open Windows Default Apps to set " . b.name . " as your default browser?",
-                  "Set default browser?", "YesNo Icon?") = "Yes"
-            Run("ms-settings:defaultapps")
-    }
+    if MsgBox("Open Windows Default Apps to set " . b.name . " as your default browser?",
+              "Set default browser?", "YesNo Icon?") = "Yes"
+        Run("ms-settings:defaultapps")
 }
 
 ; Pushes the profile display-name list to the server so the extension Options page can
