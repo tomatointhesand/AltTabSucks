@@ -191,7 +191,8 @@ _HotkeyDesc(funcName, action, profiles) {
 ; exePath      - path to launch when no windows exist; pass "" to do nothing
 ; mode         - "cycle"  : advance through all windows (visible then minimized),
 ;                           wrapping around; restores minimized windows as they
-;                           come up in rotation; 0 windows -> launch exePath
+;                           come up in rotation; 0 windows -> launch exePath;
+;                           1 window -> same behavior as "toggle"
 ;              - "toggle" : focus the app if it isn't active; minimize all its
 ;                           visible windows if one of them is currently active
 ;
@@ -249,6 +250,12 @@ ManageAppWindows(processName, exePath := "", mode := "cycle") {
             else if minimized.Length > 0
                 WinActivate("ahk_id " minimized[1])
         }
+        return
+    }
+
+    ; With only one window, cycle should behave exactly like toggle.
+    if mode = "cycle" && (visible.Length + minimized.Length = 1) {
+        ManageAppWindows(processName, exePath, "toggle")
         return
     }
 
