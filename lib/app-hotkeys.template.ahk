@@ -1,18 +1,23 @@
-; app-hotkeys.ahk - General application hotkeys
+; app-hotkeys.ahk - hotkey are assigned here.
 
-; Key notation: `^`=Ctrl, `!`=Alt, `+`=Shift, `#`=Win, `~`=pass-through
+; Key notation: `^`=Ctrl, `!`=Alt, `+`=Shift, `#`=Win
+; ^!+# = Ctrl+Alt+Shift+Win
+
 ;--- BEGIN SENSITIVE ---
 
 ;P1 := "Default"
+;P1 := "Default"
 P1 := "Default"
 P2 := "Profile 1"
-^!+s:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
+;P2 := "Profile 1"
 ^!+j:: FocusTab(P2, ["https://YOUR_URL","https://YOUR_URL","https://YOUR_URL","https://YOUR_URL"],  "https://YOUR_URL")
 ^!+b:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
 ^!+z:: FocusTab(P2, ["YOUR_URL"],             "https://YOUR_URL")
 ^!+r:: FocusTab(P1, ["YOUR_URL"],          "https://YOUR_URL")
 ^+#c:: FocusTab(P1, ["YOUR_URL"], "https://YOUR_URL")
-^!+d:: ManageAppWindows("YOUR_URL", EnvGet("USERPROFILE") "\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Discord Inc\Discord")
+OpenAppsFolder() {
+    Run("G:\My Drive\apps-drivers-saves-portable")
+}
 ;--- END SENSITIVE ---
 
 ; --- BEGIN COMMON ---
@@ -34,8 +39,8 @@ P2 := "Profile 1"
 ^+#y:: FocusTab(P1, ["music.youtube.com"], "https://music.youtube.com")
 
 ; --- Browser tab focus (profile 2) ---
-^!+o:: FocusTab(P2, ["outlook.cloud.microsoft"], "https://outlook.cloud.microsoft")
-^!+u:: FocusTab(P2, ["teams.microsoft.com"],     "https://teams.microsoft.com")
+; ^!+o:: FocusTab(P1, ["outlook.cloud.microsoft"], "https://outlook.cloud.microsoft")
+^!+u:: FocusTab(P1, ["teams.microsoft.com"],     "https://teams.microsoft.com")
 
 ; --- Brave window cycling --- (UNIVERSAL)
 ^!+i::  CycleChromiumProfile(P1)
@@ -44,17 +49,22 @@ P2 := "Profile 1"
 ; --- Utilities --- (UNIVERSAL)
 ; ^!+C:: ClipboardToSqlIn()
 ; ^!+h:: ClipboardCmToFtIn()
+^!+t:: UnixTimestampToClipboard()
 
 ; --- App window management --- (UNIVERSAL)
 ; REGULAR APPS
 ^!+n:: ManageAppWindows("notepad++.exe", "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\notepad++", "toggle")
-
-^!+e:: ManageAppWindows("code.exe", EnvGet("USERPROFILE") "\AppData\Local\Programs\Microsoft VS Code\Code.exe", "cycle")
+^!+d:: ManageAppWindows("discord.exe", EnvGet("USERPROFILE") "\AppData\Roaming\Microsoft\WinDdows\Start Menu\Programs\Discord Inc\Discord", "toggle")
+^!+e:: ManageAppWindows("code.exe", "C:\Program Files\Microsoft VS Code\Code.exe", "cycle")
+^!+s:: ManageAppWindows("slack.exe", EnvGet("USERPROFILE") "\AppData\Local\slack.exe", "cycle")
+;   CLASSIC OUTLOOK
+^!+o:: ManageAppWindows("outlook.exe", "C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE", "toggle")
 ; APP STORE APPS - use this ps1 cmd to find needed appId (replace "*Claude" with the app you need):
-; (New-Object -ComObject Shell.Application).NameSpace('shell:AppsFolder').Items() | Where-Object { $_.Name -like '*Claude*' } | Select-Object Name, Path, @{N='AppId'; E={$_.ExtendedProperty('System.AppUserModel.ID')}}
+;   (New-Object -ComObject Shell.Application).NameSpace('shell:AppsFolder').Items() | Where-Object { $_.Name -like '*Claude*' } | Select-Object Name, Path, @{N='AppId'; E={$_.ExtendedProperty('System.AppUserModel.ID')}}
 ^!+c:: ManageAppWindows("claude.exe", () => LaunchStoreApp("Claude_pzs8sxrjxfjjc!Claude"), "toggle")
-^!+w:: ManageAppWindows("Calculator.exe", () => LaunchStoreApp("Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"), "toggle")
-
+; ^!+u:: ManageAppWindows("ms-teams.exe", () => LaunchStoreApp("MSTeams_8wekyb3d8bbwe!MSTeams"), "cycle")
+;   NEW OUTLOOK
+; ^!+o:: ManageAppWindows("olk.exe", () => LaunchStoreApp("Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows"), "toggle")
 ; --- Folder shortcuts ---
 ^!+a::  OpenAppsFolder()
 ^+#d::  OpenDownloads()
@@ -69,10 +79,6 @@ P2 := "Profile 1"
 ^!+l:: ShowAltTabSucksDebug()
 
 ; ---- Local functions ----
-
-OpenAppsFolder() {
-    Run("G:\My Drive\apps-drivers-saves-portable")
-}
 
 OpenDownloads() {
     Run(EnvGet("USERPROFILE") "\Downloads")

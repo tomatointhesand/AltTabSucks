@@ -65,6 +65,13 @@ ClipboardCmToFtIn() {
     A_Clipboard := num_ft . "' " . Round(num_in, 1) . Chr(34) ; Chr(34) = double quote
 }
 
+; Returns the current time as a Unix timestamp and copies it to the clipboard.
+UnixTimestampToClipboard() {
+    ts := DateDiff(A_Now, "19700101000000", "Seconds")
+    A_Clipboard := ts
+    MsgBox(ts " has been copied to clipboard.")
+}
+
 ; Parses app-hotkeys.ahk and returns a formatted hotkey reference string grouped
 ; by called function. Section headers are the function name itself — no hardcoded
 ; category list. A hotkey appears only if its function has a _Desc* handler.
