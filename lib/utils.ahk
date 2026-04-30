@@ -72,6 +72,26 @@ UnixTimestampToClipboard() {
     MsgBox(ts " has been copied to clipboard.")
 }
 
+; Prompts for a Jira-style issue number and opens `prefix-<number>` in the browser.
+; prefix should end with the project key, e.g. "https://jira.example.com/browse/PROJ".
+OpenIssue(prefix) {
+    proj := SubStr(prefix, -2)
+    insults := ["POXED WOODLOUSE", "SCRUB-FACED CIVILIAN", "HIDEOUS SEABIRD", "BEEF-WITTED NINNY",
+        "DISAGREEABLE BILGE DWELLER", "SOGGY RODENT THIEF", "SCURRILOUS INSECT",
+        "INFAMOUS SCOUNDREL", "BANKRUPT SEA LIZARD", "FLEA RIDDEN LANDLUBBER",
+        "YELLOWBELLIED BARNACLE EATER", "FRESHWATER POND LARVAE", "LANKY BOTTOMSCRAPER",
+        "COWARDLY SEAGULL", "BLUBBERIN SQUID", "MILK HEADED BABOON", "TOOTHLESS OLD MAN",
+        "ILL BRED BILIOUS OX", "UNREDEEMABLE VILLIAN", "VILE FELLOW",
+        "THICK HEADED MISCREANT", "UNRELENTING PARASITE"]
+    insult := insults[Random(1, insults.Length)]
+    result := InputBox(
+        "AARGHGH! Enter ye olde " proj " issue number AND FIRE THE CANNONS YE " insult "!",
+        "Open " proj " Issue", "H150 T15")
+    if result.Result != "OK" || result.Value = ""
+        return
+    Run(prefix "-" result.Value)
+}
+
 ; Parses app-hotkeys.ahk and returns a formatted hotkey reference string grouped
 ; by called function. Section headers are the function name itself — no hardcoded
 ; category list. A hotkey appears only if its function has a _Desc* handler.
