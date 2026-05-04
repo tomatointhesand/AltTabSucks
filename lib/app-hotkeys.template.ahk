@@ -32,6 +32,7 @@ P2 := "Profile 1"
 ^!+y:: FocusTab(P1, ["youtube.com"],         "https://youtube.com")
 ^!+x:: FocusTab(P1, ["messages.google.com"], "https://messages.google.com")
 ^!+k:: FocusTab(P1, ["keep.google.com"], "https://keep.google.com")
+^+#k:: FocusTab(P1, ["calendar.google.com"], "https://calendar.google.com")
 ^+#g:: FocusTab(P1, ["gemini.google.com"], "https://gemini.google.com")
 ^!+p:: FocusTab(P1, ["ebay.com"], "https://ebay.com")
 ^+#y:: FocusTab(P1, ["music.youtube.com"], "https://music.youtube.com")
@@ -62,6 +63,7 @@ P2 := "Profile 1"
 ; --- Folder shortcuts ---
 ^!+a::  OpenAppsFolder()
 ^!+Down::  OpenDownloads()
+^+#d::  OpenDesktop()
 
 ; --- System ---
 ^!+Esc:: SleepScreens()
@@ -77,11 +79,12 @@ P2 := "Profile 1"
 OpenAppsFolder() {
     Run("G:\My Drive\apps-drivers-saves-portable")
 }
-
 OpenDownloads() {
     Run(EnvGet("USERPROFILE") "\Downloads")
 }
-
+OpenDesktop() {
+    Run(EnvGet("USERPROFILE") "\Desktop")
+}
 SleepScreens() {
     psScript := A_ScriptDir "\lib\screenOff.ps1"
     Run("powershell.exe -ExecutionPolicy Bypass -File `" " psScript "`"",, "Hide")

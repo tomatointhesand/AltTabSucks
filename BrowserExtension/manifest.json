@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "AltTabSucks",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "ATS is the alt-tab of the future: a keyboard shortcut based solution for app-specific window focus control, profile-aware URL-based browser tab focus control, and more. Supports Brave, Chrome and Firefox at the moment. Windows only for now.",
   "permissions": [
     "tabs",
     "windows",
-    "storage"
+    "storage",
+    "webNavigation"
   ],
   "icons": {
     "16": "icons/icon-16.png",

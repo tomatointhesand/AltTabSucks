@@ -16,6 +16,15 @@
     #save { margin-top: 10px; }
     #status { margin-top: 8px; color: green; min-height: 1em; }
     .hint { font-size: 11px; color: #888; margin-top: 3px; }
+    hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+    #redirects-list { margin-bottom: 6px; }
+    .redirect-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
+    .redirect-from { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .redirect-arrow { flex: none; color: #888; }
+    .redirect-to { flex: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .redirect-del { padding: 2px 6px; font-size: 11px; cursor: pointer; }
+    #redirect-add-row { display: flex; flex-direction: column; gap: 4px; }
+    #redirect-add { align-self: flex-start; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -34,6 +43,17 @@
   </label>
   <button id="save">Save</button>
   <div id="status"></div>
+
+  <hr>
+  <h3 style="margin: 0 0 10px;">URL Redirects</h3>
+  <div id="redirects-list"></div>
+  <div id="redirect-add-row">
+    <input id="redirect-from" type="text" placeholder="from: ace.com">
+    <input id="redirect-to"   type="text" placeholder="to: https://acehardware.com">
+    <button id="redirect-add">Add redirect</button>
+  </div>
+  <div class="hint">Matches <code>ace.com</code> and <code>www.ace.com</code>. "To" must be a full URL.</div>
+
   <script src="options.js"></script>
 </body>
 </html>

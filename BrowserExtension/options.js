@@ -74,6 +74,66 @@ document.getElementById('fetch-profiles').addEventListener('click', () => {
   fetchProfiles(token, saved);
 });
 
+// --- URL redirect rules ---
+
+function escHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderRedirects(rules) {
+  const list = document.getElementById('redirects-list');
+  list.innerHTML = '';
+  if (!rules.length) {
+    list.innerHTML = '<div style="color:#888;font-size:11px;margin-bottom:6px;">No redirects defined.</div>';
+    return;
+  }
+  for (let i = 0; i < rules.length; i++) {
+    const row = document.createElement('div');
+    row.className = 'redirect-row';
+    row.innerHTML = `
+      <span class="redirect-from" title="${escHtml(rules[i].from)}">${escHtml(rules[i].from)}</span>
+      <span class="redirect-arrow">→</span>
+      <span class="redirect-to" title="${escHtml(rules[i].to)}">${escHtml(rules[i].to)}</span>
+      <button class="redirect-del" data-idx="${i}" title="Remove">✕</button>`;
+    list.appendChild(row);
+  }
+  list.querySelectorAll('.redirect-del').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const { redirectRules = [] } = await chrome.storage.local.get('redirectRules');
+      redirectRules.splice(parseInt(btn.dataset.idx, 10), 1);
+      await chrome.storage.local.set({ redirectRules });
+      renderRedirects(redirectRules);
+    });
+  });
+}
+
+chrome.storage.local.get('redirectRules', ({ redirectRules = [] }) => renderRedirects(redirectRules));
+
+document.getElementById('redirect-add').addEventListener('click', async () => {
+  const fromInput = document.getElementById('redirect-from');
+  const toInput   = document.getElementById('redirect-to');
+  const from = fromInput.value.trim().toLowerCase()
+    .replace(/^https?:\/\//, '').replace(/\/$/, '');
+  const to = toInput.value.trim();
+  if (!from || !to) return;
+  if (!/^https?:\/\//i.test(to)) {
+    alert('"To" must start with http:// or https://');
+    return;
+  }
+  const { redirectRules = [] } = await chrome.storage.local.get('redirectRules');
+  if (redirectRules.some(r => r.from === from)) {
+    alert(`A redirect from "${from}" already exists. Remove it first.`);
+    return;
+  }
+  redirectRules.push({ from, to });
+  await chrome.storage.local.set({ redirectRules });
+  renderRedirects(redirectRules);
+  fromInput.value = '';
+  toInput.value = '';
+});
+
+// --- Profile / token save ---
+
 document.getElementById('save').addEventListener('click', () => {
   const name  = profileSelect.value.trim();
   const token = tokenInput.value.trim();

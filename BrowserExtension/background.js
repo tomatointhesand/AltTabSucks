@@ -1,5 +1,17 @@
 const SERVER = 'http://localhost:9876/tabs';
 
+// --- URL redirect rules (tabs.onUpdated — no extra permissions needed) ---
+
+async function applyRedirectRules(tabId, url) {
+  const { redirectRules = [] } = await chrome.storage.local.get('redirectRules');
+  if (!redirectRules.length) return;
+  let parsed;
+  try { parsed = new URL(url); } catch { return; }
+  const hostname = parsed.hostname.replace(/^www\./, '');
+  const rule = redirectRules.find(r => r.from === hostname);
+  if (rule) chrome.tabs.update(tabId, { url: rule.to });
+}
+
 async function postTabs() {
   const { profileName = 'Default', authToken = '' } = await chrome.storage.local.get(['profileName', 'authToken']);
 
@@ -138,6 +150,10 @@ chrome.windows.onFocusChanged.addListener(postTabs);
 // title that fails to match the window (e.g. Gmail unread count updating while idle).
 // Also re-post on any URL change so a loading tab is findable before its title arrives,
 // preventing a second hotkey press from opening a duplicate.
+chrome.webNavigation.onBeforeNavigate.addListener(({ tabId, url, frameId }) => {
+  if (frameId === 0) applyRedirectRules(tabId, url);
+});
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url || (changeInfo.title && tab.active)) postTabs();
 });
