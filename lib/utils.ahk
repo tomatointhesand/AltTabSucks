@@ -1,5 +1,9 @@
 ; utils.ahk - General-purpose UI helpers and window management
 
+; When true, cycle mode falls back to toggle when an app has only one window.
+; Overridable in config.ahk or via the Settings UI (Ctrl+Alt+Shift+,).
+CYCLE_SINGLE_AS_TOGGLE := true
+
 ; Launches a Microsoft Store (MSIX) app from an elevated AHK process.
 ; Pass either an AUMID (e.g. "Claude_pzs8sxrjxfjjc!Claude") or an App Execution
 ; Alias exe name (e.g. "Claude.exe"). Shell.Application runs in the user (non-elevated)
@@ -202,6 +206,8 @@ _HotkeyDesc(funcName, action, profiles) {
         return "merge focused window's tabs → other window"
     if funcName = "ShowAltTabSucksDebug"
         return "AltTabSucks debug overlay"
+    if funcName = "ShowSettingsGui"
+        return "settings"
     return ""
 }
 
@@ -212,7 +218,7 @@ _HotkeyDesc(funcName, action, profiles) {
 ; mode         - "cycle"  : advance through all windows (visible then minimized),
 ;                           wrapping around; restores minimized windows as they
 ;                           come up in rotation; 0 windows -> launch exePath;
-;                           1 window -> same behavior as "toggle"
+;                           1 window -> same as "toggle" when CYCLE_SINGLE_AS_TOGGLE is true
 ;              - "toggle" : focus the app if it isn't active; minimize all its
 ;                           visible windows if one of them is currently active
 ;
@@ -273,8 +279,7 @@ ManageAppWindows(processName, exePath := "", mode := "cycle") {
         return
     }
 
-    ; With only one window, cycle should behave exactly like toggle.
-    if mode = "cycle" && (visible.Length + minimized.Length = 1) {
+    if mode = "cycle" && CYCLE_SINGLE_AS_TOGGLE && (visible.Length + minimized.Length = 1) {
         ManageAppWindows(processName, exePath, "toggle")
         return
     }
@@ -298,4 +303,108 @@ ManageAppWindows(processName, exePath := "", mode := "cycle") {
     if WinGetMinMax("ahk_id " nextHwnd) = -1
         WinRestore("ahk_id " nextHwnd)
     WinActivate("ahk_id " nextHwnd)
+}
+
+_settingsGui := 0
+
+ShowSettingsGui() {
+    global _settingsGui
+    if IsObject(_settingsGui) {
+        try _settingsGui.Show()
+        return
+    }
+
+    origChromiumExe       := CHROMIUM_EXE
+    origChromiumUserdata  := CHROMIUM_USERDATA
+    origFirefoxExe        := FIREFOX_EXE
+    origFirefoxProfileIni := FIREFOX_PROFILE_INI
+
+    g := Gui("+AlwaysOnTop", "AltTabSucks Settings")
+    g.SetFont("s10", "Segoe UI")
+    _settingsGui := g
+
+    g.AddText("xm w440 Section", "Browser Paths")
+
+    g.AddText("xm y+6", "Chromium EXE")
+    chromiumExeEdit := g.AddEdit("xm w360", CHROMIUM_EXE)
+    g.AddButton("x+4 yp", "Browse").OnEvent("Click", (*) => _BrowseForFile(chromiumExeEdit, "Executable (*.exe)", "*.exe"))
+
+    g.AddText("xm", "Chromium User Data folder")
+    chromiumUserdataEdit := g.AddEdit("xm w360", CHROMIUM_USERDATA)
+    g.AddButton("x+4 yp", "Browse").OnEvent("Click", (*) => _BrowseForDir(chromiumUserdataEdit))
+
+    g.AddText("xm", "Firefox EXE")
+    firefoxExeEdit := g.AddEdit("xm w360", FIREFOX_EXE)
+    g.AddButton("x+4 yp", "Browse").OnEvent("Click", (*) => _BrowseForFile(firefoxExeEdit, "Executable (*.exe)", "*.exe"))
+
+    g.AddText("xm", "Firefox profiles.ini")
+    firefoxProfileIniEdit := g.AddEdit("xm w360", FIREFOX_PROFILE_INI)
+    g.AddButton("x+4 yp", "Browse").OnEvent("Click", (*) => _BrowseForFile(firefoxProfileIniEdit, "INI file (*.ini)", "*.ini"))
+
+    g.AddText("xm y+14 w440", "Behavior")
+    cycleCb := g.AddCheckbox("xm y+6 w440", "Cycle mode falls back to toggle when app has only one window")
+    cycleCb.Value := CYCLE_SINGLE_AS_TOGGLE
+
+    g.AddText("xm y+12")
+    saveBtn := g.AddButton("xm Default w80", "Save")
+    g.AddButton("x+6 yp w80", "Cancel").OnEvent("Click", CloseGui)
+    saveBtn.OnEvent("Click", SaveSettings)
+    g.OnEvent("Close",  CloseGui)
+    g.OnEvent("Escape", CloseGui)
+
+    CloseGui(*) {
+        global _settingsGui
+        _settingsGui := 0
+        g.Destroy()
+    }
+
+    SaveSettings(*) {
+        newChromiumExe       := Trim(chromiumExeEdit.Value)
+        newChromiumUserdata  := Trim(chromiumUserdataEdit.Value)
+        newFirefoxExe        := Trim(firefoxExeEdit.Value)
+        newFirefoxProfileIni := Trim(firefoxProfileIniEdit.Value)
+        newCycleSingle       := cycleCb.Value
+
+        _WriteConfigFile(newChromiumExe, newChromiumUserdata, newFirefoxExe, newFirefoxProfileIni, newCycleSingle)
+
+        pathsChanged := newChromiumExe       != origChromiumExe
+                     || newChromiumUserdata  != origChromiumUserdata
+                     || newFirefoxExe        != origFirefoxExe
+                     || newFirefoxProfileIni != origFirefoxProfileIni
+        if pathsChanged {
+            CloseGui()
+            Reload()
+            return
+        }
+        global CYCLE_SINGLE_AS_TOGGLE := newCycleSingle
+        CloseGui()
+    }
+
+    g.Show("AutoSize")
+}
+
+_BrowseForFile(editCtrl, desc, filter) {
+    path := FileSelect(3,, desc, filter)
+    if path != ""
+        editCtrl.Value := path
+}
+
+_BrowseForDir(editCtrl) {
+    path := DirSelect("*" editCtrl.Value,, "Select folder")
+    if path != ""
+        editCtrl.Value := path
+}
+
+_WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, cycleSingleAsToggle) {
+    esc := (s) => StrReplace(StrReplace(s, "``", "````"), '"', '`"')
+    content := '; config.ahk — AltTabSucks settings. Edit manually or use Ctrl+Alt+Shift+, to open the Settings UI.'
+             . '`n; This file is gitignored.'
+             . '`n`nglobal CHROMIUM_EXE        := "' esc(chromiumExe)        '"'
+             . '`nglobal CHROMIUM_USERDATA   := "' esc(chromiumUserdata)   '"'
+             . '`nglobal FIREFOX_EXE         := "' esc(firefoxExe)         '"'
+             . '`nglobal FIREFOX_PROFILE_INI := "' esc(firefoxProfileIni)  '"'
+             . '`n`nglobal CYCLE_SINGLE_AS_TOGGLE := ' (cycleSingleAsToggle ? "true" : "false") '`n'
+    f := FileOpen(A_ScriptDir '\lib\config.ahk', 'w', 'UTF-8')
+    f.Write(content)
+    f.Close()
 }

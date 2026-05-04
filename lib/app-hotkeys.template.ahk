@@ -3,9 +3,9 @@
 ; Key notation: `^`=Ctrl, `!`=Alt, `+`=Shift, `#`=Win, `~`=pass-through
 ;--- BEGIN SENSITIVE ---
 
+;P1 := "Default"
+;P1 := "Default"
 P1 := "Default"
-;P1 := "Default"
-;P1 := "Default"
 P2 := "Profile 1"
 ;P2 := "Profile 1"
 ^!+s:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
@@ -53,7 +53,7 @@ P2 := "Profile 1"
 ; --- App window management --- (UNIVERSAL)
 ; REGULAR APPS
 ^!+n:: ManageAppWindows("notepad++.exe", "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\notepad++", "toggle")
-^!+d:: ManageAppWindows("discord.exe", EnvGet("USERPROFILE") "\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Discord Inc\Discord", "toggle")
+^!+d:: ManageAppWindows("discord.exe", EnvGet("USERPROFILE") "\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Discord Inc\Discord", "cycle")
 ^!+e:: ManageAppWindows("code.exe", EnvGet("USERPROFILE") "\AppData\Local\Programs\Microsoft VS Code\Code.exe", "cycle")
 ; APP STORE APPS - use this ps1 cmd to find needed appId (replace "*Claude" with the app you need):
 ; (New-Object -ComObject Shell.Application).NameSpace('shell:AppsFolder').Items() | Where-Object { $_.Name -like '*Claude*' } | Select-Object Name, Path, @{N='AppId'; E={$_.ExtendedProperty('System.AppUserModel.ID')}}
@@ -67,6 +67,7 @@ P2 := "Profile 1"
 
 ; --- System ---
 ^!+Esc:: SleepScreens()
+^!+,::   ShowSettingsGui()
 
 ; --- Hotkey quick reference (auto-generated from this file) ---
 ^!+/:: ShowTextGui("Hotkey Reference", _BuildHotkeyRef(), 1250, 45)

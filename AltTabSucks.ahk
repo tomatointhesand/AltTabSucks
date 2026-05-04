@@ -12,7 +12,7 @@ if not A_IsAdmin
 
 ^!+':: Reload  ; reload script
 
-#Include lib\utils.ahk        ; ShowTextGui, ManageAppWindows
+#Include lib\utils.ahk        ; ShowTextGui, ManageAppWindows, ShowSettingsGui
 #Include lib\toast.ahk        ; SampleTitlebarColor, ShowProfileToast, ShowSetupToast
 CHROMIUM_EXE        := ""     ; defaults — overwritten by config.ahk if it exists
 CHROMIUM_USERDATA   := ""
@@ -23,3 +23,6 @@ FIREFOX_PROFILE_INI := ""
 #Include lib\firefox.ahk      ; Firefox profile cycling + tab focus via AltTabSucks server
 #Include lib\app-hotkeys.ahk  ; general app + browser hotkeys
 #Include lib\star-citizen.ahk ; Star Citizen automation (scoped to SC window)
+
+A_TrayMenu.Insert("1&", "Settings", (*) => ShowSettingsGui())
+A_TrayMenu.Insert("2&")
