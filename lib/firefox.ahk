@@ -379,18 +379,6 @@ SplitFocusedTabFirefox() {
     if !activeHwnd
         return
 
-    WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " activeHwnd)
-    cx := wx + ww // 2
-    cy := wy + wh // 2
-    monLeft := 0, monTop := 0, monRight := A_ScreenWidth, monBottom := A_ScreenHeight
-    Loop MonitorGetCount() {
-        MonitorGetWorkArea(A_Index, &ml, &mt, &mr, &mb)
-        if cx >= ml && cx < mr && cy >= mt && cy < mb {
-            monLeft := ml, monTop := mt, monRight := mr, monBottom := mb
-            break
-        }
-    }
-
     profileName := _DetectProfileFromWindow(activeHwnd, true)
     if profileName = "" {
         ShowProfileToast(activeHwnd, "no profile", "CC0000")
@@ -412,8 +400,6 @@ SplitFocusedTabFirefox() {
         return
     }
 
-    halfW    := (monRight - monLeft) // 2
-    winH     := monBottom - monTop
     _deadline := A_TickCount + 3000
-    SetTimer(() => _WaitAndSnapSplit(activeHwnd, existingHwnds, monLeft, monTop, halfW, winH, winFilter, _deadline), -100)
+    SetTimer(() => _WaitAndSnapSplit(activeHwnd, existingHwnds, winFilter, _deadline), -100)
 }

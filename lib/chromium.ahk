@@ -689,19 +689,6 @@ SplitFocusedTab() {
         return
     }
 
-    ; Find which monitor work area contains the window's center point
-    WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " activeHwnd)
-    cx := wx + ww // 2
-    cy := wy + wh // 2
-    monLeft := 0, monTop := 0, monRight := A_ScreenWidth, monBottom := A_ScreenHeight
-    Loop MonitorGetCount() {
-        MonitorGetWorkArea(A_Index, &ml, &mt, &mr, &mb)
-        if cx >= ml && cx < mr && cy >= mt && cy < mb {
-            monLeft := ml, monTop := mt, monRight := mr, monBottom := mb
-            break
-        }
-    }
-
     ; Snapshot all existing browser HWNDs so we can identify the newly created window
     existingHwnds := Map()
     for hwnd in WinGetList(winFilter)
@@ -719,10 +706,8 @@ SplitFocusedTab() {
         return
     }
 
-    halfW    := (monRight - monLeft) // 2
-    winH     := monBottom - monTop
     _deadline := A_TickCount + 3000
-    SetTimer(() => _WaitAndSnapSplit(activeHwnd, existingHwnds, monLeft, monTop, halfW, winH, winFilter, _deadline), -100)
+    SetTimer(() => _WaitAndSnapSplit(activeHwnd, existingHwnds, winFilter, _deadline), -100)
 }
 
 ; Infers which profile owns a browser window by matching its title against server-side
@@ -763,9 +748,9 @@ _DetectProfileFromWindow(hwnd, isFirefox := false) {
 }
 
 ; Polls until a new browser window appears (not in existingHwnds), then snaps
-; the original and new windows side-by-side on the target monitor work area.
+; both windows via Win+Arrow so Windows registers them as a snap pair.
 ; winFilter must match the browser being used (Chromium or Firefox).
-_WaitAndSnapSplit(origHwnd, existingHwnds, monLeft, monTop, halfW, winH, winFilter, deadline) {
+_WaitAndSnapSplit(origHwnd, existingHwnds, winFilter, deadline) {
     newHwnd   := 0
     for hwnd in WinGetList(winFilter) {
         if existingHwnds.Has(hwnd)
@@ -781,41 +766,15 @@ _WaitAndSnapSplit(origHwnd, existingHwnds, monLeft, monTop, halfW, winH, winFilt
     }
     if newHwnd = 0 {
         if A_TickCount < deadline
-            SetTimer(() => _WaitAndSnapSplit(origHwnd, existingHwnds, monLeft, monTop, halfW, winH, winFilter, deadline), -100)
+            SetTimer(() => _WaitAndSnapSplit(origHwnd, existingHwnds, winFilter, deadline), -100)
         return
     }
 
-    ; Restore both windows from maximized state before repositioning
-    if WinGetMinMax("ahk_id " origHwnd) = 1
-        WinRestore("ahk_id " origHwnd)
-    if WinGetMinMax("ahk_id " newHwnd) = 1
-        WinRestore("ahk_id " newHwnd)
-
-    ; Chromium windows have invisible drop-shadow borders (~8px each side on Win10/11).
-    ; WinMove positions the full rect including those invisible regions, so placing two
-    ; windows edge-to-edge without compensation leaves a visible gap = rightBorder + leftBorder.
-    ; DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS=9) gives the actual visible rect so
-    ; we can compute each window's invisible border widths and compensate exactly.
-    ob := _GetWindowFrameBorders(origHwnd)
-    nb := _GetWindowFrameBorders(newHwnd)
-
-    WinMove(monLeft         - ob.left, monTop - ob.top, halfW + ob.left + ob.right, winH + ob.top + ob.bottom, "ahk_id " origHwnd)
-    WinMove(monLeft + halfW - nb.left, monTop - nb.top, halfW + nb.left + nb.right, winH + nb.top + nb.bottom, "ahk_id " newHwnd)
+    WinActivate("ahk_id " newHwnd)
+    Send("{LWin down}{Right}{LWin up}")
+    Sleep(150)
+    WinActivate("ahk_id " origHwnd)
+    Send("{LWin down}{Left}{LWin up}")
     WinActivate("ahk_id " newHwnd)
 }
 
-; Returns the invisible border widths of a window using DWM's actual visible frame rect.
-; DWMWA_EXTENDED_FRAME_BOUNDS (9) gives the true on-screen visible bounds; the difference
-; from WinGetPos gives how much each side is hidden by the drop-shadow / extended frame.
-_GetWindowFrameBorders(hwnd) {
-    rect := Buffer(16, 0)
-    if DllCall("dwmapi\DwmGetWindowAttribute", "Ptr", hwnd, "UInt", 9, "Ptr", rect, "UInt", 16) != 0
-        return {left: 0, top: 0, right: 0, bottom: 0}
-    WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
-    return {
-        left:   NumGet(rect,  0, "Int") - wx,
-        top:    NumGet(rect,  4, "Int") - wy,
-        right:  (wx + ww) - NumGet(rect,  8, "Int"),
-        bottom: (wy + wh) - NumGet(rect, 12, "Int")
-    }
-}

@@ -3,9 +3,9 @@
 ; Key notation: `^`=Ctrl, `!`=Alt, `+`=Shift, `#`=Win, `~`=pass-through
 ;--- BEGIN SENSITIVE ---
 
-;P1 := "Default"
-;P1 := "Default"
 P1 := "Default"
+;P1 := "Default"
+;P1 := "Default"
 P2 := "Profile 1"
 ;P2 := "Profile 1"
 ^!+s:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
