@@ -95,10 +95,12 @@ async function pollSwitchQueue() {
           const tabsToMove = allTabs
             .filter(t => t.windowId === sourceWindowId)
             .sort((a, b) => a.index - b.index);
+          const activeTabId = focusedTab.id;
           for (const tab of tabsToMove) {
             await chrome.tabs.move(tab.id, { windowId: targetWindowId, index: -1 });
           }
-          if (chrome.windows) await chrome.windows.update(targetWindowId, { focused: true });
+          await chrome.tabs.update(activeTabId, { active: true });
+          if (chrome.windows) await chrome.windows.update(targetWindowId, { focused: true, state: 'maximized' });
         } catch {}
       } else if (cmd && cmd.splitTab) {
         try {
