@@ -770,9 +770,29 @@ _WaitAndSnapSplit(origHwnd, existingHwnds, winFilter, deadline) {
         return
     }
 
+    ; Identify origHwnd's monitor before any snapping so we can guarantee
+    ; Win+Left lands on the correct monitor regardless of its prior snap state.
+    WinGetPos(&ox, &oy, &ow, &oh, "ahk_id " origHwnd)
+    ocx := ox + ow // 2
+    ocy := oy + oh // 2
+    monLeft := 0, monTop := 0, monRight := A_ScreenWidth, monBottom := A_ScreenHeight
+    Loop MonitorGetCount() {
+        MonitorGetWorkArea(A_Index, &ml, &mt, &mr, &mb)
+        if ocx >= ml && ocx < mr && ocy >= mt && ocy < mb {
+            monLeft := ml, monTop := mt, monRight := mr, monBottom := mb
+            break
+        }
+    }
+
     WinActivate("ahk_id " newHwnd)
     Send("{LWin down}{Right}{LWin up}")
     Sleep(150)
+    ; WinMove clears the window's snap state (programmatic moves via SetWindowPos do this),
+    ; so Win+Left will snap to the left of this monitor rather than cycling to an adjacent one.
+    halfW := (monRight - monLeft) // 2
+    winH  := monBottom - monTop
+    WinMove(monLeft, monTop, halfW, winH, "ahk_id " origHwnd)
+    Sleep(25)
     WinActivate("ahk_id " origHwnd)
     Send("{LWin down}{Left}{LWin up}")
     WinActivate("ahk_id " newHwnd)
