@@ -132,12 +132,16 @@ CycleFirefoxProfile(profileName) {
         ; rather than launching a new instance. This handles the case where the extension
         ; hasn't posted yet or the profile name doesn't match exactly.
         for hwnd in WinGetList(winFilter) {
-            if !(WinGetStyle("ahk_id " hwnd) & 0x10000000)
+            try {
+                if !(WinGetStyle("ahk_id " hwnd) & 0x10000000)
+                    continue
+                if DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")
+                    continue
+                if WinGetTitle("ahk_id " hwnd) = ""
+                    continue
+            } catch {
                 continue
-            if DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")
-                continue
-            if WinGetTitle("ahk_id " hwnd) = ""
-                continue
+            }
             matchingWindows.Push(hwnd)
         }
     }

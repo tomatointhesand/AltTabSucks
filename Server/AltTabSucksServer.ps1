@@ -91,7 +91,7 @@ try { while ($listener.IsListening) {
 
         } elseif ($method -eq "GET" -and $path -eq "/profiles") {
             # Extension Options page fetches this to populate the profile dropdown
-            $out   = $profileList | ConvertTo-Json -Compress
+            $out   = ConvertTo-Json -InputObject @($profileList) -Compress
             $bytes = [System.Text.Encoding]::UTF8.GetBytes($out)
             $res.ContentType     = "application/json; charset=utf-8"
             $res.ContentLength64 = $bytes.Length

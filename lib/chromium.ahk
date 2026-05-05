@@ -212,21 +212,31 @@ _InitChromiumState() {
     _chromiumExe := exeName
 
     content := ReadChromiumInfoCache()
-    if content = ""
-        return
-    pos := 1
-    while RegExMatch(content, '"(Default|Profile \d+)":\s*\{', &dm, pos) {
-        dirName    := dm[1]
-        chunkStart := dm.Pos + dm.Len
-        chunk      := SubStr(content, chunkStart, 3000)
-        if RegExMatch(chunk, '"name"\s*:\s*"([^"]+)"', &nm) {
-            ; Validate: backward search from this name position must land on the same dir key.
-            nameAbsPos := chunkStart + nm.Pos - 1
-            before     := SubStr(content, 1, nameAbsPos)
-            if RegExMatch(before, '[\s\S]*"(Default|Profile \d+)":\s*\{', &dm2) && dm2[1] = dirName
-                _chromiumProfileDirCache[nm[1]] := dirName
+    if content != "" {
+        pos := 1
+        while RegExMatch(content, '"(Default|Profile \d+)":\s*\{', &dm, pos) {
+            dirName    := dm[1]
+            chunkStart := dm.Pos + dm.Len
+            chunk      := SubStr(content, chunkStart, 3000)
+            if RegExMatch(chunk, '"name"\s*:\s*"([^"]+)"', &nm) {
+                ; Validate: backward search from this name position must land on the same dir key.
+                nameAbsPos := chunkStart + nm.Pos - 1
+                before     := SubStr(content, 1, nameAbsPos)
+                if RegExMatch(before, '[\s\S]*"(Default|Profile \d+)":\s*\{', &dm2) && dm2[1] = dirName
+                    _chromiumProfileDirCache[nm[1]] := dirName
+            }
+            pos := dm.Pos + 1
         }
-        pos := dm.Pos + 1
+    }
+    ; Fallback: scan user data dir for profile subdirectories when info_cache parsing yields
+    ; nothing (e.g. Opera has no info_cache, or uses non-standard directory names).
+    if _chromiumProfileDirCache.Count = 0 && CHROMIUM_USERDATA != "" {
+        Loop Files, CHROMIUM_USERDATA "\*", "D" {
+            if RegExMatch(A_LoopFileName, "^(Default|Profile \d+)$")
+                _chromiumProfileDirCache[A_LoopFileName] := A_LoopFileName
+        }
+        if _chromiumProfileDirCache.Count = 0 && DirExist(CHROMIUM_USERDATA "\Default")
+            _chromiumProfileDirCache["Default"] := "Default"
     }
     ; Push profile list to the server with a short delay so the server has time to start.
     SetTimer(_PostProfilesToServer, -2000)
@@ -755,12 +765,16 @@ _WaitAndSnapSplit(origHwnd, existingHwnds, winFilter, deadline) {
     for hwnd in WinGetList(winFilter) {
         if existingHwnds.Has(hwnd)
             continue
-        if !(WinGetStyle("ahk_id " hwnd) & 0x10000000)
+        try {
+            if !(WinGetStyle("ahk_id " hwnd) & 0x10000000)
+                continue
+            if DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")
+                continue
+            if WinGetTitle("ahk_id " hwnd) = ""
+                continue
+        } catch {
             continue
-        if DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")
-            continue
-        if WinGetTitle("ahk_id " hwnd) = ""
-            continue
+        }
         newHwnd := hwnd
         break
     }
