@@ -2,7 +2,7 @@
 
 ; When true, cycle mode falls back to toggle when an app has only one window.
 ; Overridable in config.ahk or via the Settings UI (Ctrl+Alt+Shift+,).
-CYCLE_SINGLE_AS_TOGGLE := true
+CYCLE_SINGLE_AS_TOGGLE := false
 
 ; Launches a Microsoft Store (MSIX) app from an elevated AHK process.
 ; Pass either an AUMID (e.g. "Claude_pzs8sxrjxfjjc!Claude") or an App Execution
