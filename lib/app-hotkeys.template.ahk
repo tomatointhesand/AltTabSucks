@@ -3,34 +3,38 @@
 ; Key notation: `^`=Ctrl, `!`=Alt, `+`=Shift, `#`=Win, `~`=pass-through
 ;--- BEGIN SENSITIVE ---
 
+;P1 := "Default" ; Firefox
 ;P1 := "Default"
-;P1 := "Default"
+;P1 := "Default" ; Opera
 P1 := "Default"
-;P1 := "Default"
 P2 := "Profile 1"
 ;P2 := "Profile 1"
 ^!+s:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
 ^!+j:: FocusTab(P2, ["https://YOUR_URL","https://YOUR_URL","https://YOUR_URL","https://YOUR_URL"],  "https://YOUR_URL")
 ^!+b:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
 ^!+z:: FocusTab(P2, ["YOUR_URL"],             "https://YOUR_URL")
+^+#w:: FocusTab(P2, ["https://YOUR_URL"], "https://YOUR_URL")
 ^!+r:: FocusTab(P1, ["YOUR_URL"],          "https://YOUR_URL")
 ^+#c:: FocusTab(P1, ["YOUR_URL"], "https://YOUR_URL")
 ^+#b:: OpenIssue("https://YOUR_URL")
 ^+#r:: OpenIssue("https://YOUR_URL")
+
 ;--- END SENSITIVE ---
 
 ; --- BEGIN COMMON ---
 
-; Browser (NOT UNIVERSAL, only applies when browser window is focused)
+; Browser (only applies when browser window is focused)
+#HotIf WinActive("ahk_class Chrome_WidgetWin_1") || WinActive("ahk_class MozillaWindowClass")
 !x::  SplitFocusedTab()
 !z::  MergeFocusedWindow()
+#HotIf
 
 ; --- Browser tab focus (profile 1) --- (UNIVERSAL)
 ^!+m:: FocusTab(P1, ["google.com/maps","bing.com/maps","apple.com/maps","openstreetmap.org"],     "https://maps.google.com")
 ^!+v:: FocusTab(P1, ["chat.google.com"],     "https://chat.google.com/")
 ^+#v:: FocusTab(P1, ["meet.google.com"], "https://meet.google.com")
 ^!+g:: FocusTab(P1, ["mail.google.com","workspace,google.com"],     "https://mail.google.com")
-^!+y:: FocusTab(P1, ["youtube.com"],         "https://youtube.com")
+^!+y:: FocusTab(P1, ["www.youtube.com"],         "https://youtube.com")
 ^!+x:: FocusTab(P1, ["messages.google.com"], "https://messages.google.com")
 ^!+k:: FocusTab(P1, ["keep.google.com"], "https://keep.google.com")
 ^+#k:: FocusTab(P1, ["calendar.google.com"], "https://calendar.google.com")
@@ -67,8 +71,15 @@ P2 := "Profile 1"
 ^+#d::  OpenDesktop()
 
 ; --- System ---
-^!+Esc:: SleepScreens()
-^!+,::   ShowSettingsGui()
+^!+Esc::   SleepScreens()
+^!+,::     ShowSettingsGui()
+
+; --- Window switcher (UNIVERSAL)
+!Tab::    ShowWindowSwitcher("down")
+!+Tab::   ShowWindowSwitcher("up")
+!vkC0::   ShowWindowSwitcher("up")
+!WheelDown:: ShowWindowSwitcher("down")
+!WheelUp::   ShowWindowSwitcher("up")
 
 ; --- Hotkey quick reference (auto-generated from this file) ---
 ^!+/:: ShowTextGui("Hotkey Reference", _BuildHotkeyRef(), 1250, 45)

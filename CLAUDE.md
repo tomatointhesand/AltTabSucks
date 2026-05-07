@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AutoHotkey (AHK) automation scripts for Windows productivity. **Cannot be executed or tested on Linux/WSL** — scripts must be run on a Windows machine with AutoHotkey installed.
 
-Supports **Chromium-based browsers** (Brave, Chrome, Edge, etc.) and **Firefox** for profile-aware tab control.
+Supports **Chromium-based browsers** (Brave, Chrome, Edge, Opera) and **Firefox** for profile-aware tab control.
 
 ## Running & Reloading
 
@@ -33,7 +33,7 @@ PowerShell HTTP server (`localhost:9876`) that bridges AHK ↔ browser extension
 - `lib/config.ahk` — browser paths config (**gitignored** — copy from `config.template.ahk` and fill in)
 - `lib/app-hotkeys.ahk` — new hotkeys go here (**gitignored** — contains real URLs/paths)
 - `lib/app-hotkeys.template.ahk` — sanitized version of above, tracked in git
-- `lib/utils.ahk` — window management utilities (`ManageAppWindows`, `ShowTextGui`)
+- `lib/utils.ahk` — window management utilities, window switcher, settings GUI
 - `lib/chromium.ahk` — Chromium profile cycling + tab focus; dispatches to Firefox equivalents when `CHROMIUM_EXE = ""`
 - `lib/firefox.ahk` — Firefox profile cycling + tab focus
 - `lib/toast.ahk` — visual feedback overlays
@@ -66,15 +66,49 @@ They are **not compatible** — check `#Requires` at the top of each file before
 
 ### Window Management (`lib/utils.ahk`)
 `ManageAppWindows(processName, exePath, mode)`:
-- Filters to only WS_VISIBLE, unowned, non-minimized windows (avoids Discord tray, child dialogs)
+- Filters to only WS_VISIBLE, unowned windows (avoids Discord tray, child dialogs)
 - `"cycle"`: none → launch; 1 → toggle minimize/activate; 2+ → advance through list
 - `"toggle"`: active → minimize all; inactive → activate first visible
+- On activate, shows `ShowProfileToast` with app name (via `_SwitcherExeName`) and titlebar color
+- `exePath` can be a `Func` object (e.g. `() => LaunchStoreApp(...)`) for Store/MSIX apps
+- `CYCLE_SINGLE_AS_TOGGLE` global (default `false`): cycle mode falls back to toggle when only one window
+
+### Settings GUI (`lib/utils.ahk`)
+`ShowSettingsGui()` — opened via `^!+,`. Themed dark/light, resizable, categorized:
+- **Browser**: Chromium EXE/UserData, Firefox EXE/profiles.ini (with Browse buttons)
+- **Window Cycling**: `CYCLE_SINGLE_AS_TOGGLE` checkbox
+- **Window Switcher**: preview toggle (`SWITCHER_SHOW_PREVIEW`), preview side (`SWITCHER_PREVIEW_SIDE`: "right"/"left"), preview size slider (`SWITCHER_PREVIEW_SIZE`: 10–200%)
+- **Appearance**: `THEME` dropdown ("auto"/"light"/"dark")
+
+`_WriteConfigFile()` persists all settings to `lib/config.ahk` (gitignored). Browser path changes trigger `Reload()`; all other changes take effect immediately without reload.
+
+### Window Switcher (`lib/utils.ahk`)
+`ShowWindowSwitcher(dir := "down")` — typeahead Alt+Tab replacement. Hotkeys: `!Tab` (down), `!+Tab`/`!vkC0` (up, backtick), `!WheelDown`/`!WheelUp`.
+
+**Globals**: `SWITCHER_SHOW_PREVIEW`, `SWITCHER_PREVIEW_SIDE`, `SWITCHER_PREVIEW_SIZE`.
+
+**Behavior**:
+- Lists all visible, unowned, non-cloaked top-level windows in Z-order; defaults to row 2 (previous window)
+- Typeahead filters by exe name + title; `_SwitcherExeName` maps/capitalises process names
+- Two-column layout (exe name | title), column width dynamic from longest exe name
+- Dark/light themed via `_ApplySwitcherTheme`; DWM rounded corners (Win11)
+- **Activation**: popup always activates immediately when all held modifiers are released; no persistent mode
+- **Mod-release detection**: uses `GetKeyState(mod, "P")` (physical state) to ignore AHK synthetic key-ups
+- **Alt+char typeahead**: `WM_SYSKEYDOWN` intercepted, `ToUnicodeEx` (Alt-stripped) translates to char, `EM_REPLACESEL` inserts into edit, `EM_SETSEL` clears auto-select-all
+- `_SwitcherRefresh`: Win32 DllCalls throughout (GetTopWindow, GetWindowLong, GetWindowTextW, QueryFullProcessImageNameW with PID cache, WM_SETREDRAW batching)
+- `_SwitcherAutoActivateTimer`: started after `g.Show()` (not before `_SwitcherRefresh`) so delay is measured from when popup is visible
+
+**DWM Thumbnail Preview** (`_SwitcherPreviewTimer`, 30ms debounce):
+- `DwmRegisterThumbnail(previewHwnd, targetHwnd)` — compositor renders at display refresh rate, zero CPU
+- `DwmQueryThumbnailSourceSize` → aspect-correct scaling (max `640×SWITCHER_PREVIEW_SIZE/100` × `400×SWITCHER_PREVIEW_SIZE/100`)
+- Preview GUI uses `+ToolWindow` so it is excluded from the switcher's own window list
+- `_SwitcherPreviewClose()` called on all close paths: `CloseSwitcher`, `_SwitcherActivate`, Escape, `_SwitcherWMActivate`
 
 ### Chromium Profile Cycling (`lib/chromium.ahk`)
 Browser is configured via `CHROMIUM_EXE` and `CHROMIUM_USERDATA` globals in `lib/config.ahk`. At startup, `_InitChromiumState()`:
 - Saves the foreground-lock timeout via `SPI_GETFOREGROUNDLOCKTIMEOUT` and sets it to 0 so `WinActivate` can always steal focus; restores it on exit via `OnExit(_RestoreFgLockTimeout)`
 - Reads `Server\token.txt` into `_serverToken` for authenticating HTTP requests
-- Derives `_chromiumExe` (bare filename) via `SplitPath` and populates `_chromiumProfileDirCache` from the browser's `Local State` JSON
+- Derives `_chromiumExe` (bare filename) via `SplitPath` and populates `_chromiumProfileDirCache` from the browser's `Local State` JSON. Fallback for browsers without `info_cache` (e.g. Opera): scans the user data dir for `Default`/`Profile N` subdirectories, then falls back to a single `"Default"` entry so the extension Options dropdown always has at least one choice
 - When Firefox is configured instead (`CHROMIUM_EXE = ""`), detects it via the Windows registry (`HKLM\SOFTWARE\Mozilla\Mozilla Firefox`)
 
 All window filters use `"ahk_class Chrome_WidgetWin_1 ahk_exe " . _chromiumExe`. All WinHttp requests include `X-AltTabSucks-Token` header.

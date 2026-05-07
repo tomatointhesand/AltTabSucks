@@ -1,7 +1,8 @@
 ; toast.ahk - Toasts, overlays, and blocking choice dialogs
 
-global _activeToast  := ""
+global _activeToast   := ""
 global _toastColorIdx := 0
+global _lastToastTick := 0
 global _toastROYGBIV  := [
     0xCC0000,  ; red
     0xE53300,  ; red-orange
@@ -141,13 +142,18 @@ _MakeChoiceKeyHandler(idx, result, gui) {
 }
 
 ShowProfileToast(hwnd, label, bgColor) {
-    global _activeToast, _toastColorIdx, _toastROYGBIV
-    ; If a toast is already on screen, cycle to the next ROYGBIV color
-    ; (let the old toast's own timer destroy it to avoid double-destroy)
-    if IsObject(_activeToast) {
+    global _activeToast, _toastColorIdx, _toastROYGBIV, _lastToastTick
+    now := A_TickCount
+    ; Continue the rainbow if a toast is still visible OR fired recently.
+    ; Without the recency check the rainbow resets to bgColor whenever a toast expires
+    ; (250ms) between two rapid firings.
+    if IsObject(_activeToast) || (now - _lastToastTick < 600) {
         _toastColorIdx := Mod(_toastColorIdx, _toastROYGBIV.Length) + 1
         bgColor := _toastROYGBIV[_toastColorIdx]
+    } else {
+        _toastColorIdx := 0  ; gap in sequence — next rapid burst starts fresh
     }
+    _lastToastTick := now
     WinGetPos(&wx, &wy, &ww, &wh, "ahk_id " hwnd)
     t := Gui("-Caption +ToolWindow +AlwaysOnTop")
     t.BackColor := bgColor
@@ -161,5 +167,5 @@ ShowProfileToast(hwnd, label, bgColor) {
     t.Show("NoActivate x" (wx + (ww - tw) // 2) " y" (wy + (wh - th) // 2))
     _activeToast := t
     local capturedPtr := ObjPtr(t)
-    SetTimer(() => _ExpireToast(t, capturedPtr), -250)
+    SetTimer(() => _ExpireToast(t, capturedPtr), -500)
 }

@@ -87,24 +87,81 @@ function renderRedirects(rules) {
     list.innerHTML = '<div style="color:#888;font-size:11px;margin-bottom:6px;">No redirects defined.</div>';
     return;
   }
-  for (let i = 0; i < rules.length; i++) {
-    const row = document.createElement('div');
-    row.className = 'redirect-row';
-    row.innerHTML = `
-      <span class="redirect-from" title="${escHtml(rules[i].from)}">${escHtml(rules[i].from)}</span>
-      <span class="redirect-arrow">→</span>
-      <span class="redirect-to" title="${escHtml(rules[i].to)}">${escHtml(rules[i].to)}</span>
-      <button class="redirect-del" data-idx="${i}" title="Remove">✕</button>`;
-    list.appendChild(row);
-  }
-  list.querySelectorAll('.redirect-del').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const { redirectRules = [] } = await chrome.storage.local.get('redirectRules');
-      redirectRules.splice(parseInt(btn.dataset.idx, 10), 1);
-      await chrome.storage.local.set({ redirectRules });
-      renderRedirects(redirectRules);
-    });
+  rules.forEach((_, i) => list.appendChild(makeRedirectRow(rules, i)));
+}
+
+function makeRedirectRow(rules, i) {
+  const { from, to } = rules[i];
+  const row = document.createElement('div');
+  row.className = 'rule-row';
+
+  const urlsDiv = document.createElement('div');
+  urlsDiv.className = 'rule-urls';
+  urlsDiv.textContent = from;
+
+  const meta = document.createElement('div');
+  meta.className = 'rule-meta';
+  const arrow = document.createElement('span');
+  arrow.className = 'rule-arrow';
+  arrow.textContent = '→';
+  const target = document.createElement('span');
+  target.className = 'rule-target';
+  target.textContent = to;
+  const editBtn = document.createElement('button');
+  editBtn.className = 'rule-btn';
+  editBtn.textContent = 'Edit';
+  editBtn.addEventListener('click', () => row.replaceWith(makeRedirectEditRow(rules, i, row)));
+  const delBtn = document.createElement('button');
+  delBtn.className = 'rule-btn';
+  delBtn.textContent = '✕';
+  delBtn.addEventListener('click', async () => {
+    const { redirectRules = [] } = await chrome.storage.local.get('redirectRules');
+    redirectRules.splice(i, 1);
+    await chrome.storage.local.set({ redirectRules });
+    renderRedirects(redirectRules);
   });
+  meta.append(arrow, target, editBtn, delBtn);
+  row.append(urlsDiv, meta);
+  return row;
+}
+
+function makeRedirectEditRow(rules, i, originalRow) {
+  const { from, to } = rules[i];
+  const row = document.createElement('div');
+  row.className = 'rule-row rule-editing';
+
+  const fromInput = document.createElement('input');
+  fromInput.type = 'text';
+  fromInput.value = from;
+  fromInput.placeholder = 'from: ace.com';
+
+  const toInput = document.createElement('input');
+  toInput.type = 'text';
+  toInput.value = to;
+  toInput.placeholder = 'to: https://acehardware.com';
+
+  const actions = document.createElement('div');
+  actions.className = 'rule-edit-actions';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'rule-btn';
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', async () => {
+    const newFrom = fromInput.value.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const newTo   = toInput.value.trim();
+    if (!newFrom || !newTo) return;
+    if (!/^https?:\/\//i.test(newTo)) { alert('"To" must start with http:// or https://'); return; }
+    const { redirectRules = [] } = await chrome.storage.local.get('redirectRules');
+    redirectRules[i] = { from: newFrom, to: newTo };
+    await chrome.storage.local.set({ redirectRules });
+    renderRedirects(redirectRules);
+  });
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'rule-btn';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => row.replaceWith(originalRow));
+  actions.append(saveBtn, cancelBtn);
+  row.append(fromInput, toInput, actions);
+  return row;
 }
 
 chrome.storage.local.get('redirectRules', ({ redirectRules = [] }) => renderRedirects(redirectRules));

@@ -3,30 +3,19 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { font-family: monospace; font-size: 12px; min-width: 400px; padding: 8px; }
-    h2 { margin: 0 0 4px; font-size: 14px; }
-    #status { margin-bottom: 8px; font-size: 11px; }
+    body { font-family: monospace; font-size: 12px; min-width: 280px; max-width: 420px; padding: 8px; }
+    h2 { margin: 0 0 6px; font-size: 14px; }
+    #status { font-size: 11px; margin-bottom: 6px; }
     #status.ok  { color: green; }
     #status.err { color: red; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid #ddd; }
-    th { background: #f0f0f0; }
-    .win-id { color: #888; }
-  </style>
+    .row { display: flex; gap: 6px; margin-bottom: 2px; }
+    .lbl { color: #888; flex-shrink: 0; }
+</style>
 </head>
 <body>
   <h2>AltTabSucks</h2>
-  <div id="status">server: checking...</div>
-  <table>
-    <thead>
-      <tr>
-        <th>Window</th>
-        <th>Tab</th>
-        <th>Title</th>
-      </tr>
-    </thead>
-    <tbody id="tab-list"></tbody>
-  </table>
+  <div id="status">checking...</div>
+  <div class="row"><span class="lbl">tab</span><span id="tab-title">—</span></div>
   <script src="popup.js"></script>
 </body>
 </html>
