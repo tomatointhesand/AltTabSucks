@@ -147,7 +147,7 @@ ShowProfileToast(hwnd, label, bgColor) {
     ; Continue the rainbow if a toast is still visible OR fired recently.
     ; Without the recency check the rainbow resets to bgColor whenever a toast expires
     ; (250ms) between two rapid firings.
-    if IsObject(_activeToast) || (now - _lastToastTick < 600) {
+    if IsObject(_activeToast) || (now - _lastToastTick < 400) {
         _toastColorIdx := Mod(_toastColorIdx, _toastROYGBIV.Length) + 1
         bgColor := _toastROYGBIV[_toastColorIdx]
     } else {
