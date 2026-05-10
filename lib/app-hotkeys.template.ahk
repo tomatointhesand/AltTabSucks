@@ -2,23 +2,23 @@
 
 ; Key notation: `^`=Ctrl, `!`=Alt, `+`=Shift, `#`=Win, `~`=pass-through
 ;--- BEGIN SENSITIVE ---
-
+; 
 ;P1 := "Default" ; Firefox
-;P1 := "Default"
+;P1 := "Default" ; Edge profile 1
+;P2 := "Profile 1" ; Edge profile 2
 ;P1 := "Default" ; Opera
-P1 := "Default"
-P2 := "Profile 1"
-;P2 := "Profile 1"
-^!+s:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
-^!+j:: FocusTab(P2, ["https://YOUR_URL","https://YOUR_URL","https://YOUR_URL","https://YOUR_URL"],  "https://YOUR_URL")
-^!+b:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
-^!+z:: FocusTab(P2, ["YOUR_URL"],             "https://YOUR_URL")
-^+#w:: FocusTab(P2, ["https://YOUR_URL"], "https://YOUR_URL")
-^!+r:: FocusTab(P1, ["YOUR_URL"],          "https://YOUR_URL")
-^+#c:: FocusTab(P1, ["YOUR_URL"], "https://YOUR_URL")
-^+#b:: OpenIssue("https://YOUR_URL")
-^+#r:: OpenIssue("https://YOUR_URL")
-
+P1 := "Default" ; Brave profile 1
+P2 := "Profile 1" ; Brave profile 2
+; 
+; ^!+s:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
+; ^!+j:: FocusTab(P2, ["https://YOUR_URL","https://YOUR_URL","https://YOUR_URL","https://YOUR_URL"],  "https://YOUR_URL")
+; ^!+b:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
+; ^!+z:: FocusTab(P2, ["YOUR_URL"],             "https://YOUR_URL")
+; ^+#w:: FocusTab(P2, ["https://YOUR_URL"], "https://YOUR_URL")
+; ^+#c:: FocusTab(P1, ["YOUR_URL"], "https://YOUR_URL")
+; ^+#b:: OpenIssue("https://YOUR_URL")
+; ^+#r:: OpenIssue("https://YOUR_URL")
+; 
 ;--- END SENSITIVE ---
 
 ; --- BEGIN COMMON ---
@@ -30,21 +30,22 @@ P2 := "Profile 1"
 #HotIf
 
 ; --- Browser tab focus (profile 1) --- (UNIVERSAL)
-^!+m:: FocusTab(P1, ["google.com/maps","bing.com/maps","apple.com/maps","openstreetmap.org"],     "https://maps.google.com")
-^!+v:: FocusTab(P1, ["chat.google.com"],     "https://chat.google.com/")
-^+#v:: FocusTab(P1, ["meet.google.com"], "https://meet.google.com")
+^!+m:: FocusTab(P1, ["google.com/maps","bing.com/maps","apple.com/maps","openstreetmap.org"], "https://maps.google.com")
 ^!+g:: FocusTab(P1, ["mail.google.com","workspace,google.com"],     "https://mail.google.com")
-^!+y:: FocusTab(P1, ["www.youtube.com"],         "https://youtube.com")
-^!+x:: FocusTab(P1, ["messages.google.com"], "https://messages.google.com")
-^!+k:: FocusTab(P1, ["keep.google.com"], "https://keep.google.com")
-^+#k:: FocusTab(P1, ["calendar.google.com"], "https://calendar.google.com")
-^+#g:: FocusTab(P1, ["gemini.google.com"], "https://gemini.google.com")
-^!+p:: FocusTab(P1, ["ebay.com"], "https://ebay.com")
-^+#y:: FocusTab(P1, ["music.youtube.com"], "https://music.youtube.com")
+^!+v:: FocusTab(P1, ["chat.google.com"],                            "https://chat.google.com/")
+^+#v:: FocusTab(P1, ["meet.google.com"],                            "https://meet.google.com")
+^!+y:: FocusTab(P1, ["www.youtube.com"],                            "https://youtube.com")
+^!+x:: FocusTab(P1, ["messages.google.com"],                        "https://messages.google.com")
+^!+k:: FocusTab(P1, ["keep.google.com"],                            "https://keep.google.com")
+^+#k:: FocusTab(P1, ["calendar.google.com"],                        "https://calendar.google.com")
+^+#g:: FocusTab(P1, ["gemini.google.com"],                          "https://gemini.google.com")
+^!+p:: FocusTab(P1, ["ebay.com"],                                   "https://ebay.com")
+^+#y:: FocusTab(P1, ["music.youtube.com"],                          "https://music.youtube.com")
+^!+r:: FocusTab(P1, ["reddit.com"],                                 "https://reddit.com/r/sailing")
 
 ; --- Browser tab focus (profile 2) ---
-^!+o:: FocusTab(P2, ["outlook.cloud.microsoft"], "https://outlook.cloud.microsoft")
-^!+u:: FocusTab(P2, ["teams.microsoft.com"],     "https://teams.microsoft.com")
+^!+o:: FocusTab(P2, ["outlook.cloud.microsoft"],                    "https://outlook.cloud.microsoft")
+^!+u:: FocusTab(P2, ["teams.microsoft.com"],                        "https://teams.microsoft.com")
 
 ; --- Brave window cycling --- (UNIVERSAL)
 ^!+i::  CycleChromiumProfile(P1)
@@ -63,7 +64,6 @@ P2 := "Profile 1"
 ; APP STORE APPS - use this ps1 cmd to find needed appId (replace "*Claude" with the app you need):
 ; (New-Object -ComObject Shell.Application).NameSpace('shell:AppsFolder').Items() | Where-Object { $_.Name -like '*Claude*' } | Select-Object Name, Path, @{N='AppId'; E={$_.ExtendedProperty('System.AppUserModel.ID')}}
 ^!+c:: ManageAppWindows("claude.exe", () => LaunchStoreApp("Claude_pzs8sxrjxfjjc!Claude"), "toggle")
-
 
 ; --- Folder shortcuts ---
 ^!+a::  OpenAppsFolder()
@@ -88,7 +88,6 @@ P2 := "Profile 1"
 ^!+l:: ShowAltTabSucksDebug()
 
 ; ---- Local functions ----
-
 OpenAppsFolder() {
     Run("G:\My Drive\apps-drivers-saves-portable")
 }

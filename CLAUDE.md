@@ -33,7 +33,12 @@ PowerShell HTTP server (`localhost:9876`) that bridges AHK ↔ browser extension
 - `lib/config.ahk` — browser paths config (**gitignored** — copy from `config.template.ahk` and fill in)
 - `lib/app-hotkeys.ahk` — new hotkeys go here (**gitignored** — contains real URLs/paths)
 - `lib/app-hotkeys.template.ahk` — sanitized version of above, tracked in git
-- `lib/utils.ahk` — window management utilities, window switcher, settings GUI
+- `lib/utils.ahk` — stub loader that includes split utility modules
+- `lib/globals.ahk` — shared configuration globals
+- `lib/general.ahk` — general UI helpers and clipboard utilities
+- `lib/window-management.ahk` — window/app management helpers
+- `lib/settings.ahk` — settings GUI and config persistence
+- `lib/window-switcher.ahk` — typeahead window switcher with DWM preview
 - `lib/chromium.ahk` — Chromium profile cycling + tab focus; dispatches to Firefox equivalents when `CHROMIUM_EXE = ""`
 - `lib/firefox.ahk` — Firefox profile cycling + tab focus
 - `lib/toast.ahk` — visual feedback overlays
@@ -64,7 +69,7 @@ They are **not compatible** — check `#Requires` at the top of each file before
 
 ## Architecture Patterns
 
-### Window Management (`lib/utils.ahk`)
+### Window Management (`lib/window-management.ahk`)
 `ManageAppWindows(processName, exePath, mode)`:
 - Filters to only WS_VISIBLE, unowned windows (avoids Discord tray, child dialogs)
 - `"cycle"`: none → launch; 1 → toggle minimize/activate; 2+ → advance through list
@@ -73,7 +78,7 @@ They are **not compatible** — check `#Requires` at the top of each file before
 - `exePath` can be a `Func` object (e.g. `() => LaunchStoreApp(...)`) for Store/MSIX apps
 - `CYCLE_SINGLE_AS_TOGGLE` global (default `false`): cycle mode falls back to toggle when only one window
 
-### Settings GUI (`lib/utils.ahk`)
+### Settings GUI (`lib/settings.ahk`)
 `ShowSettingsGui()` — opened via `^!+,`. Themed dark/light, resizable, categorized:
 - **Browser**: Chromium EXE/UserData, Firefox EXE/profiles.ini (with Browse buttons)
 - **Window Cycling**: `CYCLE_SINGLE_AS_TOGGLE` checkbox
@@ -82,7 +87,7 @@ They are **not compatible** — check `#Requires` at the top of each file before
 
 `_WriteConfigFile()` persists all settings to `lib/config.ahk` (gitignored). Browser path changes trigger `Reload()`; all other changes take effect immediately without reload.
 
-### Window Switcher (`lib/utils.ahk`)
+### Window Switcher (`lib/window-switcher.ahk`)
 `ShowWindowSwitcher(dir := "down")` — typeahead Alt+Tab replacement. Hotkeys: `!Tab` (down), `!+Tab`/`!vkC0` (up, backtick), `!WheelDown`/`!WheelUp`.
 
 **Globals**: `SWITCHER_SHOW_PREVIEW`, `SWITCHER_PREVIEW_SIDE`, `SWITCHER_PREVIEW_SIZE`.
