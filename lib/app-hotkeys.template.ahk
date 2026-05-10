@@ -11,13 +11,13 @@ P1 := "Default" ; Brave profile 1
 P2 := "Profile 1" ; Brave profile 2
 ; 
 ; ^!+s:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
-; ^!+j:: FocusTab(P2, ["https://YOUR_URL","https://YOUR_URL","https://YOUR_URL","https://YOUR_URL"],  "https://YOUR_URL")
+; ^!+j:: FocusTab(P2, ["YOUR_URL","https://YOUR_URL","https://YOUR_URL","https://YOUR_URL"],  "https://YOUR_URL")
 ; ^!+b:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
 ; ^!+z:: FocusTab(P2, ["YOUR_URL"],             "https://YOUR_URL")
-; ^+#w:: FocusTab(P2, ["https://YOUR_URL"], "https://YOUR_URL")
+; ^+#w:: FocusTab(P2, ["YOUR_URL"], "https://YOUR_URL")
 ; ^+#c:: FocusTab(P1, ["YOUR_URL"], "https://YOUR_URL")
-; ^+#b:: OpenIssue("https://YOUR_URL")
-; ^+#r:: OpenIssue("https://YOUR_URL")
+; ^+#b:: OpenIssue("YOUR_URL")
+; ^+#r:: OpenIssue("YOUR_URL")
 ; 
 ;--- END SENSITIVE ---
 

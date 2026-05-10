@@ -28,9 +28,15 @@ awk '
         line = $0
         gsub(/P1 := "[^"]*"/, "P1 := \"Default\"", line)
         gsub(/P2 := "[^"]*"/, "P2 := \"Profile 1\"", line)
-        gsub(/"https?:\/\/[^"]*"/, "\"https://YOUR_URL\"", line)
-        gsub(/"[^"]*\.[^"]*"/, "\"YOUR_URL\"", line)
-        print line
+        gsub(/"https?:\/\/[^\\"]*"/, "\"https://YOUR_URL\"", line)
+        gsub(/"[^\\"]*\.[^\\"]*"/, "\"YOUR_URL\"", line)
+        if (line ~ /^[[:space:]]*P[12][[:space:]]*:=/ || line ~ /^[[:space:]]*;[[:space:]]*P[12][[:space:]]*:=/) {
+            print line
+        } else if (line ~ /^[[:space:]]*;/) {
+            print line
+        } else {
+            print "; " line
+        }
     } else {
         print $0
     }
