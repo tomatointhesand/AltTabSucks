@@ -539,7 +539,7 @@ _SwitcherActivate(row) {
 }
 
 _SwitcherWMActivate(wParam, lParam, msg, hwnd) {
-    global _switcherGui, _switcherLV, _switcherEdit, _switcherHeldMods
+    global _switcherGui, _switcherLV, _switcherEdit, _switcherHeldMods, _previewGui, _carouselGui
     if !IsObject(_switcherGui)
         return
     try {
@@ -549,8 +549,18 @@ _SwitcherWMActivate(wParam, lParam, msg, hwnd) {
         return
     }
     if (wParam & 0xFFFF) = 0 {  ; WA_INACTIVE — window lost focus
-        ; On Win10+ "scroll inactive windows" routes wheel events to the cursor's window,
-        ; which can briefly activate it while nav mod keys are still held. Ignore in that case.
+        ; lParam is the HWND of the window gaining focus.
+        ; Never close when focus goes to our own preview/carousel overlay windows.
+        if IsObject(_previewGui) && lParam = _previewGui.Hwnd
+            return
+        if IsObject(_carouselGui) && lParam = _carouselGui.Hwnd
+            return
+        ; Close immediately on an explicit click to an external window.
+        ; Scroll-inactive-windows briefly steals focus mid-scroll with no button pressed — ignore that.
+        if GetKeyState("LButton", "P") || GetKeyState("RButton", "P") {
+            _SwitcherClose()
+            return
+        }
         for mod in _switcherHeldMods
             if GetKeyState(mod, "P")
                 return
