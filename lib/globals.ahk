@@ -18,3 +18,19 @@ SWITCHER_PREVIEW_SIDE := "right"
 
 ; Preview size as a percentage of the default max dimensions (640×400). Range 25–200.
 SWITCHER_PREVIEW_SIZE := 100
+
+; When true, preview shows as an animated multi-window carousel arc instead of a single thumbnail.
+; Requires SWITCHER_SHOW_PREVIEW := true.
+SWITCHER_CAROUSEL := false
+
+; Number of windows visible in the carousel (odd number, 3–9).
+SWITCHER_CAROUSEL_SLOTS := 5
+
+; Where the carousel appears relative to the switcher popup: "above" or "below".
+SWITCHER_CAROUSEL_POSITION := "above"
+
+; When true, carousel slot transitions animate with a lerp rather than snapping instantly.
+SWITCHER_CAROUSEL_ANIMATE := false
+
+; Lerp speed for animated carousel transitions: "slow", "medium", or "fast".
+SWITCHER_CAROUSEL_SPEED := "medium"
