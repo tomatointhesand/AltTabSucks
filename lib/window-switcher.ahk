@@ -45,22 +45,32 @@ _switcherLV          := 0
 _switcherEdit        := 0
 _switcherCurrentRow  := 1
 _switcherHeldMods    := []
-_previewGui          := 0
-_previewThumbnail    := 0
+_previewGui              := 0
+_previewThumbnail        := 0
+_switcherHoveredCloseRow := -1  ; 0-based item index of × cell under cursor, or -1
+_switcherMouseTracking   := false
+_switcherPersistent      := false  ; true when opened via Ctrl+Alt+Tab (stays open after key release)
 
-ShowWindowSwitcher(dir := "down") {
-    global _switcherGui, _switcherItems, _switcherLV, _switcherEdit, _switcherCurrentRow
+ShowWindowSwitcher(dir := "down", persistent := false) {
+    global _switcherGui, _switcherItems, _switcherLV, _switcherEdit, _switcherCurrentRow, _switcherPersistent
     static _msgHooked := false
     if !_msgHooked {
         OnMessage(0x0100, _SwitcherKeyHandler)   ; WM_KEYDOWN
         OnMessage(0x0101, _SwitcherKeyHandler)   ; WM_KEYUP
         OnMessage(0x0104, _SwitcherKeyHandler)   ; WM_SYSKEYDOWN — arrow keys while Alt held
         OnMessage(0x0105, _SwitcherKeyHandler)   ; WM_SYSKEYUP
-        OnMessage(0x020A, _SwitcherKeyHandler)   ; WM_MOUSEWHEEL — scroll to cycle rows
         OnMessage(0x0006, _SwitcherWMActivate)   ; WM_ACTIVATE — close on defocus
+        OnMessage(0x0200, _SwitcherMouseMove)    ; WM_MOUSEMOVE — × column hover tracking
+        OnMessage(0x02A3, _SwitcherMouseLeave)   ; WM_MOUSELEAVE — clear hover on exit
+        OnMessage(0x0020, _SwitcherWMSetCursor)  ; WM_SETCURSOR — hand cursor over ×
+        OnMessage(0x004E, _SwitcherWMNotify)     ; WM_NOTIFY — NM_CUSTOMDRAW for × highlight
         _msgHooked := true
     }
     if IsObject(_switcherGui) {
+        if persistent {
+            global _switcherPersistent := true  ; upgrade a held-key session to persistent
+            return
+        }
         if IsObject(_switcherLV) {
             count := _switcherLV.GetCount()
             if count > 0 {
@@ -80,6 +90,7 @@ ShowWindowSwitcher(dir := "down") {
     for modKey in ["Ctrl", "Shift", "Alt", "LWin", "RWin"]
         if GetKeyState(modKey, "P")  ; physical state — reliable even if AHK has modified logical state
             _switcherHeldMods.Push(modKey)
+    global _switcherPersistent := persistent
 
     isDark := _SwitcherIsDark()
 
@@ -89,9 +100,36 @@ ShowWindowSwitcher(dir := "down") {
     g.MarginY := 10
     _switcherGui := g
 
-    edit := g.AddEdit("xm ym w500 h32")
+    hintH       := 0
+    hint        := 0
+    dontShowBtn := 0
+    if SWITCHER_SHOW_HINTS {
+        hintColor := isDark ? "707070" : "909090"
+        g.SetFont("s9 c" hintColor, "Segoe UI")
+        hint := g.AddText("xm ym w534 h20", "Tab/Backtick, ↑/↓: navigate  •  Enter / Release Alt: switch  •  End: close selected window  •  Esc: dismiss")
+        g.SetFont("s9", "Segoe UI")
+        dontShowBtn := g.AddButton("x+6 yp w80 h20", "Hide hints")
+        g.SetFont("s12", "Segoe UI")
+        edit := g.AddEdit("xm y+4 w620 h32")
+        hintH := 24
+
+        DontShowHints(*) {
+            global SWITCHER_SHOW_HINTS
+            SWITCHER_SHOW_HINTS := false
+            _PersistConfig()
+            hint.Visible     := false
+            dontShowBtn.Visible := false
+            edit.Move(, 10)
+            lv.GetPos(, &ly)
+            lv.Move(, ly - 24)
+            g.GetPos(, , , &gh)
+            g.Move(, , , gh - 24)
+        }
+        dontShowBtn.OnEvent("Click", DontShowHints)
+    } else
+        edit := g.AddEdit("xm ym w620 h32")
     _switcherEdit := edit
-    lv   := g.AddListView("xm y+6 w500 h20 -Hdr -Multi +0x8", ["App", "Title"])  ; +0x8 = LVS_SHOWSELALWAYS
+    lv   := g.AddListView("xm y+6 w620 h20 -Hdr -Multi +0x8", ["App", "Title", ""])  ; +0x8 = LVS_SHOWSELALWAYS
     _switcherLV := lv
 
     _ApplySwitcherTheme(g, edit, lv, isDark)
@@ -133,17 +171,20 @@ ShowWindowSwitcher(dir := "down") {
     DllCall("GetClientRect", "Ptr", lv.Hwnd, "Ptr", cr)
     usableW := NumGet(cr, 8, "Int")
     if usableW <= 0
-        usableW := 496  ; fallback: 500px control - 4px for CLIENTEDGE border
+        usableW := 616  ; fallback: 620px control - 4px for CLIENTEDGE border
     if count > 32
         usableW -= DllCall("GetSystemMetrics", "Int", 2)  ; SM_CXVSCROLL
 
     lv.Move(,, , lvH)
     SendMessage(0x1013, 0, 0, lv)  ; LVM_ENSUREVISIBLE item 0 — clears scroll offset left by pre-show "Vis" selection
+    closeColW := 30
     lv.ModifyCol(1, colExeW)
-    lv.ModifyCol(2, Max(usableW - colExeW, 50))
+    lv.ModifyCol(2, Max(usableW - colExeW - closeColW, 50))
+    lv.ModifyCol(3, "Center " . closeColW)
 
     edit.OnEvent("Change",    (*) => _SwitcherRefresh(edit, lv))
     lv.OnEvent("DoubleClick", (ctrl, row) => _SwitcherActivate(row))
+    lv.OnEvent("Click",       _SwitcherLVClick)
 
     CloseSwitcher(*) {
         global _switcherGui, _switcherLV, _switcherEdit
@@ -155,11 +196,13 @@ ShowWindowSwitcher(dir := "down") {
     g.OnEvent("Close", CloseSwitcher)
 
     ; Single show at exact computed client size — no post-show resize, no flash.
-    ; clientH = marginY(10) + editH(32) + gap(6) + lvH + marginY(10)
-    g.Show("w520 h" (58 + lvH) " Center")
+    ; clientH = marginY(10) + [hintH(20)+gap(4) when hints on] + editH(32) + gap(6) + lvH + marginY(10)
+    g.Show("w640 h" (58 + hintH + lvH) " Center")
     if !IsObject(_switcherGui)  ; WM_ACTIVATE may have fired during Show and destroyed the GUI
         return
     DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", g.Hwnd, "UInt", 33, "Int*", 2, "UInt", 4)  ; rounded corners (Win11)
+    if IsObject(dontShowBtn) && isDark
+        _ThemeButton(dontShowBtn, true)
     edit.Focus()
     ; If the trigger modifiers were released while the popup was loading, activate immediately.
     ; This covers the case where _switcherHeldMods is empty (released before the physical-state
@@ -170,7 +213,7 @@ ShowWindowSwitcher(dir := "down") {
             modsStillHeld := true
             break
         }
-    if !modsStillHeld {
+    if !modsStillHeld && !_switcherPersistent {
         if IsObject(_switcherLV) && _switcherLV.GetCount() = 0
             _SwitcherClose()
         else
@@ -182,8 +225,8 @@ ShowWindowSwitcher(dir := "down") {
 }
 
 _SwitcherKeyHandler(vk, sc, msg, hwnd) {
-    global _switcherGui, _switcherLV, _switcherEdit, _switcherCurrentRow
-    global _switcherHeldMods
+    global _switcherGui, _switcherLV, _switcherEdit, _switcherCurrentRow, _switcherItems
+    global _switcherHeldMods, _switcherPersistent
     if !IsObject(_switcherGui)
         return
     try {
@@ -206,31 +249,17 @@ _SwitcherKeyHandler(vk, sc, msg, hwnd) {
                     break
                 }
             if allReleased {
-                if IsObject(_switcherLV) && _switcherLV.GetCount() = 0
-                    _SwitcherClose()
-                else
-                    _SwitcherActivate(_switcherCurrentRow ? _switcherCurrentRow : 1)
+                if !_switcherPersistent {
+                    if IsObject(_switcherLV) && _switcherLV.GetCount() = 0
+                        _SwitcherClose()
+                    else
+                        _SwitcherActivate(_switcherCurrentRow ? _switcherCurrentRow : 1)
+                }
                 return true
             }
         }
         return
     }
-    if msg = 0x020A {  ; WM_MOUSEWHEEL — high word of wParam is signed delta; positive = up
-        if IsObject(_switcherLV) {
-            count    := _switcherLV.GetCount()
-            scrollUp := ((vk >> 16) & 0xFFFF) < 0x8000
-            if scrollUp
-                global _switcherCurrentRow := _switcherCurrentRow <= 1 ? count : _switcherCurrentRow - 1
-            else
-                global _switcherCurrentRow := _switcherCurrentRow >= count ? 1 : _switcherCurrentRow + 1
-            _switcherLV.Modify(0, "-Select")
-            _switcherLV.Modify(_switcherCurrentRow, "Select Focus Vis")
-            if SWITCHER_SHOW_PREVIEW
-                _SwitcherPreviewSchedule()
-        }
-        return true
-    }
-
     switch vk {
         case 0x09:  ; VK_TAB — navigate rows (Shift = up, bare = down)
             if IsObject(_switcherLV) {
@@ -276,6 +305,17 @@ _SwitcherKeyHandler(vk, sc, msg, hwnd) {
                 _switcherLV.Modify(_switcherCurrentRow, "Select Focus Vis")
                 if SWITCHER_SHOW_PREVIEW
                     _SwitcherPreviewSchedule()
+            }
+            return true
+        case 0x23:  ; VK_END — close selected window (Alt+End, or bare End in persistent mode)
+            if msg != 0x0104 && !_switcherPersistent
+                return
+            if IsObject(_switcherLV) && _switcherCurrentRow >= 1 && _switcherCurrentRow <= _switcherItems.Length {
+                item    := _switcherItems[_switcherCurrentRow]
+                savedRow := _switcherCurrentRow
+                WinClose("ahk_id " item.hwnd)
+                _SwitcherRefresh(_switcherEdit, _switcherLV)
+                _SwitcherRestoreRow(savedRow)
             }
             return true
     }
@@ -403,7 +443,7 @@ _SwitcherRefresh(edit, lv) {
 
         if q = "" || _SwitcherMatch(exeDisp . " " . title, q) {
             _switcherItems.Push({hwnd: hwnd, minimized: mini, exeName: exeDisp, title: title})
-            lv.Add("", exeDisp, title)
+            lv.Add("", exeDisp, title, "×")
         }
 
         hwnd := nextHwnd
@@ -436,25 +476,31 @@ _SwitcherExeName(exeName) {
 }
 
 _SwitcherClose() {
-    global _switcherGui, _switcherLV, _switcherEdit
+    global _switcherGui, _switcherLV, _switcherEdit, _switcherHoveredCloseRow, _switcherMouseTracking, _switcherPersistent
     if !IsObject(_switcherGui)
         return
     gui := _switcherGui
-    _switcherGui  := 0
-    _switcherLV   := 0
-    _switcherEdit := 0
+    _switcherGui             := 0
+    _switcherLV              := 0
+    _switcherEdit            := 0
+    _switcherHoveredCloseRow := -1
+    _switcherMouseTracking   := false
+    _switcherPersistent      := false
     _SwitcherPreviewClose()
     gui.Destroy()
 }
 
 _SwitcherActivate(row) {
-    global _switcherGui, _switcherItems, _switcherLV, _switcherEdit
+    global _switcherGui, _switcherItems, _switcherLV, _switcherEdit, _switcherHoveredCloseRow, _switcherMouseTracking, _switcherPersistent
     if row < 1 || row > _switcherItems.Length
         return
     item := _switcherItems[row]
     gui  := _switcherGui
-    _switcherGui := 0   ; zero before Destroy so WM_ACTIVATE handler doesn't re-enter
-    _switcherLV  := 0
+    _switcherGui             := 0   ; zero before Destroy so WM_ACTIVATE handler doesn't re-enter
+    _switcherLV              := 0
+    _switcherHoveredCloseRow := -1
+    _switcherMouseTracking   := false
+    _switcherPersistent      := false
     _SwitcherPreviewClose()
     if IsObject(gui)
         gui.Destroy()
@@ -577,3 +623,165 @@ _SwitcherPreviewTimer() {
     NumPut("Int",   1,        props, 40)  ; fVisible
     DllCall("dwmapi\DwmUpdateThumbnailProperties", "Ptr", hThumb, "Ptr", props)
 }
+
+; After closing a window and refreshing, restore selection to the same row (clamped).
+_SwitcherRestoreRow(savedRow) {
+    global _switcherLV, _switcherCurrentRow
+    if !IsObject(_switcherLV)
+        return
+    count := _switcherLV.GetCount()
+    if count < 1
+        return
+    targetRow := Min(savedRow, count)
+    global _switcherCurrentRow := targetRow
+    _switcherLV.Modify(0, "-Select")
+    _switcherLV.Modify(targetRow, "Select Focus Vis")
+    if SWITCHER_SHOW_PREVIEW
+        _SwitcherPreviewSchedule()
+}
+
+; Track cursor position over the × column and request WM_MOUSELEAVE via TrackMouseEvent.
+_SwitcherMouseMove(wParam, lParam, msg, hwnd) {
+    global _switcherGui, _switcherLV, _switcherHoveredCloseRow, _switcherMouseTracking
+    if !IsObject(_switcherGui) || !IsObject(_switcherLV) || hwnd != _switcherLV.Hwnd
+        return
+    x := lParam & 0xFFFF
+    y := (lParam >> 16) & 0xFFFF
+    if x > 0x7FFF
+        x -= 0x10000
+    if y > 0x7FFF
+        y -= 0x10000
+    hti := Buffer(24, 0)
+    NumPut("Int", x, hti, 0)
+    NumPut("Int", y, hti, 4)
+    itemIdx := SendMessage(0x1039, 0, hti, _switcherLV)  ; LVM_SUBITEMHITTEST
+    subitem  := NumGet(hti, 16, "Int")
+    newHover := (itemIdx >= 0 && subitem = 2) ? itemIdx : -1
+    if newHover != _switcherHoveredCloseRow {
+        global _switcherHoveredCloseRow := newHover
+        DllCall("InvalidateRect", "Ptr", _switcherLV.Hwnd, "Ptr", 0, "Int", 1)
+    }
+    if !_switcherMouseTracking {
+        tme := Buffer(20, 0)
+        NumPut("UInt", 20,                   tme,  0)  ; cbSize
+        NumPut("UInt", 2,                    tme,  4)  ; TME_LEAVE
+        NumPut("Ptr",  _switcherLV.Hwnd,     tme,  8)  ; hwndTrack
+        DllCall("TrackMouseEvent", "Ptr", tme)
+        global _switcherMouseTracking := true
+    }
+}
+
+; Clear hover state when cursor exits the ListView.
+_SwitcherMouseLeave(wParam, lParam, msg, hwnd) {
+    global _switcherGui, _switcherLV, _switcherHoveredCloseRow, _switcherMouseTracking
+    if !IsObject(_switcherGui) || !IsObject(_switcherLV) || hwnd != _switcherLV.Hwnd
+        return
+    global _switcherMouseTracking := false
+    if _switcherHoveredCloseRow != -1 {
+        global _switcherHoveredCloseRow := -1
+        DllCall("InvalidateRect", "Ptr", _switcherLV.Hwnd, "Ptr", 0, "Int", 1)
+    }
+}
+
+; Show a hand cursor when hovering the × column.
+_SwitcherWMSetCursor(wParam, lParam, msg, hwnd) {
+    global _switcherLV, _switcherHoveredCloseRow
+    if !IsObject(_switcherLV) || hwnd != _switcherLV.Hwnd || _switcherHoveredCloseRow < 0
+        return
+    DllCall("SetCursor", "Ptr", DllCall("LoadCursor", "Ptr", 0, "Ptr", 32649, "Ptr"))  ; IDC_HAND
+    return true
+}
+
+; NM_CUSTOMDRAW: paint the × cell with a red hover background when the cursor is over it.
+; Uses CDRF_SKIPDEFAULT + explicit GDI so the fill beats the themed selection overlay on selected rows.
+; Struct offsets (x64): NMHDR=24B; +24=dwDrawStage, +32=hdc, +40=rc(ltrb), +56=dwItemSpec, +88=iSubItem
+_SwitcherWMNotify(wParam, lParam, msg, hwnd) {
+    global _switcherGui, _switcherLV, _switcherHoveredCloseRow
+    if !IsObject(_switcherGui) || !IsObject(_switcherLV) || _switcherHoveredCloseRow < 0
+        return
+    if hwnd != _switcherGui.Hwnd
+        return
+    if NumGet(lParam, 0, "Ptr") != _switcherLV.Hwnd  ; nmhdr.hwndFrom
+        return
+    if NumGet(lParam, 16, "Int") != -12               ; nmhdr.code != NM_CUSTOMDRAW
+        return
+    drawStage := NumGet(lParam, 24, "UInt")
+    if drawStage = 0x00000001                          ; CDDS_PREPAINT
+        return 0x00000020                              ; CDRF_NOTIFYITEMDRAW
+    if drawStage = 0x00010001                          ; CDDS_ITEMPREPAINT
+        return 0x00000020                              ; CDRF_NOTIFYSUBITEMDRAW
+    if drawStage = 0x00030001 {                        ; CDDS_ITEMPREPAINT|CDDS_SUBITEM
+        if NumGet(lParam, 88, "Int") != 2              ; iSubItem != × column
+            return
+        if NumGet(lParam, 56, "UPtr") != _switcherHoveredCloseRow  ; wrong row
+            return
+        ; Explicit GDI fill + text bypasses the Explorer theme's selection overlay
+        ; that runs after CDRF_NEWFONT and would repaint the background on selected rows.
+        hdc    := NumGet(lParam, 32, "Ptr")
+        rc     := Buffer(16, 0)
+        NumPut("Int", NumGet(lParam, 40, "Int"), rc,  0)   ; left
+        NumPut("Int", NumGet(lParam, 44, "Int"), rc,  4)   ; top
+        NumPut("Int", NumGet(lParam, 48, "Int"), rc,  8)   ; right
+        NumPut("Int", NumGet(lParam, 52, "Int"), rc, 12)   ; bottom
+        hBrush := DllCall("CreateSolidBrush", "UInt", 0x001C2BC4, "Ptr")  ; #C42B1C in BGR
+        DllCall("FillRect",  "Ptr", hdc, "Ptr", rc, "Ptr", hBrush)
+        DllCall("DeleteObject", "Ptr", hBrush)
+        oldColor := DllCall("SetTextColor", "Ptr", hdc, "UInt", 0x00FFFFFF, "UInt")
+        oldBk    := DllCall("SetBkMode",    "Ptr", hdc, "Int",  1,          "Int")   ; TRANSPARENT
+        DllCall("DrawTextW", "Ptr", hdc, "Str", "×", "Int", 1, "Ptr", rc, "UInt", 0x25)  ; DT_SINGLELINE|DT_CENTER|DT_VCENTER
+        DllCall("SetTextColor", "Ptr", hdc, "UInt", oldColor)
+        DllCall("SetBkMode",    "Ptr", hdc, "Int",  oldBk)
+        return 0x00000004                              ; CDRF_SKIPDEFAULT — we drew it, skip system render
+    }
+}
+
+; Handle single click on the ListView: × column closes the window, other columns update row selection.
+_SwitcherLVClick(ctrl, row) {
+    global _switcherGui, _switcherItems, _switcherLV, _switcherEdit, _switcherCurrentRow
+    if !IsObject(_switcherGui) || row < 1 || row > _switcherItems.Length
+        return
+    pt := Buffer(8, 0)
+    DllCall("GetCursorPos", "Ptr", pt)
+    DllCall("ScreenToClient", "Ptr", ctrl.Hwnd, "Ptr", pt)
+    hti := Buffer(24, 0)
+    NumPut("Int", NumGet(pt, 0, "Int"), hti, 0)
+    NumPut("Int", NumGet(pt, 4, "Int"), hti, 4)
+    SendMessage(0x1039, 0, hti, ctrl)  ; LVM_SUBITEMHITTEST — fills iSubItem at offset 16
+    if NumGet(hti, 16, "Int") = 2 {   ; column 2 (0-based) = "×"
+        savedRow := _switcherCurrentRow
+        WinClose("ahk_id " _switcherItems[row].hwnd)
+        _SwitcherRefresh(_switcherEdit, _switcherLV)
+        _SwitcherRestoreRow(savedRow)
+    } else
+        global _switcherCurrentRow := row
+}
+
+_SwitcherScroll(dir) {
+    global _switcherLV, _switcherCurrentRow
+    if !IsObject(_switcherLV)
+        return
+    count := _switcherLV.GetCount()
+    if count < 1
+        return
+    if dir = "up"
+        global _switcherCurrentRow := _switcherCurrentRow <= 1 ? count : _switcherCurrentRow - 1
+    else
+        global _switcherCurrentRow := _switcherCurrentRow >= count ? 1 : _switcherCurrentRow + 1
+    _switcherLV.Modify(0, "-Select")
+    _switcherLV.Modify(_switcherCurrentRow, "Select Focus Vis")
+    if SWITCHER_SHOW_PREVIEW
+        _SwitcherPreviewSchedule()
+}
+
+; Ctrl+Alt+Tab — open the switcher in persistent mode (stays open after keys are released).
+^!Tab::ShowWindowSwitcher("down", true)
+^!+Tab::ShowWindowSwitcher("up", true)
+
+; These hotkeys install low-level hooks so they fire regardless of which window the mouse
+; is over — needed for scroll-inactive-windows and for persistent mode where the cursor
+; may be anywhere on screen.
+#HotIf IsObject(_switcherGui)
+!Escape::_SwitcherClose()
+WheelUp::_SwitcherScroll("up")
+WheelDown::_SwitcherScroll("down")
+#HotIf

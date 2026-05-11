@@ -1,6 +1,6 @@
 ; app-hotkeys.ahk - General application hotkeys
 
-; Key notation: `^`=Ctrl, `!`=Alt, `+`=Shift, `#`=Win, `~`=pass-through
+; Key notation: `^`=Ctrl, `!`=Alt, `+`=Shift, `#`=Win
 ;--- BEGIN SENSITIVE ---
 ; 
 ;P1 := "Default" ; Firefox
@@ -77,7 +77,7 @@ P2 := "Profile 1" ; Brave profile 2
 ; --- Window switcher (UNIVERSAL)
 !Tab::    ShowWindowSwitcher("down")
 !+Tab::   ShowWindowSwitcher("up")
-!vkC0::   ShowWindowSwitcher("up")
+!vkC0::   ShowWindowSwitcher("up") ; backtick, convenient "up" alternative navigation
 !WheelDown:: ShowWindowSwitcher("down")
 !WheelUp::   ShowWindowSwitcher("up")
 

@@ -10,6 +10,9 @@ THEME := "auto"
 ; When true, a live DWM thumbnail of the highlighted window appears beside the switcher popup.
 SWITCHER_SHOW_PREVIEW := true
 
+; When true, the keyboard hint bar is shown at the top of the window switcher popup.
+SWITCHER_SHOW_HINTS := true
+
 ; Which side of the switcher popup the window preview appears on: "right" or "left".
 SWITCHER_PREVIEW_SIDE := "right"
 
