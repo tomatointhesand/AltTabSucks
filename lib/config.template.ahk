@@ -14,6 +14,6 @@ global SWITCHER_PREVIEW_SIZE    := 140
 global SWITCHER_SHOW_HINTS      := true
 global SWITCHER_CAROUSEL         := true
 global SWITCHER_CAROUSEL_SLOTS   := 5
-global SWITCHER_CAROUSEL_ANIMATE   := true
+global SWITCHER_CAROUSEL_ANIMATE   := false
 global SWITCHER_CAROUSEL_POSITION  := "above"
 global SWITCHER_CAROUSEL_SPEED     := "fast"

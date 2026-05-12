@@ -106,7 +106,8 @@ OpenIssue(prefix) {
         "Open " proj " Issue", "H150 T15")
     if result.Result != "OK" || result.Value = ""
         return
-    Run(prefix "-" result.Value)
+    url := (SubStr(prefix, 1, 4) = "http") ? prefix : "https://" prefix
+    Run(url "-" result.Value)
 }
 
 ; Parses app-hotkeys.ahk and returns a formatted hotkey reference string grouped
