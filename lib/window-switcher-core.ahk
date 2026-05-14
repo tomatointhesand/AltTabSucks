@@ -540,6 +540,7 @@ _SwitcherActivate(row) {
 
 _SwitcherWMActivate(wParam, lParam, msg, hwnd) {
     global _switcherGui, _switcherLV, _switcherEdit, _switcherHeldMods, _previewGui, _carouselGui
+    global _gridTopGui, _gridBotGui, _gridRingGui
     if !IsObject(_switcherGui)
         return
     try {
@@ -550,10 +551,16 @@ _SwitcherWMActivate(wParam, lParam, msg, hwnd) {
     }
     if (wParam & 0xFFFF) = 0 {  ; WA_INACTIVE — window lost focus
         ; lParam is the HWND of the window gaining focus.
-        ; Never close when focus goes to our own preview/carousel overlay windows.
+        ; Never close when focus goes to our own preview/carousel/grid overlay windows.
         if IsObject(_previewGui) && lParam = _previewGui.Hwnd
             return
         if IsObject(_carouselGui) && lParam = _carouselGui.Hwnd
+            return
+        if IsObject(_gridTopGui) && lParam = _gridTopGui.Hwnd
+            return
+        if IsObject(_gridBotGui) && lParam = _gridBotGui.Hwnd
+            return
+        if IsObject(_gridRingGui) && lParam = _gridRingGui.Hwnd
             return
         ; Close immediately on an explicit click to an external window.
         ; Scroll-inactive-windows briefly steals focus mid-scroll with no button pressed — ignore that.
@@ -590,6 +597,12 @@ _SwitcherRestoreRow(savedRow) {
 
 #HotIf IsObject(_switcherGui)
 !Escape::_SwitcherClose()
+!PgUp::    ShowWindowSwitcher("up")
+!PgDn::    ShowWindowSwitcher("down")
+!Left::    ShowWindowSwitcher("up")
+!Right::    ShowWindowSwitcher("down")
+!WheelDown:: ShowWindowSwitcher("down")
+!WheelUp::   ShowWindowSwitcher("up")
 #HotIf
 
 ; Wheel scrolling is handled via a WH_MOUSE_LL hook (see _SwitcherMouseHookInstall)

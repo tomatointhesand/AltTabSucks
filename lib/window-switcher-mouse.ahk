@@ -3,7 +3,15 @@
 ; Track cursor position over the × column and request WM_MOUSELEAVE via TrackMouseEvent.
 _SwitcherMouseMove(wParam, lParam, msg, hwnd) {
     global _switcherGui, _switcherLV, _switcherHoveredCloseRow, _switcherMouseTracking
-    if !IsObject(_switcherGui) || !IsObject(_switcherLV) || hwnd != _switcherLV.Hwnd
+    global _gridTopGui, _gridBotGui
+    if !IsObject(_switcherGui)
+        return
+    if (IsObject(_gridTopGui) && hwnd = _gridTopGui.Hwnd)
+    || (IsObject(_gridBotGui) && hwnd = _gridBotGui.Hwnd) {
+        _SwitcherGridHover(hwnd, lParam)
+        return
+    }
+    if !IsObject(_switcherLV) || hwnd != _switcherLV.Hwnd
         return
     x := lParam & 0xFFFF
     y := (lParam >> 16) & 0xFFFF

@@ -78,8 +78,6 @@ P2 := "Profile 1" ; Brave profile 2
 !Tab::    ShowWindowSwitcher("down")
 !+Tab::   ShowWindowSwitcher("up")
 !vkC0::   ShowWindowSwitcher("up") ; backtick, convenient "up" alternative navigation
-!WheelDown:: ShowWindowSwitcher("down")
-!WheelUp::   ShowWindowSwitcher("up")
 
 ; --- Hotkey quick reference (auto-generated from this file) ---
 ^!+/:: ShowTextGui("Hotkey Reference", _BuildHotkeyRef(), 1250, 45)

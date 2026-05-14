@@ -72,82 +72,97 @@ ShowSettingsGui() {
 
     ; ── Window Switcher ───────────────────────────────────────────────────────
     hdrSwitcher := addHeader("Window Switcher")
-    showPreviewCb := g.AddCheckbox("xm y+6 w500", "Show window preview beside popup")
-    showPreviewCb.Value := SWITCHER_SHOW_PREVIEW
 
-    g.AddText("xm y+6", "Preview side")
+    ; Determine current mode from globals
+    previewMode := !SWITCHER_SHOW_PREVIEW   ? 1
+                 : SWITCHER_CAROUSEL        ? 4
+                 : SWITCHER_GRID_PREVIEW    ? 3
+                 : 2
+
+    g.AddText("xm y+6", "Preview mode")
+
+    ; All four radios must be added consecutively with no other controls between
+    ; them — any intervening control with WS_GROUP (e.g. a DropDownList) splits
+    ; the group and lets multiple radios be selected at once.
+    radioNone     := g.AddRadio("xm y+4 +Group w140", "None")
+    radioSingle   := g.AddRadio("xm y+6 w140", "Single")
+    radioGrid     := g.AddRadio("xm y+6 w140", "Grid")
+    radioCarousel := g.AddRadio("xm y+6 w140", "Carousel")
+
+    ; Grab each radio's y-coord so sub-controls can be placed on the same row.
+    radioNone.GetPos(&rnX)
+    radioSingle.GetPos(, &rsY)
+    radioGrid.GetPos(,   &rgY)
+    radioCarousel.GetPos(, &rcY)
+    subX := rnX + 140 + 8  ; right edge of radio column + gap
+
+    ; ── Single sub-controls ───────────────────────────────────────────────────
     previewSideChoices := ["Right", "Left"]
     previewSideKeys    := ["right", "left"]
     previewSideDefault := 1
     for i, k in previewSideKeys
         if k = SWITCHER_PREVIEW_SIDE
             previewSideDefault := i
-    previewSideDropdown := g.AddDropDownList("x+6 yp w100 Choose" . previewSideDefault, previewSideChoices)
-    previewSideDropdown.Enabled := SWITCHER_SHOW_PREVIEW
-
-    g.AddText("xm y+8", "Preview size")
-    previewSizeSlider := g.AddSlider("x+8 yp-4 w200 Range10-200 TickInterval10 NoTicks Line10 Page50", SWITCHER_PREVIEW_SIZE)
-    previewSizeLbl    := g.AddText("x+8 yp+4 w40", SWITCHER_PREVIEW_SIZE "%")
-    previewSizeSlider.Enabled := SWITCHER_SHOW_PREVIEW
+    g.AddText("x" subX " y" (rsY + 3), "Side")
+    previewSideDropdown := g.AddDropDownList("x+4 yp-3 w80 Choose" . previewSideDefault, previewSideChoices)
+    g.AddText("x+10 yp+3", "Size")
+    previewSizeSlider := g.AddSlider("x+6 yp-4 w160 Range10-200 TickInterval10 NoTicks Line10 Page50", SWITCHER_PREVIEW_SIZE)
+    previewSizeLbl    := g.AddText("x+6 yp+4 w36", SWITCHER_PREVIEW_SIZE "%")
     previewSizeSlider.OnEvent("Change", (*) => (
         previewSizeSlider.Value := Round(previewSizeSlider.Value / 10) * 10,
         previewSizeLbl.Value    := previewSizeSlider.Value "%"
     ))
 
-    showCarouselCb := g.AddCheckbox("xm y+8 w500", "Show as carousel (multiple live previews in an arc)")
-    showCarouselCb.Value   := SWITCHER_CAROUSEL
-    showCarouselCb.Enabled := SWITCHER_SHOW_PREVIEW
+    ; (Grid has no sub-controls — layout is fully automatic)
 
-    g.AddText("xm y+6", "Carousel slots")
+    ; ── Carousel sub-controls ─────────────────────────────────────────────────
     carouselSlotsChoices := ["3", "5", "7", "9"]
     carouselSlotsDefault := 2  ; default index for 5
     for i, v in carouselSlotsChoices
         if v = SWITCHER_CAROUSEL_SLOTS
             carouselSlotsDefault := i
-    carouselSlotsDDL := g.AddDropDownList("x+6 yp w60 Choose" . carouselSlotsDefault, carouselSlotsChoices)
-    carouselSlotsDDL.Enabled := SWITCHER_SHOW_PREVIEW && SWITCHER_CAROUSEL
-
-    g.AddText("x+12 yp+3", "Position")
     carouselPosChoices := ["Above", "Below"]
     carouselPosKeys    := ["above", "below"]
     carouselPosDefault := 1
     for i, k in carouselPosKeys
         if k = SWITCHER_CAROUSEL_POSITION
             carouselPosDefault := i
-    carouselPosDDL := g.AddDropDownList("x+6 yp-3 w80 Choose" . carouselPosDefault, carouselPosChoices)
-    carouselPosDDL.Enabled := SWITCHER_SHOW_PREVIEW && SWITCHER_CAROUSEL
-
-    carouselAnimateCb := g.AddCheckbox("xm y+6 w160", "Animate transitions")
-    carouselAnimateCb.Value   := SWITCHER_CAROUSEL_ANIMATE
-    carouselAnimateCb.Enabled := SWITCHER_SHOW_PREVIEW && SWITCHER_CAROUSEL
-
-    g.AddText("x+12 yp+3", "Speed")
     carouselSpeedChoices := ["Slow", "Medium", "Fast"]
     carouselSpeedKeys    := ["slow", "medium", "fast"]
     carouselSpeedDefault := 2
     for i, k in carouselSpeedKeys
         if k = SWITCHER_CAROUSEL_SPEED
             carouselSpeedDefault := i
-    carouselSpeedDDL := g.AddDropDownList("x+6 yp-3 w80 Choose" . carouselSpeedDefault, carouselSpeedChoices)
-    carouselSpeedDDL.Enabled := SWITCHER_SHOW_PREVIEW && SWITCHER_CAROUSEL && SWITCHER_CAROUSEL_ANIMATE
+    g.AddText("x" subX " y" (rcY + 3), "Slots")
+    carouselSlotsDDL    := g.AddDropDownList("x+4 yp-3 w55 Choose" . carouselSlotsDefault, carouselSlotsChoices)
+    g.AddText("x+8 yp+3", "Pos")
+    carouselPosDDL      := g.AddDropDownList("x+4 yp-3 w80 Choose" . carouselPosDefault, carouselPosChoices)
+    carouselAnimateCb   := g.AddCheckbox("x+10 yp+3 w90", "Animate")
+    carouselAnimateCb.Value := SWITCHER_CAROUSEL_ANIMATE
+    carouselSpeedDDL    := g.AddDropDownList("x+4 yp-3 w80 Choose" . carouselSpeedDefault, carouselSpeedChoices)
 
-    showPreviewCb.OnEvent("Click", (*) => (
-        previewSideDropdown.Enabled := showPreviewCb.Value,
-        previewSizeSlider.Enabled   := showPreviewCb.Value,
-        showCarouselCb.Enabled      := showPreviewCb.Value,
-        carouselSlotsDDL.Enabled    := showPreviewCb.Value && showCarouselCb.Value,
-        carouselPosDDL.Enabled      := showPreviewCb.Value && showCarouselCb.Value,
-        carouselAnimateCb.Enabled   := showPreviewCb.Value && showCarouselCb.Value,
-        carouselSpeedDDL.Enabled    := showPreviewCb.Value && showCarouselCb.Value && carouselAnimateCb.Value
-    ))
-    showCarouselCb.OnEvent("Click", (*) => (
-        carouselSlotsDDL.Enabled  := showCarouselCb.Value,
-        carouselPosDDL.Enabled    := showCarouselCb.Value,
-        carouselAnimateCb.Enabled := showCarouselCb.Value,
-        carouselSpeedDDL.Enabled  := showCarouselCb.Value && carouselAnimateCb.Value
-    ))
+    ; ── Radio state ───────────────────────────────────────────────────────────
+    radioNone.Value     := (previewMode = 1)
+    radioSingle.Value   := (previewMode = 2)
+    radioGrid.Value     := (previewMode = 3)
+    radioCarousel.Value := (previewMode = 4)
+
+    UpdatePreviewState(*) {
+        isSingle   := radioSingle.Value
+        isGrid     := radioGrid.Value
+        isCarousel := radioCarousel.Value
+        previewSideDropdown.Enabled := isSingle
+        previewSizeSlider.Enabled   := isSingle
+        carouselSlotsDDL.Enabled    := isCarousel
+        carouselPosDDL.Enabled      := isCarousel
+        carouselAnimateCb.Enabled   := isCarousel
+        carouselSpeedDDL.Enabled    := isCarousel && carouselAnimateCb.Value
+    }
+    UpdatePreviewState()
+    for r in [radioNone, radioSingle, radioGrid, radioCarousel]
+        r.OnEvent("Click", UpdatePreviewState)
     carouselAnimateCb.OnEvent("Click", (*) => (
-        carouselSpeedDDL.Enabled := carouselAnimateCb.Value
+        carouselSpeedDDL.Enabled := radioCarousel.Value && carouselAnimateCb.Value
     ))
 
     showHintsCb := g.AddCheckbox("xm y+8 w500", "Show keyboard hint bar in window switcher popup")
@@ -185,19 +200,18 @@ ShowSettingsGui() {
         newFirefoxProfileIni := Trim(firefoxProfileIniEdit.Value)
         newCycleSingle       := cycleCb.Value
         newTheme             := themeKeys[themeDropdown.Value]
-        newShowPreview       := showPreviewCb.Value
+        newShowPreview       := !radioNone.Value
+        newShowGrid          := radioGrid.Value
+        newShowCarousel      := radioCarousel.Value
         newPreviewSide       := previewSideKeys[previewSideDropdown.Value]
         newPreviewSize       := previewSizeSlider.Value
         newShowHints         := showHintsCb.Value
-        newShowCarousel      := showCarouselCb.Value
         newCarouselSlots     := Integer(carouselSlotsChoices[carouselSlotsDDL.Value])
         newCarouselAnimate   := carouselAnimateCb.Value
         newCarouselSpeed     := carouselSpeedKeys[carouselSpeedDDL.Value]
         newCarouselPosition  := carouselPosKeys[carouselPosDDL.Value]
-        if newShowCarousel    ; carousel requires preview to be on
-            newShowPreview := true
 
-        _WriteConfigFile(newChromiumExe, newChromiumUserdata, newFirefoxExe, newFirefoxProfileIni, newCycleSingle, newTheme, newShowPreview, newPreviewSide, newPreviewSize, newShowHints, newShowCarousel, newCarouselSlots, newCarouselAnimate, newCarouselPosition, newCarouselSpeed)
+        _WriteConfigFile(newChromiumExe, newChromiumUserdata, newFirefoxExe, newFirefoxProfileIni, newCycleSingle, newTheme, newShowPreview, newPreviewSide, newPreviewSize, newShowHints, newShowGrid, newShowCarousel, newCarouselSlots, newCarouselAnimate, newCarouselPosition, newCarouselSpeed)
 
         pathsChanged := newChromiumExe       != origChromiumExe
                      || newChromiumUserdata  != origChromiumUserdata
@@ -214,6 +228,7 @@ ShowSettingsGui() {
         global SWITCHER_PREVIEW_SIDE   := newPreviewSide
         global SWITCHER_PREVIEW_SIZE   := newPreviewSize
         global SWITCHER_SHOW_HINTS     := newShowHints
+        global SWITCHER_GRID_PREVIEW := newShowGrid
         global SWITCHER_CAROUSEL         := newShowCarousel
         global SWITCHER_CAROUSEL_SLOTS   := newCarouselSlots
         global SWITCHER_CAROUSEL_ANIMATE   := newCarouselAnimate
@@ -241,7 +256,7 @@ ShowSettingsGui() {
             b.Move(browseX)
 
         ; Full-width controls
-        for c in [hdrBrowser, hdrCycling, hdrSwitcher, hdrAppearance, cycleCb, showPreviewCb, showCarouselCb, showHintsCb]
+        for c in [hdrBrowser, hdrCycling, hdrSwitcher, hdrAppearance, cycleCb, showHintsCb]
             c.Move(, , fullW)
     }
     g.OnEvent("Size", ResizeControls)
@@ -297,7 +312,7 @@ _ThemeButton(ctrl, isDark) {
     DllCall("uxtheme\SetWindowTheme", "Ptr", ctrl.Hwnd, "Str", isDark ? "DarkMode_Explorer" : "Explorer", "Ptr", 0)
 }
 
-_WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, cycleSingleAsToggle, theme := "auto", switcherShowPreview := true, switcherPreviewSide := "right", switcherPreviewSize := 100, switcherShowHints := true, switcherCarousel := false, switcherCarouselSlots := 5, switcherCarouselAnimate := false, switcherCarouselPosition := "above", switcherCarouselSpeed := "medium") {
+_WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, cycleSingleAsToggle, theme := "auto", switcherShowPreview := true, switcherPreviewSide := "right", switcherPreviewSize := 100, switcherShowHints := true, switcherGridPreview := false, switcherCarousel := false, switcherCarouselSlots := 5, switcherCarouselAnimate := false, switcherCarouselPosition := "above", switcherCarouselSpeed := "medium") {
     esc := (s) => StrReplace(StrReplace(s, "``", "````"), '"', '`"')
     content := '; config.ahk — AltTabSucks settings. Edit manually or use Ctrl+Alt+Shift+, to open the Settings UI.' . '`n'
              . '; This file is gitignored.' . '`n'
@@ -311,6 +326,7 @@ _WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, c
              . '`nglobal SWITCHER_PREVIEW_SIDE    := "' . switcherPreviewSide . '"'
              . '`nglobal SWITCHER_PREVIEW_SIZE    := ' . switcherPreviewSize
              . '`nglobal SWITCHER_SHOW_HINTS      := ' . (switcherShowHints ? "true" : "false")
+             . '`nglobal SWITCHER_GRID_PREVIEW := ' . (switcherGridPreview ? "true" : "false")
              . '`nglobal SWITCHER_CAROUSEL         := ' . (switcherCarousel ? "true" : "false")
              . '`nglobal SWITCHER_CAROUSEL_SLOTS   := ' . switcherCarouselSlots
              . '`nglobal SWITCHER_CAROUSEL_ANIMATE   := ' . (switcherCarouselAnimate ? "true" : "false")
@@ -325,10 +341,12 @@ _WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, c
 _PersistConfig() {
     global CHROMIUM_EXE, CHROMIUM_USERDATA, FIREFOX_EXE, FIREFOX_PROFILE_INI
     global CYCLE_SINGLE_AS_TOGGLE, THEME, SWITCHER_SHOW_PREVIEW, SWITCHER_PREVIEW_SIDE, SWITCHER_PREVIEW_SIZE
-    global SWITCHER_SHOW_HINTS, SWITCHER_CAROUSEL, SWITCHER_CAROUSEL_SLOTS
+    global SWITCHER_SHOW_HINTS, SWITCHER_GRID_PREVIEW
+    global SWITCHER_CAROUSEL, SWITCHER_CAROUSEL_SLOTS
     global SWITCHER_CAROUSEL_ANIMATE, SWITCHER_CAROUSEL_POSITION, SWITCHER_CAROUSEL_SPEED
     _WriteConfigFile(CHROMIUM_EXE, CHROMIUM_USERDATA, FIREFOX_EXE, FIREFOX_PROFILE_INI,
                      CYCLE_SINGLE_AS_TOGGLE, THEME, SWITCHER_SHOW_PREVIEW, SWITCHER_PREVIEW_SIDE,
-                     SWITCHER_PREVIEW_SIZE, SWITCHER_SHOW_HINTS, SWITCHER_CAROUSEL, SWITCHER_CAROUSEL_SLOTS,
+                     SWITCHER_PREVIEW_SIZE, SWITCHER_SHOW_HINTS, SWITCHER_GRID_PREVIEW,
+                     SWITCHER_CAROUSEL, SWITCHER_CAROUSEL_SLOTS,
                      SWITCHER_CAROUSEL_ANIMATE, SWITCHER_CAROUSEL_POSITION, SWITCHER_CAROUSEL_SPEED)
 }

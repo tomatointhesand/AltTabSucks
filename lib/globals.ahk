@@ -19,6 +19,11 @@ SWITCHER_PREVIEW_SIDE := "right"
 ; Preview size as a percentage of the default max dimensions (640×400). Range 25–200.
 SWITCHER_PREVIEW_SIZE := 100
 
+; When true, preview shows as a static row/grid of all windows (Windows 11 style).
+; The selected row is highlighted with an outline.  Takes precedence over the single side-preview;
+; ignored when SWITCHER_CAROUSEL is true.  Requires SWITCHER_SHOW_PREVIEW := true.
+SWITCHER_GRID_PREVIEW := false
+
 ; When true, preview shows as an animated multi-window carousel arc instead of a single thumbnail.
 ; Requires SWITCHER_SHOW_PREVIEW := true.
 SWITCHER_CAROUSEL := false

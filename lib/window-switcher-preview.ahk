@@ -4,8 +4,14 @@
 ; them doesn't steal focus from the switcher, keeping _switcherCurrentRow and _carouselGui valid.
 _SwitcherPreviewClick(wParam, lParam, msg, hwnd) {
     global _previewGui, _carouselGui, _carouselSlots, _switcherItems, _switcherCurrentRow
+    global _gridTopGui, _gridBotGui
     if IsObject(_previewGui) && hwnd = _previewGui.Hwnd {
         _SwitcherActivate(_switcherCurrentRow)
+        return
+    }
+    if (IsObject(_gridTopGui) && hwnd = _gridTopGui.Hwnd)
+    || (IsObject(_gridBotGui) && hwnd = _gridBotGui.Hwnd) {
+        _SwitcherGridClickAt(hwnd, lParam)
         return
     }
     if IsObject(_carouselGui) && hwnd = _carouselGui.Hwnd {
@@ -33,6 +39,8 @@ _SwitcherPreviewClick(wParam, lParam, msg, hwnd) {
 _SwitcherPreviewSchedule() {
     if SWITCHER_CAROUSEL
         SetTimer(_SwitcherCarouselUpdate, -30)
+    else if SWITCHER_GRID_PREVIEW
+        SetTimer(_SwitcherGridUpdate, -30)
     else
         SetTimer(_SwitcherPreviewTimer, -30)
 }
@@ -49,6 +57,7 @@ _SwitcherPreviewClose() {
         _previewGui := 0
     }
     _SwitcherCarouselClose()
+    _SwitcherGridClose()
 }
 
 _SwitcherPreviewTimer() {
