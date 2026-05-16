@@ -54,9 +54,6 @@ _switcherNavThrottled    := false  ; true during burst-protection cooldown
 _switcherHwnd            := 0     ; plain HWND int, readable from Fast hook callback
 _mouseHookHandle         := 0
 _mouseHookCb             := 0
-_carouselGui             := 0
-_carouselSlots           := []     ; array of {hThumb,srcHwnd,fresh,cL,cT,cR,cB,cOp,tL,tT,tR,tB,tOp}
-_carouselAnimOn          := false
 
 ShowWindowSwitcher(dir := "down", persistent := false) {
     global _switcherGui, _switcherItems, _switcherLV, _switcherEdit, _switcherCurrentRow, _switcherPersistent
@@ -72,7 +69,7 @@ ShowWindowSwitcher(dir := "down", persistent := false) {
         OnMessage(0x0020, _SwitcherWMSetCursor)  ; WM_SETCURSOR — hand cursor over ×
         OnMessage(0x004E, _SwitcherWMNotify)     ; WM_NOTIFY — NM_CUSTOMDRAW for × highlight
         OnMessage(0x8001, _SwitcherWheelMsg)     ; WM_APP+1 — raw wheel delta (posted by mouse hook)
-        OnMessage(0x0201, _SwitcherPreviewClick) ; WM_LBUTTONDOWN — click preview/carousel to activate
+        OnMessage(0x0201, _SwitcherPreviewClick) ; WM_LBUTTONDOWN — click preview/grid to activate
         _msgHooked := true
     }
     if IsObject(_switcherGui) {
@@ -539,8 +536,9 @@ _SwitcherActivate(row) {
 }
 
 _SwitcherWMActivate(wParam, lParam, msg, hwnd) {
-    global _switcherGui, _switcherLV, _switcherEdit, _switcherHeldMods, _previewGui, _carouselGui
+    global _switcherGui, _switcherLV, _switcherEdit, _switcherHeldMods, _previewGui
     global _gridTopGui, _gridBotGui, _gridRingGui
+
     if !IsObject(_switcherGui)
         return
     try {
@@ -551,10 +549,8 @@ _SwitcherWMActivate(wParam, lParam, msg, hwnd) {
     }
     if (wParam & 0xFFFF) = 0 {  ; WA_INACTIVE — window lost focus
         ; lParam is the HWND of the window gaining focus.
-        ; Never close when focus goes to our own preview/carousel/grid overlay windows.
+        ; Never close when focus goes to our own preview/grid overlay windows.
         if IsObject(_previewGui) && lParam = _previewGui.Hwnd
-            return
-        if IsObject(_carouselGui) && lParam = _carouselGui.Hwnd
             return
         if IsObject(_gridTopGui) && lParam = _gridTopGui.Hwnd
             return

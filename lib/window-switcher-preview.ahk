@@ -1,9 +1,7 @@
-; window-switcher-preview.ahk — single DWM thumbnail preview and carousel dispatch
+; window-switcher-preview.ahk — single DWM thumbnail preview and grid dispatch
 
-; WM_LBUTTONDOWN on the preview or carousel — both windows have WS_EX_NOACTIVATE so clicking
-; them doesn't steal focus from the switcher, keeping _switcherCurrentRow and _carouselGui valid.
 _SwitcherPreviewClick(wParam, lParam, msg, hwnd) {
-    global _previewGui, _carouselGui, _carouselSlots, _switcherItems, _switcherCurrentRow
+    global _previewGui, _switcherCurrentRow
     global _gridTopGui, _gridBotGui
     if IsObject(_previewGui) && hwnd = _previewGui.Hwnd {
         _SwitcherActivate(_switcherCurrentRow)
@@ -14,32 +12,10 @@ _SwitcherPreviewClick(wParam, lParam, msg, hwnd) {
         _SwitcherGridClickAt(hwnd, lParam)
         return
     }
-    if IsObject(_carouselGui) && hwnd = _carouselGui.Hwnd {
-        x := lParam & 0xFFFF
-        y := (lParam >> 16) & 0xFFFF
-        if x > 0x7FFF
-            x -= 0x10000
-        if y > 0x7FFF
-            y -= 0x10000
-        for thumb in _carouselSlots {
-            if thumb.removing
-                continue
-            if x >= Round(thumb.cL) && x <= Round(thumb.cR) && y >= Round(thumb.cT) && y <= Round(thumb.cB) {
-                loop _switcherItems.Length {
-                    if _switcherItems[A_Index].hwnd = thumb.srcHwnd {
-                        _SwitcherActivate(A_Index)
-                        return
-                    }
-                }
-            }
-        }
-    }
 }
 
 _SwitcherPreviewSchedule() {
-    if SWITCHER_CAROUSEL
-        SetTimer(_SwitcherCarouselUpdate, -30)
-    else if SWITCHER_GRID_PREVIEW
+    if SWITCHER_GRID_PREVIEW
         SetTimer(_SwitcherGridUpdate, -30)
     else
         SetTimer(_SwitcherPreviewTimer, -30)
@@ -47,7 +23,7 @@ _SwitcherPreviewSchedule() {
 
 _SwitcherPreviewClose() {
     global _previewGui, _previewThumbnail
-    SetTimer(_SwitcherPreviewTimer, 0)  ; cancel any pending single-preview timer
+    SetTimer(_SwitcherPreviewTimer, 0)
     if _previewThumbnail != 0 {
         DllCall("dwmapi\DwmUnregisterThumbnail", "Ptr", _previewThumbnail)
         _previewThumbnail := 0
@@ -56,7 +32,6 @@ _SwitcherPreviewClose() {
         _previewGui.Destroy()
         _previewGui := 0
     }
-    _SwitcherCarouselClose()
     _SwitcherGridClose()
 }
 

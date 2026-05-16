@@ -310,6 +310,10 @@ _SwitcherGridRingShow(recreate := false) {
     }
 
     if !IsObject(_gridRingGui) {
+        ; Re-check: the switcher may have closed while this thread was suspended
+        ; (e.g. the key-up handler ran _SwitcherGridClose between our opening guard and here).
+        if !IsObject(_switcherGui)
+            return
         isDark      := _SwitcherIsDark()
         accentColor := isDark ? "4CC2FF" : "0067C0"
         rg    := Gui("+AlwaysOnTop -Caption +ToolWindow", "AltTabSucks_GridRing")
@@ -324,12 +328,15 @@ _SwitcherGridRingShow(recreate := false) {
         _gridRingInnerW := slot.w
         _gridRingInnerH := slot.h
     } else if slot.w != _gridRingInnerW || slot.h != _gridRingInnerH {
-        ; Resize the transparent-hole control to match the new slot size
         _gridRingInner.Move(bord, bord, slot.w, slot.h)
         _gridRingInnerW := slot.w
         _gridRingInnerH := slot.h
     }
 
+    ; Final re-check before Show — Close may have run and destroyed the ring
+    ; during the Gui creation block above.
+    if !IsObject(_switcherGui) || !IsObject(_gridRingGui)
+        return
     _gridRingGui.Show("NA x" (slot.screenX - bord) " y" (slot.thumbScreenY - bord)
                          " w" (slot.w + bord * 2)  " h" (slot.h + bord * 2))
 }
