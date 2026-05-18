@@ -51,6 +51,7 @@ _switcherHoveredCloseRow := -1  ; 0-based item index of × cell under cursor, or
 _switcherMouseTracking   := false
 _switcherLVHoverSX       := -99999   ; last processed LV hover screen-X (skip synthetic WM_MOUSEMOVE)
 _switcherLVHoverSY       := -99999
+_switcherSessionId       := 0      ; incremented on every new switcher open; stale timer callbacks compare against this
 _switcherPersistent      := false  ; true when opened via Ctrl+Alt+Tab (stays open after key release)
 _switcherNavThrottled    := false  ; true during burst-protection cooldown
 _switcherHwnd            := 0     ; plain HWND int, readable from Fast hook callback
@@ -107,6 +108,7 @@ ShowWindowSwitcher(dir := "down", persistent := false) {
     g.MarginX := 10
     g.MarginY := 10
     _switcherGui := g
+    global _switcherSessionId += 1
 
     hintH       := 0
     hint        := 0
@@ -231,6 +233,27 @@ ShowWindowSwitcher(dir := "down", persistent := false) {
     }
     if SWITCHER_SHOW_PREVIEW
         _SwitcherPreviewSchedule()
+    ; Fallback poll: if another window steals focus while Alt is held (e.g. a game spawning
+    ; its window), WM_KEYUP never reaches our switcher and _SwitcherKeyHandler misses the
+    ; release.  Poll GetKeyState every 50 ms so the switcher closes regardless of focus.
+    if _switcherHeldMods.Length > 0 && !_switcherPersistent
+        SetTimer(_SwitcherPollMods, 50)
+}
+
+_SwitcherPollMods() {
+    global _switcherGui, _switcherHeldMods, _switcherPersistent, _switcherLV, _switcherCurrentRow
+    if !IsObject(_switcherGui) || _switcherPersistent || _switcherHeldMods.Length = 0 {
+        SetTimer(_SwitcherPollMods, 0)
+        return
+    }
+    for mod in _switcherHeldMods
+        if GetKeyState(mod, "P")
+            return
+    SetTimer(_SwitcherPollMods, 0)
+    if IsObject(_switcherLV) && _switcherLV.GetCount() = 0
+        _SwitcherClose()
+    else
+        _SwitcherActivate(_switcherCurrentRow ? _switcherCurrentRow : 1)
 }
 
 _SwitcherKeyHandler(vk, sc, msg, hwnd) {
@@ -507,6 +530,7 @@ _SwitcherClose() {
     _switcherHwnd            := 0
     _SwitcherMouseHookRemove()
     SetTimer(_SwitcherNavUnthrottle, 0)
+    SetTimer(_SwitcherPollMods, 0)
     _SwitcherNavUnthrottle()
     _SwitcherPreviewClose()
     gui.Destroy()
@@ -529,6 +553,7 @@ _SwitcherActivate(row) {
     _switcherHwnd            := 0
     _SwitcherMouseHookRemove()
     SetTimer(_SwitcherNavUnthrottle, 0)
+    SetTimer(_SwitcherPollMods, 0)
     _SwitcherNavUnthrottle()
     _SwitcherPreviewClose()
     if IsObject(gui)

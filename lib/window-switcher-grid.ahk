@@ -8,6 +8,7 @@
 ;   • Rows are packed greedily left-to-right and centred within the canvas.
 ;   • Rows fill above the switcher first; any overflow spills below.
 
+_gridExpectedSession := 0   ; session ID captured when the timer was SET, not when it fires
 _gridTopGui     := 0
 _gridBotGui     := 0
 _gridRingGui    := 0
@@ -77,9 +78,9 @@ _GridFlowLayout(thumbH, rowH, aspects, maxW, gap, &outSlots) {
 ; ── main update ───────────────────────────────────────────────────────────────
 
 _SwitcherGridUpdate() {
-    global _switcherGui, _switcherItems, _switcherCurrentRow
+    global _switcherGui, _switcherItems, _switcherCurrentRow, _switcherSessionId
     global _gridTopGui, _gridBotGui, _gridRingGui, _gridSlots, _gridThumbH
-    global _gridRingInner, _gridRingInnerW, _gridRingInnerH
+    global _gridRingInner, _gridRingInnerW, _gridRingInnerH, _gridExpectedSession
 
     if !IsObject(_switcherGui) {
         _SwitcherGridClose()
@@ -144,7 +145,8 @@ _SwitcherGridUpdate() {
 
     ; ── quick path: items and height unchanged — only move the ring ───────────
     if _SwitcherGridItemsMatch(thumbH) {
-        _SwitcherGridRingShow()
+        if _switcherSessionId = _gridExpectedSession
+            _SwitcherGridRingShow()
         return
     }
 
@@ -157,11 +159,13 @@ _SwitcherGridUpdate() {
 
     ; Destroy old canvases so stale label controls don't accumulate across rebuilds
     if IsObject(_gridTopGui) {
-        _gridTopGui.Destroy()
+        topHwnd := _gridTopGui.Hwnd
+        DllCall("DestroyWindow", "Ptr", topHwnd)
         _gridTopGui := 0
     }
     if IsObject(_gridBotGui) {
-        _gridBotGui.Destroy()
+        botHwnd := _gridBotGui.Hwnd
+        DllCall("DestroyWindow", "Ptr", botHwnd)
         _gridBotGui := 0
     }
 
@@ -196,6 +200,8 @@ _SwitcherGridUpdate() {
     fg      := isDark ? "EFEFEF" : "1A1A1A"
 
     _MakeGridCanvas(&cgRef, label, x, y, w, h, show) {
+        if !IsObject(_switcherGui)  ; switcher may have closed while this timer was running
+            return
         cg := Gui("+AlwaysOnTop -Caption +ToolWindow", "AltTabSucks_Grid_" . label)
         cg.BackColor := bg
         cg.SetFont("s9 c" fg, "Segoe UI")
@@ -206,7 +212,7 @@ _SwitcherGridUpdate() {
         cgRef := cg
     }
     ; Guard: the key-up handler may have closed the switcher while this timer fired.
-    if !IsObject(_switcherGui) {
+    if !IsObject(_switcherGui) || _switcherSessionId != _gridExpectedSession {
         _SwitcherGridClose()
         return
     }
@@ -215,7 +221,8 @@ _SwitcherGridUpdate() {
 
     ; ── register DWM thumbnails and add title labels ──────────────────────────
     ; Second guard: the close interrupt may have run between _MakeGridCanvas and here.
-    if !IsObject(_switcherGui) || !IsObject(_gridTopGui) || !IsObject(_gridBotGui) {
+    if !IsObject(_switcherGui) || _switcherSessionId != _gridExpectedSession
+        || !IsObject(_gridTopGui) || !IsObject(_gridBotGui) {
         _SwitcherGridClose()
         return
     }
@@ -277,7 +284,8 @@ _SwitcherGridUpdate() {
         }
     }
 
-    _SwitcherGridRingShow(true)
+    if _switcherSessionId = _gridExpectedSession
+        _SwitcherGridRingShow(true)
 }
 
 _SwitcherGridItemsMatch(thumbH) {
@@ -302,6 +310,20 @@ _GridApplyThumb(hThumb, x, y, w, h) {
     DllCall("dwmapi\DwmUpdateThumbnailProperties", "Ptr", hThumb, "Ptr", props)
 }
 
+; Build a ring-shaped window region (outer rect minus inner rect) and apply it.
+; Using SetWindowRgn instead of WS_EX_LAYERED+LWA_COLORKEY avoids the extra DWM
+; layered-window compositing path, which can linger under heavy GPU load.
+_GridSetRingRgn(hwnd, innerW, innerH, bord) {
+    outer := DllCall("CreateRectRgn", "Int", 0,    "Int", 0,    "Int", innerW + 2*bord, "Int", innerH + 2*bord, "Ptr")
+    inner := DllCall("CreateRectRgn", "Int", bord, "Int", bord, "Int", bord + innerW,   "Int", bord + innerH,   "Ptr")
+    ring  := DllCall("CreateRectRgn", "Int", 0,    "Int", 0,    "Int", 1,               "Int", 1,               "Ptr")
+    DllCall("CombineRgn",   "Ptr", ring, "Ptr", outer, "Ptr", inner, "Int", 4)  ; RGN_DIFF
+    DllCall("SetWindowRgn", "Ptr", hwnd, "Ptr", ring,  "Int", 1)   ; system takes ownership of ring
+    DllCall("DeleteObject", "Ptr", outer)
+    DllCall("DeleteObject", "Ptr", inner)
+}
+
+
 _SwitcherGridRingShow(recreate := false) {
     global _switcherGui, _switcherCurrentRow, _gridTopGui, _gridBotGui, _gridRingGui
     global _gridSlots, _gridRingInner, _gridRingInnerW, _gridRingInnerH
@@ -320,8 +342,10 @@ _SwitcherGridRingShow(recreate := false) {
     bord := 3
 
     if recreate && IsObject(_gridRingGui) {
-        _gridRingGui.Destroy()
-        _gridRingGui    := 0
+        ringHwnd := _gridRingGui.Hwnd
+        DllCall("ShowWindow",   "Ptr", ringHwnd, "Int", 0)  ; SW_HIDE while HWND is still valid
+        DllCall("DestroyWindow","Ptr", ringHwnd)             ; destroy before releasing AHK ref
+        _gridRingGui    := 0          ; release last; __Delete is a noop (window already gone)
         _gridRingInner  := 0
         _gridRingInnerW := 0
         _gridRingInnerH := 0
@@ -334,19 +358,18 @@ _SwitcherGridRingShow(recreate := false) {
             return
         isDark      := _SwitcherIsDark()
         accentColor := isDark ? "4CC2FF" : "0067C0"
-        rg    := Gui("+AlwaysOnTop -Caption +ToolWindow", "AltTabSucks_GridRing")
+        rg := Gui("+AlwaysOnTop -Caption +ToolWindow", "AltTabSucks_GridRing")
         rg.BackColor := accentColor
-        inner := rg.AddText("x" bord " y" bord " w" slot.thumbActualW " h" slot.thumbActualH)
-        inner.Opt("+Background000001")
-        WinSetExStyle("+0x08000000", "ahk_id " rg.Hwnd)
-        WinSetTransColor("000001", "ahk_id " rg.Hwnd)
-        DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", rg.Hwnd, "UInt", 33, "Int*", 2, "UInt", 4)
+        WinSetExStyle("+0x08000000", "ahk_id " rg.Hwnd)   ; WS_EX_NOACTIVATE
+        ; DWMWCP_DONOTROUND (1) — let SetWindowRgn control the shape; DWMWCP_ROUND would
+        ; override our region and render a solid rounded rect instead of a ring.
+        DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", rg.Hwnd, "UInt", 33, "Int*", 1, "UInt", 4)
+        _GridSetRingRgn(rg.Hwnd, slot.thumbActualW, slot.thumbActualH, bord)
         _gridRingGui    := rg
-        _gridRingInner  := inner
         _gridRingInnerW := slot.thumbActualW
         _gridRingInnerH := slot.thumbActualH
     } else if slot.thumbActualW != _gridRingInnerW || slot.thumbActualH != _gridRingInnerH {
-        _gridRingInner.Move(bord, bord, slot.thumbActualW, slot.thumbActualH)
+        _GridSetRingRgn(_gridRingGui.Hwnd, slot.thumbActualW, slot.thumbActualH, bord)
         _gridRingInnerW := slot.thumbActualW
         _gridRingInnerH := slot.thumbActualH
     }
@@ -355,8 +378,9 @@ _SwitcherGridRingShow(recreate := false) {
     ; during the Gui creation block above.
     if !IsObject(_switcherGui) || !IsObject(_gridRingGui)
         return
-    _gridRingGui.Show("NA x" (slot.thumbActualScreenX - bord) " y" (slot.thumbActualScreenY - bord)
-                         " w" (slot.thumbActualW + bord * 2)  " h" (slot.thumbActualH + bord * 2))
+    try
+        _gridRingGui.Show("NA x" (slot.thumbActualScreenX - bord) " y" (slot.thumbActualScreenY - bord)
+                             " w" (slot.thumbActualW + bord * 2)  " h" (slot.thumbActualH + bord * 2))
 }
 
 _SwitcherGridClientToSlot(canvasHwnd, lParam) {
@@ -437,17 +461,34 @@ _SwitcherGridClose() {
     global _gridRingInnerH  := 0
     global _gridHoverSX     := -99999
     global _gridHoverSY     := -99999
-    if IsObject(_gridRingGui) {
-        _gridRingGui.Hide()     ; synchronous hide first so the ring vanishes immediately
-        _gridRingGui.Destroy()
+    ; Hide all grid windows atomically before destroying any — under DWM load (e.g. a game
+    ; starting 3D rendering), DestroyWindow can be slow to visually commit, so the card
+    ; backgrounds and ring can linger as outlines.  SW_HIDE is processed immediately by
+    ; DWM on the next composition pass, making all three windows vanish together.
+    ringHwnd := IsObject(_gridRingGui) ? _gridRingGui.Hwnd : 0
+    topHwnd  := IsObject(_gridTopGui)  ? _gridTopGui.Hwnd  : 0
+    botHwnd  := IsObject(_gridBotGui)  ? _gridBotGui.Hwnd  : 0
+    if ringHwnd
+        DllCall("ShowWindow", "Ptr", ringHwnd, "Int", 0)
+    if topHwnd
+        DllCall("ShowWindow", "Ptr", topHwnd,  "Int", 0)
+    if botHwnd
+        DllCall("ShowWindow", "Ptr", botHwnd,  "Int", 0)
+    ; Under heavy GPU load DWM can lag several frames before compositing away hidden
+    ; windows, leaving them visually stuck.  DwmFlush blocks until DWM presents the
+    ; next frame (≤1 vsync), guaranteeing the hides are visible before we return.
+    if ringHwnd || topHwnd || botHwnd
+        DllCall("dwmapi\DwmFlush")
+    if ringHwnd {
+        DllCall("DestroyWindow", "Ptr", ringHwnd)
         global _gridRingGui := 0
     }
-    if IsObject(_gridTopGui) {
-        _gridTopGui.Destroy()
+    if topHwnd {
+        DllCall("DestroyWindow", "Ptr", topHwnd)
         global _gridTopGui := 0
     }
-    if IsObject(_gridBotGui) {
-        _gridBotGui.Destroy()
+    if botHwnd {
+        DllCall("DestroyWindow", "Ptr", botHwnd)
         global _gridBotGui := 0
     }
 }
