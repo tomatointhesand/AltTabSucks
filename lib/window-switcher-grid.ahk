@@ -240,8 +240,23 @@ _SwitcherGridUpdate() {
             hT := 0
             if DllCall("dwmapi\DwmRegisterThumbnail", "Ptr", cGui.Hwnd,
                         "Ptr", _switcherItems[i].hwnd, "Ptr*", &hT) = 0 {
-                ; Thumbnail sits below the title label
-                _GridApplyThumb(hT, fs.x, thumbY, fs.w, fs.h)
+                ; Use DwmQueryThumbnailSourceSize for the true aspect ratio — GetWindowRect
+                ; includes the invisible DWM shadow margin and can give the wrong shape.
+                sz := Buffer(8, 0)
+                DllCall("dwmapi\DwmQueryThumbnailSourceSize", "Ptr", hT, "Ptr", sz)
+                srcW := NumGet(sz, 0, "Int")
+                srcH := NumGet(sz, 4, "Int")
+                if srcW > 0 && srcH > 0 {
+                    scale := Min(fs.w / srcW, fs.h / srcH)
+                    dstW  := Max(Round(srcW * scale), 1)
+                    dstH  := Max(Round(srcH * scale), 1)
+                } else {
+                    dstW := fs.w
+                    dstH := fs.h
+                }
+                dx := (fs.w - dstW) // 2
+                dy := (fs.h - dstH) // 2
+                _GridApplyThumb(hT, fs.x + dx, thumbY + dy, dstW, dstH)
                 ; Full-height card background + title at top
                 ; (+0x4081 = SS_CENTER|SS_NOPREFIX|SS_ENDELLIPSIS)
                 ; The DWM thumbnail is compositor-rendered on top of this control's lower portion.
@@ -252,7 +267,10 @@ _SwitcherGridUpdate() {
                 thumbScreenY := canvasOriginY + thumbY
                 _gridSlots.Push({hwnd: _switcherItems[i].hwnd, hThumb: hT,
                                   screenX: screenX, screenY: screenY, thumbScreenY: thumbScreenY,
-                                  w: fs.w, h: fs.h, totalH: cardH})
+                                  w: fs.w, h: fs.h, totalH: cardH,
+                                  thumbActualScreenX: screenX + dx,
+                                  thumbActualScreenY: thumbScreenY + dy,
+                                  thumbActualW: dstW, thumbActualH: dstH})
             }
         } catch {
             break   ; canvas was destroyed mid-loop; remaining slots will be cleaned up by Close
@@ -318,27 +336,27 @@ _SwitcherGridRingShow(recreate := false) {
         accentColor := isDark ? "4CC2FF" : "0067C0"
         rg    := Gui("+AlwaysOnTop -Caption +ToolWindow", "AltTabSucks_GridRing")
         rg.BackColor := accentColor
-        inner := rg.AddText("x" bord " y" bord " w" slot.w " h" slot.h)
+        inner := rg.AddText("x" bord " y" bord " w" slot.thumbActualW " h" slot.thumbActualH)
         inner.Opt("+Background000001")
         WinSetExStyle("+0x08000000", "ahk_id " rg.Hwnd)
         WinSetTransColor("000001", "ahk_id " rg.Hwnd)
         DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", rg.Hwnd, "UInt", 33, "Int*", 2, "UInt", 4)
         _gridRingGui    := rg
         _gridRingInner  := inner
-        _gridRingInnerW := slot.w
-        _gridRingInnerH := slot.h
-    } else if slot.w != _gridRingInnerW || slot.h != _gridRingInnerH {
-        _gridRingInner.Move(bord, bord, slot.w, slot.h)
-        _gridRingInnerW := slot.w
-        _gridRingInnerH := slot.h
+        _gridRingInnerW := slot.thumbActualW
+        _gridRingInnerH := slot.thumbActualH
+    } else if slot.thumbActualW != _gridRingInnerW || slot.thumbActualH != _gridRingInnerH {
+        _gridRingInner.Move(bord, bord, slot.thumbActualW, slot.thumbActualH)
+        _gridRingInnerW := slot.thumbActualW
+        _gridRingInnerH := slot.thumbActualH
     }
 
     ; Final re-check before Show — Close may have run and destroyed the ring
     ; during the Gui creation block above.
     if !IsObject(_switcherGui) || !IsObject(_gridRingGui)
         return
-    _gridRingGui.Show("NA x" (slot.screenX - bord) " y" (slot.thumbScreenY - bord)
-                         " w" (slot.w + bord * 2)  " h" (slot.h + bord * 2))
+    _gridRingGui.Show("NA x" (slot.thumbActualScreenX - bord) " y" (slot.thumbActualScreenY - bord)
+                         " w" (slot.thumbActualW + bord * 2)  " h" (slot.thumbActualH + bord * 2))
 }
 
 _SwitcherGridClientToSlot(canvasHwnd, lParam) {

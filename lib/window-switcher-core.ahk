@@ -49,6 +49,8 @@ _previewGui              := 0
 _previewThumbnail        := 0
 _switcherHoveredCloseRow := -1  ; 0-based item index of × cell under cursor, or -1
 _switcherMouseTracking   := false
+_switcherLVHoverSX       := -99999   ; last processed LV hover screen-X (skip synthetic WM_MOUSEMOVE)
+_switcherLVHoverSY       := -99999
 _switcherPersistent      := false  ; true when opened via Ctrl+Alt+Tab (stays open after key release)
 _switcherNavThrottled    := false  ; true during burst-protection cooldown
 _switcherHwnd            := 0     ; plain HWND int, readable from Fast hook callback
@@ -189,7 +191,6 @@ ShowWindowSwitcher(dir := "down", persistent := false) {
     lv.ModifyCol(3, "Center " . closeColW)
 
     edit.OnEvent("Change",    (*) => _SwitcherRefresh(edit, lv))
-    lv.OnEvent("DoubleClick", (ctrl, row) => _SwitcherActivate(row))
     lv.OnEvent("Click",       _SwitcherLVClick)
 
     CloseSwitcher(*) {
@@ -491,6 +492,7 @@ _SwitcherExeName(exeName) {
 
 _SwitcherClose() {
     global _switcherGui, _switcherLV, _switcherEdit, _switcherHoveredCloseRow, _switcherMouseTracking, _switcherPersistent, _switcherHwnd
+    global _switcherLVHoverSX, _switcherLVHoverSY
     if !IsObject(_switcherGui)
         return
     gui := _switcherGui
@@ -499,6 +501,8 @@ _SwitcherClose() {
     _switcherEdit            := 0
     _switcherHoveredCloseRow := -1
     _switcherMouseTracking   := false
+    _switcherLVHoverSX       := -99999
+    _switcherLVHoverSY       := -99999
     _switcherPersistent      := false
     _switcherHwnd            := 0
     _SwitcherMouseHookRemove()
@@ -510,6 +514,7 @@ _SwitcherClose() {
 
 _SwitcherActivate(row) {
     global _switcherGui, _switcherItems, _switcherLV, _switcherEdit, _switcherHoveredCloseRow, _switcherMouseTracking, _switcherPersistent, _switcherHwnd
+    global _switcherLVHoverSX, _switcherLVHoverSY
     if row < 1 || row > _switcherItems.Length
         return
     item := _switcherItems[row]
@@ -518,6 +523,8 @@ _SwitcherActivate(row) {
     _switcherLV              := 0
     _switcherHoveredCloseRow := -1
     _switcherMouseTracking   := false
+    _switcherLVHoverSX       := -99999
+    _switcherLVHoverSY       := -99999
     _switcherPersistent      := false
     _switcherHwnd            := 0
     _SwitcherMouseHookRemove()

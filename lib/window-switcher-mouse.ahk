@@ -3,6 +3,7 @@
 ; Track cursor position over the × column and request WM_MOUSELEAVE via TrackMouseEvent.
 _SwitcherMouseMove(wParam, lParam, msg, hwnd) {
     global _switcherGui, _switcherLV, _switcherHoveredCloseRow, _switcherMouseTracking
+    global _switcherCurrentRow, _switcherLVHoverSX, _switcherLVHoverSY
     global _gridTopGui, _gridBotGui
     if !IsObject(_switcherGui)
         return
@@ -19,11 +20,34 @@ _SwitcherMouseMove(wParam, lParam, msg, hwnd) {
         x -= 0x10000
     if y > 0x7FFF
         y -= 0x10000
+    ; Convert to screen coords and skip synthetic WM_MOUSEMOVE (sent when z-order changes
+    ; under the cursor — e.g. selection highlight redraws after keyboard navigation).
+    pt := Buffer(8, 0)
+    NumPut("Int", x, pt, 0)
+    NumPut("Int", y, pt, 4)
+    DllCall("ClientToScreen", "Ptr", _switcherLV.Hwnd, "Ptr", pt)
+    sx := NumGet(pt, 0, "Int")
+    sy := NumGet(pt, 4, "Int")
+    if sx = _switcherLVHoverSX && sy = _switcherLVHoverSY
+        return
+    global _switcherLVHoverSX := sx
+    global _switcherLVHoverSY := sy
     hti := Buffer(24, 0)
     NumPut("Int", x, hti, 0)
     NumPut("Int", y, hti, 4)
     itemIdx := SendMessage(0x1039, 0, hti, _switcherLV)  ; LVM_SUBITEMHITTEST
     subitem  := NumGet(hti, 16, "Int")
+    ; Row hover: move selection to follow the cursor
+    if itemIdx >= 0 {
+        row := itemIdx + 1  ; 0-based → 1-based
+        if row != _switcherCurrentRow {
+            global _switcherCurrentRow := row
+            _switcherLV.Modify(0, "-Select")
+            _switcherLV.Modify(row, "Select Focus Vis")
+            if SWITCHER_SHOW_PREVIEW
+                _SwitcherPreviewSchedule()
+        }
+    }
     newHover := (itemIdx >= 0 && subitem = 2) ? itemIdx : -1
     if newHover != _switcherHoveredCloseRow {
         global _switcherHoveredCloseRow := newHover
@@ -103,7 +127,7 @@ _SwitcherWMNotify(wParam, lParam, msg, hwnd) {
     }
 }
 
-; Handle single click on the ListView: × column closes the window, other columns update row selection.
+; Handle single click on the ListView: × column closes the window, other columns activate the row.
 _SwitcherLVClick(ctrl, row) {
     global _switcherGui, _switcherItems, _switcherLV, _switcherEdit, _switcherCurrentRow
     if !IsObject(_switcherGui) || row < 1 || row > _switcherItems.Length
@@ -121,7 +145,7 @@ _SwitcherLVClick(ctrl, row) {
         _SwitcherRefresh(_switcherEdit, _switcherLV)
         _SwitcherRestoreRow(savedRow)
     } else
-        global _switcherCurrentRow := row
+        _SwitcherActivate(row)
 }
 
 ; ── Navigation burst protection ──────────────────────────────────────────────
