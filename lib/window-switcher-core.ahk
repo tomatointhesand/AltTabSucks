@@ -51,7 +51,6 @@ _switcherHoveredCloseRow := -1  ; 0-based item index of × cell under cursor, or
 _switcherMouseTracking   := false
 _switcherLVHoverSX       := -99999   ; last processed LV hover screen-X (skip synthetic WM_MOUSEMOVE)
 _switcherLVHoverSY       := -99999
-_switcherSessionId       := 0      ; incremented on every new switcher open; stale timer callbacks compare against this
 _switcherPersistent      := false  ; true when opened via Ctrl+Alt+Tab (stays open after key release)
 _switcherNavThrottled    := false  ; true during burst-protection cooldown
 _switcherHwnd            := 0     ; plain HWND int, readable from Fast hook callback
@@ -108,7 +107,6 @@ ShowWindowSwitcher(dir := "down", persistent := false) {
     g.MarginX := 10
     g.MarginY := 10
     _switcherGui := g
-    global _switcherSessionId += 1
 
     hintH       := 0
     hint        := 0

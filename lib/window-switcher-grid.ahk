@@ -8,11 +8,10 @@
 ;   • Rows are packed greedily left-to-right and centred within the canvas.
 ;   • Rows fill above the switcher first; any overflow spills below.
 
-_gridExpectedSession := 0   ; session ID captured when the timer was SET, not when it fires
 _gridTopGui     := 0
+SetTimer(_SwitcherGridRecovery, 500)  ; fallback sweep for orphaned grid windows
 _gridBotGui     := 0
 _gridRingGui    := 0
-_gridRingInner  := 0
 _gridRingInnerW := 0
 _gridRingInnerH := 0
 _gridSlots      := []   ; [{hwnd, hThumb, screenX, screenY, w, h, totalH}]
@@ -78,9 +77,9 @@ _GridFlowLayout(thumbH, rowH, aspects, maxW, gap, &outSlots) {
 ; ── main update ───────────────────────────────────────────────────────────────
 
 _SwitcherGridUpdate() {
-    global _switcherGui, _switcherItems, _switcherCurrentRow, _switcherSessionId
+    global _switcherGui, _switcherItems, _switcherCurrentRow
     global _gridTopGui, _gridBotGui, _gridRingGui, _gridSlots, _gridThumbH
-    global _gridRingInner, _gridRingInnerW, _gridRingInnerH, _gridExpectedSession
+    global _gridRingInnerW, _gridRingInnerH
 
     if !IsObject(_switcherGui) {
         _SwitcherGridClose()
@@ -145,8 +144,7 @@ _SwitcherGridUpdate() {
 
     ; ── quick path: items and height unchanged — only move the ring ───────────
     if _SwitcherGridItemsMatch(thumbH) {
-        if _switcherSessionId = _gridExpectedSession
-            _SwitcherGridRingShow()
+        _SwitcherGridRingShow()
         return
     }
 
@@ -212,7 +210,7 @@ _SwitcherGridUpdate() {
         cgRef := cg
     }
     ; Guard: the key-up handler may have closed the switcher while this timer fired.
-    if !IsObject(_switcherGui) || _switcherSessionId != _gridExpectedSession {
+    if !IsObject(_switcherGui) {
         _SwitcherGridClose()
         return
     }
@@ -221,8 +219,7 @@ _SwitcherGridUpdate() {
 
     ; ── register DWM thumbnails and add title labels ──────────────────────────
     ; Second guard: the close interrupt may have run between _MakeGridCanvas and here.
-    if !IsObject(_switcherGui) || _switcherSessionId != _gridExpectedSession
-        || !IsObject(_gridTopGui) || !IsObject(_gridBotGui) {
+    if !IsObject(_switcherGui) || !IsObject(_gridTopGui) || !IsObject(_gridBotGui) {
         _SwitcherGridClose()
         return
     }
@@ -284,8 +281,7 @@ _SwitcherGridUpdate() {
         }
     }
 
-    if _switcherSessionId = _gridExpectedSession
-        _SwitcherGridRingShow(true)
+    _SwitcherGridRingShow(true)
 }
 
 _SwitcherGridItemsMatch(thumbH) {
@@ -326,7 +322,7 @@ _GridSetRingRgn(hwnd, innerW, innerH, bord) {
 
 _SwitcherGridRingShow(recreate := false) {
     global _switcherGui, _switcherCurrentRow, _gridTopGui, _gridBotGui, _gridRingGui
-    global _gridSlots, _gridRingInner, _gridRingInnerW, _gridRingInnerH
+    global _gridSlots, _gridRingInnerW, _gridRingInnerH
 
     ; Switcher may have closed while a timer was in flight
     if !IsObject(_switcherGui) || (!IsObject(_gridTopGui) && !IsObject(_gridBotGui))
@@ -346,7 +342,6 @@ _SwitcherGridRingShow(recreate := false) {
         DllCall("ShowWindow",   "Ptr", ringHwnd, "Int", 0)  ; SW_HIDE while HWND is still valid
         DllCall("DestroyWindow","Ptr", ringHwnd)             ; destroy before releasing AHK ref
         _gridRingGui    := 0          ; release last; __Delete is a noop (window already gone)
-        _gridRingInner  := 0
         _gridRingInnerW := 0
         _gridRingInnerH := 0
     }
@@ -448,7 +443,7 @@ _SwitcherGridClickAt(canvasHwnd, lParam) {
 
 _SwitcherGridClose() {
     global _gridTopGui, _gridBotGui, _gridRingGui, _gridSlots, _gridThumbH
-    global _gridRingInner, _gridRingInnerW, _gridRingInnerH
+    global _gridRingInnerW, _gridRingInnerH
     global _gridHoverSX, _gridHoverSY
     SetTimer(_SwitcherGridUpdate, 0)
     for slot in _gridSlots
@@ -456,15 +451,12 @@ _SwitcherGridClose() {
             DllCall("dwmapi\DwmUnregisterThumbnail", "Ptr", slot.hThumb)
     global _gridSlots       := []
     global _gridThumbH      := 0
-    global _gridRingInner   := 0
     global _gridRingInnerW  := 0
     global _gridRingInnerH  := 0
     global _gridHoverSX     := -99999
     global _gridHoverSY     := -99999
-    ; Hide all grid windows atomically before destroying any — under DWM load (e.g. a game
-    ; starting 3D rendering), DestroyWindow can be slow to visually commit, so the card
-    ; backgrounds and ring can linger as outlines.  SW_HIDE is processed immediately by
-    ; DWM on the next composition pass, making all three windows vanish together.
+    ; Collect HWNDs first, hide all atomically, then destroy — avoids piece-by-piece
+    ; visual removal and ensures the HWND is still valid when DestroyWindow is called.
     ringHwnd := IsObject(_gridRingGui) ? _gridRingGui.Hwnd : 0
     topHwnd  := IsObject(_gridTopGui)  ? _gridTopGui.Hwnd  : 0
     botHwnd  := IsObject(_gridBotGui)  ? _gridBotGui.Hwnd  : 0
@@ -474,11 +466,6 @@ _SwitcherGridClose() {
         DllCall("ShowWindow", "Ptr", topHwnd,  "Int", 0)
     if botHwnd
         DllCall("ShowWindow", "Ptr", botHwnd,  "Int", 0)
-    ; Under heavy GPU load DWM can lag several frames before compositing away hidden
-    ; windows, leaving them visually stuck.  DwmFlush blocks until DWM presents the
-    ; next frame (≤1 vsync), guaranteeing the hides are visible before we return.
-    if ringHwnd || topHwnd || botHwnd
-        DllCall("dwmapi\DwmFlush")
     if ringHwnd {
         DllCall("DestroyWindow", "Ptr", ringHwnd)
         global _gridRingGui := 0
@@ -491,4 +478,19 @@ _SwitcherGridClose() {
         DllCall("DestroyWindow", "Ptr", botHwnd)
         global _gridBotGui := 0
     }
+}
+
+; Fallback sweep: runs every 500 ms and destroys any grid windows that survived cleanup.
+; Under heavy GPU load or specific DWM/game interactions, windows can slip past the
+; normal cleanup paths.  WinGetList by title is cheap when no windows match (the common case).
+_SwitcherGridRecovery() {
+    global _switcherGui
+    if IsObject(_switcherGui)
+        return   ; switcher is open — grid windows are supposed to be there
+    for h in WinGetList("AltTabSucks_GridRing")
+        DllCall("DestroyWindow", "Ptr", h)
+    for h in WinGetList("AltTabSucks_Grid_Top")
+        DllCall("DestroyWindow", "Ptr", h)
+    for h in WinGetList("AltTabSucks_Grid_Bot")
+        DllCall("DestroyWindow", "Ptr", h)
 }

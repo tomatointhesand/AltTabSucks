@@ -15,10 +15,9 @@ _SwitcherPreviewClick(wParam, lParam, msg, hwnd) {
 }
 
 _SwitcherPreviewSchedule() {
-    if SWITCHER_GRID_PREVIEW {
-        global _gridExpectedSession := _switcherSessionId  ; stamp which session scheduled this
+    if SWITCHER_GRID_PREVIEW
         SetTimer(_SwitcherGridUpdate, -30)
-    } else
+    else
         SetTimer(_SwitcherPreviewTimer, -30)
 }
 
