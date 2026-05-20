@@ -480,17 +480,13 @@ _SwitcherGridClose() {
     }
 }
 
-; Fallback sweep: runs every 500 ms and destroys any grid windows that survived cleanup.
-; Under heavy GPU load or specific DWM/game interactions, windows can slip past the
-; normal cleanup paths.  WinGetList by title is cheap when no windows match (the common case).
+; Fallback cleanup: if the switcher is closed but grid windows survived in the globals,
+; destroy them.  Uses globals (not WinGetList) so mid-creation windows in local variables
+; are never touched.
 _SwitcherGridRecovery() {
-    global _switcherGui
+    global _switcherGui, _gridRingGui, _gridTopGui, _gridBotGui
     if IsObject(_switcherGui)
         return   ; switcher is open — grid windows are supposed to be there
-    for h in WinGetList("AltTabSucks_GridRing")
-        DllCall("DestroyWindow", "Ptr", h)
-    for h in WinGetList("AltTabSucks_Grid_Top")
-        DllCall("DestroyWindow", "Ptr", h)
-    for h in WinGetList("AltTabSucks_Grid_Bot")
-        DllCall("DestroyWindow", "Ptr", h)
+    if IsObject(_gridRingGui) || IsObject(_gridTopGui) || IsObject(_gridBotGui)
+        _SwitcherGridClose()
 }
