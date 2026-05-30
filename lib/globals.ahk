@@ -22,3 +22,6 @@ SWITCHER_PREVIEW_SIZE := 100
 ; When true, preview shows as a static row/grid of all windows (Windows 11 style).
 ; The selected row is highlighted with an outline.  Requires SWITCHER_SHOW_PREVIEW := true.
 SWITCHER_GRID_PREVIEW := false
+
+; When false, the window switcher is disabled and Alt+Tab falls through to Windows native.
+SWITCHER_ENABLED := false

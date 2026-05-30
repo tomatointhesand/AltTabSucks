@@ -10,13 +10,13 @@
 P1 := "Default" ; Brave profile 1
 P2 := "Profile 1" ; Brave profile 2
 ; 
-;^!+s:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
-;^!+j:: FocusTab(P2, ["YOUR_URL","https://YOUR_URL","https://YOUR_URL","https://YOUR_URL"],  "https://YOUR_URL")
-;^!+b:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
+; ^!+s:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
+; ^!+j:: FocusTab(P2, ["YOUR_URL","https://YOUR_URL","https://YOUR_URL","https://YOUR_URL"],  "https://YOUR_URL")
+; ^!+b:: FocusTab(P2, ["YOUR_URL"],           "https://YOUR_URL")
 ;^+#z:: FocusTab(P2, ["YOUR_URL"],             "https://YOUR_URL")
 ;^+#w:: FocusTab(P2, ["YOUR_URL"], "https://YOUR_URL")
 ; ^+#c:: FocusTab(P1, ["YOUR_URL"], "https://YOUR_URL")
-;^+#b:: OpenIssue("YOUR_URL")
+; ^+#b:: OpenIssue("YOUR_URL")
 ;^+#r:: OpenIssue("YOUR_URL")
 ; 
 ;--- END SENSITIVE ---
@@ -28,6 +28,9 @@ P2 := "Profile 1" ; Brave profile 2
 !x::  SplitFocusedTab()
 !z::  MergeFocusedWindow()
 #HotIf
+
+; Suppress all hotkeys when Moonlight is streaming
+#HotIf !WinActive("ahk_exe Moonlight.exe")
 
 ; --- Browser tab focus (profile 1) --- (UNIVERSAL)
 ^!+m:: FocusTab(P1, ["google.com/maps","bing.com/maps","apple.com/maps","openstreetmap.org"], "https://maps.google.com")
@@ -74,16 +77,13 @@ P2 := "Profile 1" ; Brave profile 2
 ^!+Esc::   SleepScreens()
 ^!+,::     ShowSettingsGui()
 
-; --- Window switcher (UNIVERSAL)
-!Tab::    ShowWindowSwitcher("down")
-!+Tab::   ShowWindowSwitcher("up")
-!vkC0::   ShowWindowSwitcher("up") ; backtick, convenient "up" alternative navigation
-
 ; --- Hotkey quick reference (auto-generated from this file) ---
 ^!+/:: ShowTextGui("Hotkey Reference", _BuildHotkeyRef(), 1250, 45)
 
 ; --- Debug: show AltTabSucks profile/window state ---
 ^!+l:: ShowAltTabSucksDebug()
+
+#HotIf
 
 ; ---- Local functions ----
 OpenAppsFolder() {

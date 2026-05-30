@@ -617,11 +617,15 @@ _SwitcherRestoreRow(savedRow) {
         _SwitcherPreviewSchedule()
 }
 
-; Ctrl+Alt+Tab — open the switcher in persistent mode (stays open after keys are released).
-^!Tab::ShowWindowSwitcher("down", true)
-^!+Tab::ShowWindowSwitcher("up", true)
+#HotIf SWITCHER_ENABLED
+!Tab::     ShowWindowSwitcher("down")
+!+Tab::    ShowWindowSwitcher("up")
+!vkC0::    ShowWindowSwitcher("up")   ; backtick — convenient "up" alternative
+^!Tab::    ShowWindowSwitcher("down", true)
+^!+Tab::   ShowWindowSwitcher("up", true)
+#HotIf
 
-#HotIf IsObject(_switcherGui)
+#HotIf SWITCHER_ENABLED && IsObject(_switcherGui)
 !Escape::_SwitcherClose()
 !PgUp::    ShowWindowSwitcher("up")
 !PgDn::    ShowWindowSwitcher("down")

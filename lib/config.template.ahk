@@ -8,8 +8,9 @@ global FIREFOX_PROFILE_INI := ""
 
 global CYCLE_SINGLE_AS_TOGGLE  := false
 global THEME                    := "auto"
-global SWITCHER_SHOW_PREVIEW    := true
+global SWITCHER_ENABLED         := false
+global SWITCHER_SHOW_PREVIEW    := false
 global SWITCHER_PREVIEW_SIDE    := "right"
 global SWITCHER_PREVIEW_SIZE    := 140
 global SWITCHER_SHOW_HINTS      := false
-global SWITCHER_GRID_PREVIEW := true
+global SWITCHER_GRID_PREVIEW    := false

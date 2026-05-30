@@ -73,6 +73,9 @@ ShowSettingsGui() {
     ; ── Window Switcher ───────────────────────────────────────────────────────
     hdrSwitcher := addHeader("Window Switcher")
 
+    enabledCb := g.AddCheckbox("xm y+6 w500", "Enable Alt+Tab replacement (uncheck to use Windows native)")
+    enabledCb.Value := SWITCHER_ENABLED
+
     ; Determine current mode from globals
     previewMode := !SWITCHER_SHOW_PREVIEW ? 1
                  : SWITCHER_GRID_PREVIEW  ? 3
@@ -161,13 +164,14 @@ ShowSettingsGui() {
         newFirefoxProfileIni := Trim(firefoxProfileIniEdit.Value)
         newCycleSingle       := cycleCb.Value
         newTheme             := themeKeys[themeDropdown.Value]
+        newSwitcherEnabled := enabledCb.Value
         newShowPreview := !radioNone.Value
         newShowGrid    := radioGrid.Value
         newPreviewSide := previewSideKeys[previewSideDropdown.Value]
         newPreviewSize := previewSizeSlider.Value
         newShowHints   := showHintsCb.Value
 
-        _WriteConfigFile(newChromiumExe, newChromiumUserdata, newFirefoxExe, newFirefoxProfileIni, newCycleSingle, newTheme, newShowPreview, newPreviewSide, newPreviewSize, newShowHints, newShowGrid)
+        _WriteConfigFile(newChromiumExe, newChromiumUserdata, newFirefoxExe, newFirefoxProfileIni, newCycleSingle, newTheme, newShowPreview, newPreviewSide, newPreviewSize, newShowHints, newShowGrid, newSwitcherEnabled)
 
         pathsChanged := newChromiumExe       != origChromiumExe
                      || newChromiumUserdata  != origChromiumUserdata
@@ -180,11 +184,12 @@ ShowSettingsGui() {
         }
         global CYCLE_SINGLE_AS_TOGGLE  := newCycleSingle
         global THEME                   := newTheme
+        global SWITCHER_ENABLED        := newSwitcherEnabled
         global SWITCHER_SHOW_PREVIEW   := newShowPreview
         global SWITCHER_PREVIEW_SIDE   := newPreviewSide
         global SWITCHER_PREVIEW_SIZE   := newPreviewSize
         global SWITCHER_SHOW_HINTS     := newShowHints
-        global SWITCHER_GRID_PREVIEW := newShowGrid
+        global SWITCHER_GRID_PREVIEW   := newShowGrid
         CloseGui()
     }
 
@@ -207,7 +212,7 @@ ShowSettingsGui() {
             b.Move(browseX)
 
         ; Full-width controls
-        for c in [hdrBrowser, hdrCycling, hdrSwitcher, hdrAppearance, cycleCb, showHintsCb]
+        for c in [hdrBrowser, hdrCycling, hdrSwitcher, hdrAppearance, cycleCb, enabledCb, showHintsCb]
             c.Move(, , fullW)
     }
     g.OnEvent("Size", ResizeControls)
@@ -260,7 +265,7 @@ _ThemeButton(ctrl, isDark) {
     DllCall("uxtheme\SetWindowTheme", "Ptr", ctrl.Hwnd, "Str", isDark ? "DarkMode_Explorer" : "Explorer", "Ptr", 0)
 }
 
-_WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, cycleSingleAsToggle, theme := "auto", switcherShowPreview := true, switcherPreviewSide := "right", switcherPreviewSize := 100, switcherShowHints := true, switcherGridPreview := false) {
+_WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, cycleSingleAsToggle, theme := "auto", switcherShowPreview := true, switcherPreviewSide := "right", switcherPreviewSize := 100, switcherShowHints := true, switcherGridPreview := false, switcherEnabled := true) {
     esc := (s) => StrReplace(StrReplace(s, "``", "````"), '"', '`"')
     content := '; config.ahk — AltTabSucks settings. Edit manually or use Ctrl+Alt+Shift+, to open the Settings UI.' . '`n'
              . '; This file is gitignored.' . '`n'
@@ -270,11 +275,12 @@ _WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, c
              . '`nglobal FIREFOX_PROFILE_INI := "' . esc(firefoxProfileIni) . '"'
              . '`n`nglobal CYCLE_SINGLE_AS_TOGGLE  := ' . (cycleSingleAsToggle ? "true" : "false")
              . '`nglobal THEME                    := "' . theme . '"'
+             . '`nglobal SWITCHER_ENABLED         := ' . (switcherEnabled ? "true" : "false")
              . '`nglobal SWITCHER_SHOW_PREVIEW    := ' . (switcherShowPreview ? "true" : "false")
              . '`nglobal SWITCHER_PREVIEW_SIDE    := "' . switcherPreviewSide . '"'
              . '`nglobal SWITCHER_PREVIEW_SIZE    := ' . switcherPreviewSize
              . '`nglobal SWITCHER_SHOW_HINTS      := ' . (switcherShowHints ? "true" : "false")
-             . '`nglobal SWITCHER_GRID_PREVIEW := ' . (switcherGridPreview ? "true" : "false")
+             . '`nglobal SWITCHER_GRID_PREVIEW    := ' . (switcherGridPreview ? "true" : "false")
              . '`n'
     f := FileOpen(A_ScriptDir '\lib\config.ahk', 'w', 'UTF-8')
     f.Write(content)
@@ -283,9 +289,9 @@ _WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, c
 
 _PersistConfig() {
     global CHROMIUM_EXE, CHROMIUM_USERDATA, FIREFOX_EXE, FIREFOX_PROFILE_INI
-    global CYCLE_SINGLE_AS_TOGGLE, THEME, SWITCHER_SHOW_PREVIEW, SWITCHER_PREVIEW_SIDE, SWITCHER_PREVIEW_SIZE
+    global CYCLE_SINGLE_AS_TOGGLE, THEME, SWITCHER_ENABLED, SWITCHER_SHOW_PREVIEW, SWITCHER_PREVIEW_SIDE, SWITCHER_PREVIEW_SIZE
     global SWITCHER_SHOW_HINTS, SWITCHER_GRID_PREVIEW
     _WriteConfigFile(CHROMIUM_EXE, CHROMIUM_USERDATA, FIREFOX_EXE, FIREFOX_PROFILE_INI,
                      CYCLE_SINGLE_AS_TOGGLE, THEME, SWITCHER_SHOW_PREVIEW, SWITCHER_PREVIEW_SIDE,
-                     SWITCHER_PREVIEW_SIZE, SWITCHER_SHOW_HINTS, SWITCHER_GRID_PREVIEW)
+                     SWITCHER_PREVIEW_SIZE, SWITCHER_SHOW_HINTS, SWITCHER_GRID_PREVIEW, SWITCHER_ENABLED)
 }
