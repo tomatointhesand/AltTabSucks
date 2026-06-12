@@ -13,6 +13,7 @@ ShowSettingsGui() {
     origChromiumUserdata  := CHROMIUM_USERDATA
     origFirefoxExe        := FIREFOX_EXE
     origFirefoxProfileIni := FIREFOX_PROFILE_INI
+    origSwitcherEnabled   := SWITCHER_ENABLED
 
     isDark := _SwitcherIsDark()
     bg         := isDark ? "202020" : ""
@@ -190,6 +191,11 @@ ShowSettingsGui() {
         global SWITCHER_PREVIEW_SIZE   := newPreviewSize
         global SWITCHER_SHOW_HINTS     := newShowHints
         global SWITCHER_GRID_PREVIEW   := newShowGrid
+        
+        ; Dynamically enable/disable hotkeys if SWITCHER_ENABLED changed
+        if newSwitcherEnabled != origSwitcherEnabled {
+            _SwitcherSetHotkeysEnabled(newSwitcherEnabled)
+        }
         CloseGui()
     }
 
