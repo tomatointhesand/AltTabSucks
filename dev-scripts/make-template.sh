@@ -26,10 +26,14 @@ awk '
 {
     if (in_sensitive) {
         line = $0
+        gsub(/:=[[:space:]]*"[^"]*"/, ":= \"YOUR_VALUE\"", line)
         gsub(/P1 := "[^"]*"/, "P1 := \"Default\"", line)
         gsub(/P2 := "[^"]*"/, "P2 := \"Profile 1\"", line)
         gsub(/"https?:\/\/[^\\"]*"/, "\"https://YOUR_URL\"", line)
         gsub(/"[^\\"]*\.[^\\"]*"/, "\"YOUR_URL\"", line)
+        gsub(/"[A-Za-z]:\\[^"]*"/, "\"C:\\\\YOUR\\\\PATH\"", line)
+        gsub(/"\\[^"]*"/, "\"C:\\\\YOUR\\\\PATH\"", line)
+        gsub(/Send\("[^"]*"\)/, "Send(\"YOUR_VALUE\")", line)
         if (line ~ /^[[:space:]]*P[12][[:space:]]*:=/ || line ~ /^[[:space:]]*;[[:space:]]*P[12][[:space:]]*:=/) {
             print line
         } else if (line ~ /^[[:space:]]*;/) {
