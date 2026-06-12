@@ -617,14 +617,14 @@ _SwitcherRestoreRow(savedRow) {
         _SwitcherPreviewSchedule()
 }
 
-#HotIf SWITCHER_ENABLED
+; Window switcher hotkeys — always registered, enabled/disabled by _SwitcherSetHotkeysEnabled()
 !Tab::     ShowWindowSwitcher("down")
 !+Tab::    ShowWindowSwitcher("up")
 !vkC0::    ShowWindowSwitcher("up")   ; backtick — convenient "up" alternative
 ^!Tab::    ShowWindowSwitcher("down", true)
 ^!+Tab::   ShowWindowSwitcher("up", true)
-#HotIf
 
+; In-switcher navigation hotkeys (only work when popup is visible)
 #HotIf SWITCHER_ENABLED && IsObject(_switcherGui)
 !Escape::_SwitcherClose()
 !PgUp::    ShowWindowSwitcher("up")
@@ -638,3 +638,14 @@ _SwitcherRestoreRow(savedRow) {
 ; Wheel scrolling is handled via a WH_MOUSE_LL hook (see _SwitcherMouseHookInstall)
 ; that posts WM_APP+1 messages instead of firing hotkeys, so AHK's hotkey
 ; counter is never involved and the "too many hotkeys" dialog cannot appear.
+
+; Dynamic hotkey enable/disable for SWITCHER_ENABLED setting changes
+_SwitcherSetHotkeysEnabled(enabled) {
+    hotkeys := ["!Tab", "!+Tab", "!vkC0", "^!Tab", "^!+Tab"]
+    action := enabled ? "On" : "Off"
+    for hk in hotkeys
+        try Hotkey(hk, action)
+}
+
+; Apply configured startup state immediately.
+_SwitcherSetHotkeysEnabled(SWITCHER_ENABLED)
