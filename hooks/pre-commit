@@ -12,3 +12,20 @@ if [ -f "$REPO_ROOT/lib/app-hotkeys.ahk" ] || [ -f "$REPO_ROOT/lib/config.ahk" ]
     bash "$REPO_ROOT/dev-scripts/make-template.sh"
     git add "$REPO_ROOT/lib/app-hotkeys.template.ahk" "$REPO_ROOT/lib/config.template.ahk"
 fi
+
+if [ -f "$REPO_ROOT/lib/app-hotkeys.ahk" ]; then
+    staged_sensitive_lines="$(git diff --cached -- "$REPO_ROOT/lib/app-hotkeys.ahk" | awk '
+        /^\+[^+]/ {
+            line = substr($0, 2)
+            if (line ~ /^;--- BEGIN SENSITIVE ---/) { in_sensitive = 1; next }
+            if (line ~ /^;--- END SENSITIVE ---/)   { in_sensitive = 0; next }
+            if (in_sensitive) { print line }
+        }
+    ')"
+
+    if [ -n "$staged_sensitive_lines" ] && printf "%s\n" "$staged_sensitive_lines" | grep -Eiq 'Send\(".+"\)|\<(PuttyUser|Password|Pass|Token|ApiKey|Secret)\>[[:space:]]*:=[[:space:]]*"'; then
+        echo "[pre-commit] Blocked: potential hardcoded secret detected in lib/app-hotkeys.ahk sensitive section."
+        echo "[pre-commit] Use SendSecret(<name>) and store values in SecretStore instead of literals."
+        exit 1
+    fi
+fi
