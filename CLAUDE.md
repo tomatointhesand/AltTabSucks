@@ -46,6 +46,36 @@ PowerShell HTTP server (`localhost:9876`) that bridges AHK ↔ browser extension
 
 **Gitignored local files**: `lib/config.ahk`, `lib/app-hotkeys.ahk`, and `Server/token.txt` are never committed.
 
+## Secrets Workflow (gopass)
+
+Sensitive hotkeys read secrets via `lib/secrets.ahk` -> `lib/secret-bridge.sh` -> `gopass`.
+
+- Password secret identifiers are defined in `lib/app-hotkeys.ahk` via:
+  - `PasswordSecretName1`
+  - `PasswordSecretName2`
+  - etc.
+- Setup/management scripts resolve password secret identifiers from `lib/app-hotkeys.ahk` at runtime (no hardcoded names in scripts).
+- Usernames and other non-secret values can remain ordinary variables in the sensitive section.
+- First-time setup and ongoing management: `bash dev-scripts/manage-secrets.sh`
+- Dedicated AHK hotkey to open the secrets manager: `^+#'`
+
+`manage-secrets.sh` menu options:
+- `1` list secrets
+- `2` initial setup (seed secrets from `app-hotkeys.ahk`)
+- `3` define a new secret
+- `4` update a secret (choose key from list)
+- `5` delete a secret (choose key from list, with confirmation)
+- `6` lock vault (kills `gpg-agent`)
+- `7` exit
+
+Locking behavior:
+- AHK keeps a short in-memory cache (`lib/secrets.ahk`).
+- On workstation lock, AHK clears cache and calls bridge `lock`.
+- On `manage-secrets.sh` lock, a temp trigger file is written and AHK timer polling clears cache immediately (cross-process signal).
+
+Windows + Git Bash note:
+- If `gopass` is not found in fresh shells, use the wrapper at `~/bin/gopass` (created during setup) or ensure `%LOCALAPPDATA%\gopass` is on Bash PATH.
+
 **Template workflow**: Edit `lib/app-hotkeys.ahk` freely — **never edit `lib/app-hotkeys.template.ahk` directly**, it is overwritten on every commit. The pre-commit hook (`hooks/pre-commit`) runs `dev-scripts/make-template.sh` automatically on every `git commit` or `git commit --amend`, regenerating both template files with URLs/paths/profile names redacted and staging them. To trigger template regeneration without other staged changes, amend the top commit: `git commit --amend --no-edit`. Run `bash dev-scripts/install-hooks.sh` once after cloning to activate the hook.
 
 **Template sanitization rules** (`dev-scripts/make-template.sh`): `https://` URLs → `"https://YOUR_URL"` (localhost URLs preserved as-is); Windows paths → `"C:\YOUR\PATH"`; profile name args in `FocusTab()`/`CycleChromiumProfile()`/`FocusTabFirefox()`/`CycleFirefoxProfile()` → `"YOUR_BROWSER_PROFILE"`. AHK comment lines (`;`) are skipped in `config.template.ahk` so example paths in comments are preserved.

@@ -10,8 +10,9 @@
 P1 := "Default"
 P2 := "Profile 1"
 ;P2 := "Profile 1"
-; PuttyUser := "YOUR_VALUE"
-; VPNPath := "YOUR_VALUE"
+; UserName1 := "YOUR_VALUE"
+; PasswordSecretName1 := "YOUR_VALUE"
+; TrayAppPath := "YOUR_VALUE"
 ; ^!+j:: FocusTab(P2, ["https://YOUR_URL","https://YOUR_URL","https://YOUR_URL","https://YOUR_URL"],  "https://YOUR_URL")
 ; ^!+b:: FocusTab(P1, ["https://YOUR_URL"],           "https://YOUR_URL")
 ;^!+z:: FocusTab(P1, ["https://YOUR_URL", "https://YOUR_URL"],             "https://YOUR_URL")
@@ -23,23 +24,23 @@ P2 := "Profile 1"
 ; }
 ; 
 ; ^!+=:: {
-; 	Send("YOUR_VALUE")
+; 	SendSecret(PasswordSecretName1)
 ; }
 ; 
 ;--- END SENSITIVE ---
 
 ; --- BEGIN COMMON ---
 
-; PuTTY launcher — auto-fills credentials
+; PuTTY launcher
 ^!+\:: {
 	Run("C:\Program Files\PuTTY\putty.exe")
 	Sleep(400)
 	Send("{Tab}{Tab}{Tab}{Tab}{Tab}{Down}{Down}{Enter}")
 	Sleep(1000)
-	Send(PuttyUser)
+	SendSecret(UserSecretName1)
 }
 
-; Toggle VPN tray popup and click connect / disconnect. Tested on 1440p and 1080p with no (100%) display scaling applied.
+; Toggle tray popup and click on a button in it. Tested on 1440p and 1080p with no (100%) display scaling applied.
 ^!+x:: {
 	; Set coordinate mode to use screen coordinates
 	CoordMode("Mouse", "Screen")
@@ -48,7 +49,7 @@ P2 := "Profile 1"
 	targetX := A_ScreenWidth - Floor(A_ScreenWidth * widthCoeff) ; edit the decimal to change target
 	targetY := A_ScreenHeight - Floor(A_ScreenHeight * heightCoeff) ; edit the decimal to change target
 	; MsgBox("W: " . A_ScreenWidth . ", H: " . A_ScreenHeight . ", targetX: " . targetX . ", targetY: " . targetY) ; for debugging  
-	Run(VPNPath)
+	Run(TrayAppPath)
 	Sleep(600)
 	; MouseMove(targetX, targetY) ; for debugging
 	MouseClick("left", targetX, targetY)
@@ -91,7 +92,7 @@ P2 := "Profile 1"
 ^!+e:: ManageAppWindows("code.exe", "C:\Program Files\Microsoft VS Code\Code.exe", "cycle")
 ^!+q:: ManageAppWindows("ssms.exe", "C:\Program Files\Microsoft SQL Server Management Studio 22\Release\Common7\IDE\SSMS.exe", "cycle")
 ^!+v:: ManageAppWindows("obs64.exe", "C:\Program Files\obs-studio\bin\64bit\obs64.exe", "toggle")
-^!+s:: ManageAppWindows("slack.exe", EnvGet("USERPROFILE") "\AppData\Local\slack\slack.exe", "cycle") ; C:\Users\dbean\AppData\Local\slack\slack.exe
+^!+s:: ManageAppWindows("slack.exe", EnvGet("USERPROFILE") "\AppData\Local\slack\slack.exe", "cycle")
 ^!+m:: ManageAppWindows("devenv.exe", "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\devenv.exe", "cycle")
 ;   CLASSIC OUTLOOK
 ^!+o:: ManageAppWindows("outlook.exe", "C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE", "cycle")
@@ -105,7 +106,7 @@ P2 := "Profile 1"
 ^!+w::  OpenNotSharedFolder()
 ^!+0::  OpenRDPFolder()
 ^!+Down::  OpenDownloads()
-^!+d::  OpenDesktopfolder()
+^!+d::  OpenDesktopFolder()
 
 ; --- System ---
 ^!+Esc:: SleepScreens()
@@ -126,7 +127,7 @@ OpenAppsFolder() {
 }
 
 OpenNotSharedFolder() {
-    Run(EnvGet("ONEDRIVE") "\Documents\NotShared\") ;SSMS connect Read-only.bat-ADMIN.lnk")
+    Run(EnvGet("ONEDRIVE") "\Documents\NotShared\")
 }
 OpenRDPFolder() {
     Run(EnvGet("ONEDRIVE") "\Desktop\rdp")

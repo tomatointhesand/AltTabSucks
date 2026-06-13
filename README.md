@@ -132,6 +132,68 @@ To regenerate manually without committing:
 
 Run `bash dev-scripts/install-hooks.sh` once after cloning to activate the hook.
 
+**Secure secrets (recommended)**
+
+Store credentials outside source files using gopass (cross-platform, bash-based).
+
+1. Install gopass and GPG once:
+
+```powershell
+winget install gopass.gopass
+winget install GnuPG.GnuPG
+```
+
+2. Initialize the password store and create secrets:
+
+```bash
+bash dev-scripts/manage-secrets.sh
+# Choose option 2
+```
+
+This will prompt you for each `PasswordSecretNameN` entry defined in `lib/app-hotkeys.ahk`.
+Non-secret values like usernames can remain ordinary variables in the sensitive section.
+
+Then it will store them encrypted in your gopass store (location depends on gopass configuration; on some Windows setups this is under `%LOCALAPPDATA%\gopass\stores\root`).
+
+**Managing Secrets**
+
+Open the secrets manager with the AHK hotkey:
+```text
+Ctrl+Win+Shift+'
+```
+
+Or run it directly:
+```bash
+bash dev-scripts/manage-secrets.sh
+```
+
+View all secrets:
+```bash
+bash dev-scripts/manage-secrets.sh
+```
+
+Update a secret:
+```bash
+bash dev-scripts/manage-secrets.sh
+# Choose option 4
+```
+
+Delete a secret:
+```bash
+bash dev-scripts/manage-secrets.sh
+# Choose option 5
+```
+
+Lock secrets (kill gpg-agent cache):
+```bash
+bash dev-scripts/manage-secrets.sh
+# Choose option 6
+```
+
+`lib/secrets.ahk` calls `lib/secret-bridge.sh` to read secrets on demand. Secrets are cached in memory briefly for smooth hotkey flows, then purged. On workstation lock, the cache is cleared and the gpg-agent is killed.
+
+When locking via `manage-secrets.sh` option 6, gpg-agent is killed and a local lock signal is emitted so the running AHK process clears its in-memory secret cache immediately.
+
 **Packaging the Firefox extension**
 
 ```powershell

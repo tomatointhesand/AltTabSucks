@@ -624,7 +624,7 @@ _SwitcherRestoreRow(savedRow) {
 ^!Tab::    ShowWindowSwitcher("down", true)
 ^!+Tab::   ShowWindowSwitcher("up", true)
 
-; In-switcher navigation hotkeys (only work when popup is visible)
+; In-switcher navigation hotkeys (only works when popup is visible)
 #HotIf SWITCHER_ENABLED && IsObject(_switcherGui)
 !Escape::_SwitcherClose()
 !PgUp::    ShowWindowSwitcher("up")
