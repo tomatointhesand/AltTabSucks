@@ -14,9 +14,10 @@ if not A_IsAdmin
 
 #Include lib\utils.ahk        ; ShowTextGui, ManageAppWindows, ShowSettingsGui
 #Include lib\toast.ahk        ; SampleTitlebarColor, ShowProfileToast, ShowSetupToast
-CHROMIUM_EXE        := ""     ; defaults — overwritten by config.ahk if it exists
-CHROMIUM_USERDATA   := ""
-FIREFOX_EXE         := ""
+CHROMIUM_EXE := ""     ; defaults — overwritten by config.ahk if it exists
+CHROMIUM_USERDATA := ""
+CHROMIUM_EXTRA_FLAGS := ""
+FIREFOX_EXE := ""
 FIREFOX_PROFILE_INI := ""
 #Include *i lib\config.ahk    ; browser paths (gitignored — auto-detected on first launch if absent)
 #Include lib\chromium.ahk     ; Chromium profile cycling + tab focus via AltTabSucks server

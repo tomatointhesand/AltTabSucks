@@ -70,12 +70,22 @@ switch ($Action) {
             Stop-Process -Id $proc.ProcessId -Force
             Write-Host "Killed orphaned AltTabSucksServer.ps1 process (PID $($proc.ProcessId))."
         }
+        $wscriptOrphans = Get-CimInstance Win32_Process -Filter "Name = 'wscript.exe'" |
+                          Where-Object { $_.CommandLine -like "*launch-hidden.vbs*" }
+        foreach ($proc in $wscriptOrphans) {
+            Stop-Process -Id $proc.ProcessId -Force
+            Write-Host "Killed orphaned wscript.exe/launch-hidden.vbs process (PID $($proc.ProcessId))."
+        }
 
         # --- Scheduled task (AltTabSucksServer.ps1) ---
 
+        # Use wscript.exe + VBScript shim rather than powershell.exe -WindowStyle Hidden.
+        # -WindowStyle Hidden is unreliable for elevated Task Scheduler tasks on some Windows
+        # builds/policies; wscript.exe's Run(..., 0, False) always launches without a window.
+        $vbsLauncher = Join-Path $PSScriptRoot "Server\launch-hidden.vbs"
         $taskAction = New-ScheduledTaskAction `
-            -Execute "powershell.exe" `
-            -Argument "-NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$ScriptPath`"" `
+            -Execute "wscript.exe" `
+            -Argument "`"$vbsLauncher`"" `
             -WorkingDirectory (Join-Path $PSScriptRoot "Server")
 
         # Start at logon for the current user only
@@ -231,6 +241,12 @@ start "" "$RepoRoot\AltTabSucks.ahk"
         foreach ($proc in $orphans) {
             Stop-Process -Id $proc.ProcessId -Force
             Write-Host "Killed orphaned AltTabSucksServer.ps1 process (PID $($proc.ProcessId))."
+        }
+        $wscriptOrphans = Get-CimInstance Win32_Process -Filter "Name = 'wscript.exe'" |
+                          Where-Object { $_.CommandLine -like "*launch-hidden.vbs*" }
+        foreach ($proc in $wscriptOrphans) {
+            Stop-Process -Id $proc.ProcessId -Force
+            Write-Host "Killed orphaned wscript.exe/launch-hidden.vbs process (PID $($proc.ProcessId))."
         }
     }
 }
