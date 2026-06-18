@@ -1,14 +1,14 @@
 ; chromium.ahk - Chromium multi-profile window cycling and tab focusing via AltTabSucks
 ; Reads CHROMIUM_EXE and CHROMIUM_USERDATA from lib/config.ahk (gitignored).
 
-global _chromiumCache           := Map()
-global _focusTabLast            := Map()
-global _focusTabOpenedAt        := Map()
-global _cycleProfileOpenedAt    := Map()
+global _chromiumCache := Map()
+global _focusTabLast := Map()
+global _focusTabOpenedAt := Map()
+global _cycleProfileOpenedAt := Map()
 global _chromiumProfileDirCache := Map()
-global _chromiumExe             := ""
-global _origFgLockTimeout       := 0
-global _serverToken             := ""
+global _chromiumExe := ""
+global _origFgLockTimeout := 0
+global _serverToken := ""
 
 ; Returns array of active-tab titles for the given profile (via AltTabSucks server)
 GetProfileWindowTitles(profileName) {
@@ -57,48 +57,53 @@ GetChromiumProfileDirMap() {
 ; found on disk. Scans all known install paths — does not rely on registry defaults.
 _DetectInstalledBrowsers() {
     localAppData := EnvGet("LOCALAPPDATA")
-    pf           := A_ProgramFiles
-    pf86         := EnvGet("ProgramFiles(x86)")
-    appData      := EnvGet("APPDATA")
+    pf := A_ProgramFiles
+    pf86 := EnvGet("ProgramFiles(x86)")
+    appData := EnvGet("APPDATA")
 
     ffIni := appData . "\Mozilla\Firefox\profiles.ini"
-    candidates := [
-        {name: "Brave",   exe: pf   . "\BraveSoftware\Brave-Browser\Application\brave.exe",  data: localAppData . "\BraveSoftware\Brave-Browser\User Data", profileIni: "", type: "chromium"},
-        {name: "Chrome",  exe: pf   . "\Google\Chrome\Application\chrome.exe",               data: localAppData . "\Google\Chrome\User Data",               profileIni: "", type: "chromium"},
-        {name: "Chrome",  exe: pf86 . "\Google\Chrome\Application\chrome.exe",               data: localAppData . "\Google\Chrome\User Data",               profileIni: "", type: "chromium"},
-        {name: "Chrome",  exe: localAppData . "\Google\Chrome\Application\chrome.exe",       data: localAppData . "\Google\Chrome\User Data",               profileIni: "", type: "chromium"},
-        {name: "Edge",    exe: pf86 . "\Microsoft\Edge\Application\msedge.exe",              data: localAppData . "\Microsoft\Edge\User Data",              profileIni: "", type: "chromium"},
-        {name: "Edge",    exe: pf   . "\Microsoft\Edge\Application\msedge.exe",              data: localAppData . "\Microsoft\Edge\User Data",              profileIni: "", type: "chromium"},
-        {name: "Vivaldi", exe: localAppData . "\Vivaldi\Application\vivaldi.exe",            data: localAppData . "\Vivaldi\User Data",                     profileIni: "", type: "chromium"},
-        {name: "Opera",   exe: localAppData . "\Programs\Opera\opera.exe",                   data: appData      . "\Opera Software\Opera Stable",           profileIni: "", type: "chromium"},
+    candidates := [{ name: "Brave", exe: pf . "\BraveSoftware\Brave-Browser\Application\brave.exe", data: localAppData .
+        "\BraveSoftware\Brave-Browser\User Data", profileIni: "", type: "chromium" }, { name: "Chrome", exe: pf .
+            "\Google\Chrome\Application\chrome.exe", data: localAppData . "\Google\Chrome\User Data", profileIni: "",
+            type: "chromium" }, { name: "Chrome", exe: pf86 . "\Google\Chrome\Application\chrome.exe", data: localAppData .
+                "\Google\Chrome\User Data", profileIni: "", type: "chromium" }, { name: "Chrome", exe: localAppData .
+                    "\Google\Chrome\Application\chrome.exe", data: localAppData . "\Google\Chrome\User Data",
+                    profileIni: "", type: "chromium" }, { name: "Edge", exe: pf86 .
+                        "\Microsoft\Edge\Application\msedge.exe", data: localAppData . "\Microsoft\Edge\User Data",
+                        profileIni: "", type: "chromium" }, { name: "Edge", exe: pf .
+                            "\Microsoft\Edge\Application\msedge.exe", data: localAppData . "\Microsoft\Edge\User Data",
+                            profileIni: "", type: "chromium" }, { name: "Vivaldi", exe: localAppData .
+                                "\Vivaldi\Application\vivaldi.exe", data: localAppData . "\Vivaldi\User Data",
+                                profileIni: "", type: "chromium" }, { name: "Opera", exe: localAppData .
+                                    "\Programs\Opera\opera.exe", data: appData . "\Opera Software\Opera Stable",
+                                    profileIni: "", type: "chromium" },
     ]
 
     ; Firefox writes its install dir to the registry — more reliable than hardcoded paths.
     ; Try 64-bit key first, then WOW6432Node for 32-bit installs.
     for regKey in ["HKLM\SOFTWARE\Mozilla\Mozilla Firefox", "HKLM\SOFTWARE\WOW6432Node\Mozilla\Mozilla Firefox"] {
         try {
-            version    := RegRead(regKey, "CurrentVersion")
+            version := RegRead(regKey, "CurrentVersion")
             installDir := RegRead(regKey . "\" . version . "\Main", "Install Directory")
-            ffExe      := installDir . "\firefox.exe"
+            ffExe := installDir . "\firefox.exe"
             if FileExist(ffExe) {
-                candidates.Push({name: "Firefox", exe: ffExe, data: "", profileIni: ffIni, type: "firefox"})
+                candidates.Push({ name: "Firefox", exe: ffExe, data: "", profileIni: ffIni, type: "firefox" })
                 break
             }
         }
     }
 
     result := []
-    seen   := Map()
+    seen := Map()
     for c in candidates {
         key := StrLower(c.exe)
         if FileExist(c.exe) && !seen.Has(key) {
             seen[key] := true
-            result.Push({name: c.name, exe: c.exe, data: c.data, profileIni: c.profileIni, type: c.type})
+            result.Push({ name: c.name, exe: c.exe, data: c.data, profileIni: c.profileIni, type: c.type })
         }
     }
     return result
 }
-
 
 ; Called at startup when CHROMIUM_EXE is unset. Scans installed browsers, presents a
 ; blocking choice dialog, and writes the selection to lib/config.ahk.
@@ -119,7 +124,7 @@ _PromptBrowserChoice() {
 
     choices := []
     for b in installed
-        choices.Push({label: b.name, detail: b.exe})
+        choices.Push({ label: b.name, detail: b.exe })
 
     idx := ShowChoiceDialog(
         "Choose target browser",
@@ -129,26 +134,26 @@ _PromptBrowserChoice() {
     if idx = 0
         return
 
-    b          := installed[idx]
+    b := installed[idx]
     configPath := A_ScriptDir . "\lib\config.ahk"
     if b.type = "firefox" {
-        FIREFOX_EXE         := b.exe
+        FIREFOX_EXE := b.exe
         FIREFOX_PROFILE_INI := b.profileIni
         content := "; config.ahk — written by AltTabSucks on first run. Edit if needed.`n"
-                 . "; This file is gitignored.`n`n"
-                 . 'global CHROMIUM_EXE        := ""' . "`n"
-                 . 'global CHROMIUM_USERDATA   := ""' . "`n"
-                 . 'global FIREFOX_EXE         := "' . b.exe . '"' . "`n"
-                 . 'global FIREFOX_PROFILE_INI := "' . b.profileIni . '"' . "`n"
+            . "; This file is gitignored.`n`n"
+            . 'global CHROMIUM_EXE        := ""' . "`n"
+            . 'global CHROMIUM_USERDATA   := ""' . "`n"
+            . 'global FIREFOX_EXE         := "' . b.exe . '"' . "`n"
+            . 'global FIREFOX_PROFILE_INI := "' . b.profileIni . '"' . "`n"
     } else {
-        CHROMIUM_EXE      := b.exe
+        CHROMIUM_EXE := b.exe
         CHROMIUM_USERDATA := b.data
         content := "; config.ahk — written by AltTabSucks on first run. Edit if needed.`n"
-                 . "; This file is gitignored.`n`n"
-                 . 'global CHROMIUM_EXE        := "' . b.exe . '"' . "`n"
-                 . 'global CHROMIUM_USERDATA   := "' . b.data . '"' . "`n"
-                 . 'global FIREFOX_EXE         := ""' . "`n"
-                 . 'global FIREFOX_PROFILE_INI := ""' . "`n"
+            . "; This file is gitignored.`n`n"
+            . 'global CHROMIUM_EXE        := "' . b.exe . '"' . "`n"
+            . 'global CHROMIUM_USERDATA   := "' . b.data . '"' . "`n"
+            . 'global FIREFOX_EXE         := ""' . "`n"
+            . 'global FIREFOX_PROFILE_INI := ""' . "`n"
     }
     try {
         if FileExist(configPath)
@@ -157,7 +162,7 @@ _PromptBrowserChoice() {
     }
 
     if MsgBox("Open Windows Default Apps to set " . b.name . " as your default browser?",
-              "Set default browser?", "YesNo Icon?") = "Yes"
+        "Set default browser?", "YesNo Icon?") = "Yes"
         Run("ms-settings:defaultapps")
 }
 
@@ -215,13 +220,13 @@ _InitChromiumState() {
     if content != "" {
         pos := 1
         while RegExMatch(content, '"(Default|Profile \d+)":\s*\{', &dm, pos) {
-            dirName    := dm[1]
+            dirName := dm[1]
             chunkStart := dm.Pos + dm.Len
-            chunk      := SubStr(content, chunkStart, 3000)
+            chunk := SubStr(content, chunkStart, 3000)
             if RegExMatch(chunk, '"name"\s*:\s*"([^"]+)"', &nm) {
                 ; Validate: backward search from this name position must land on the same dir key.
                 nameAbsPos := chunkStart + nm.Pos - 1
-                before     := SubStr(content, 1, nameAbsPos)
+                before := SubStr(content, 1, nameAbsPos)
                 if RegExMatch(before, '[\s\S]*"(Default|Profile \d+)":\s*\{', &dm2) && dm2[1] = dirName
                     _chromiumProfileDirCache[nm[1]] := dirName
             }
@@ -231,7 +236,7 @@ _InitChromiumState() {
     ; Fallback: scan user data dir for profile subdirectories when info_cache parsing yields
     ; nothing (e.g. Opera has no info_cache, or uses non-standard directory names).
     if _chromiumProfileDirCache.Count = 0 && CHROMIUM_USERDATA != "" {
-        Loop Files, CHROMIUM_USERDATA "\*", "D" {
+        loop files, CHROMIUM_USERDATA "\*", "D" {
             if RegExMatch(A_LoopFileName, "^(Default|Profile \d+)$")
                 _chromiumProfileDirCache[A_LoopFileName] := A_LoopFileName
         }
@@ -290,7 +295,7 @@ CycleChromiumProfile(profileName) {
             hwndStr .= hwnd "`n"
         hwndStr := Sort(hwndStr, "N")
         matchingWindows := []
-        Loop Parse, hwndStr, "`n" {
+        loop parse, hwndStr, "`n" {
             if A_LoopField != ""
                 matchingWindows.Push(Integer(A_LoopField))
         }
@@ -318,7 +323,8 @@ CycleChromiumProfile(profileName) {
             return
         profileDir := GetChromiumProfileDir(profileName)
         if CHROMIUM_EXE = "" || profileDir = "" {
-            ShowTextGui("Profile not found", "Could not resolve a Chromium profile directory for '" . profileName . "'.", 600, 5)
+            ShowTextGui("Profile not found", "Could not resolve a Chromium profile directory for '" . profileName .
+                "'.", 600, 5)
             return
         }
         ; Clear stale server data so _WaitAndCycleProfile only activates freshly-posted windows
@@ -328,7 +334,8 @@ CycleChromiumProfile(profileName) {
             httpDel.SetRequestHeader("X-AltTabSucks-Token", _serverToken)
             httpDel.Send()
         }
-        Run('"' . CHROMIUM_EXE . '" --profile-directory="' . profileDir . '"')
+        Run('"' . CHROMIUM_EXE . '" --profile-directory="' . profileDir . '"' . (CHROMIUM_EXTRA_FLAGS != "" ? " " .
+            CHROMIUM_EXTRA_FLAGS : ""))
         _cycleProfileOpenedAt[profileName] := A_TickCount
         _deadline := A_TickCount + 8000
         SetTimer(() => _WaitAndCycleProfile(profileName, _deadline), -1000)
@@ -343,7 +350,7 @@ CycleChromiumProfile(profileName) {
             break
         }
     }
-    nextIdx    := Mod(currentIdx, matchingWindows.Length) + 1
+    nextIdx := Mod(currentIdx, matchingWindows.Length) + 1
     targetHwnd := matchingWindows[nextIdx]
 
     bgColor := SampleTitlebarColor(targetHwnd)
@@ -393,11 +400,12 @@ _WaitForTabOrOpen(profileName, cleanPatterns, openUrl, deadline) {
             http.Send()
             body := Trim(StrReplace(http.ResponseText, "`r", ""))
             if body != "" {
-                line     := StrSplit(body, "`n")[1]
-                pipe     := InStr(line, "|")
+                line := StrSplit(body, "`n")[1]
+                pipe := InStr(line, "|")
                 windowId := Integer(SubStr(line, 1, pipe - 1))
-                tabId    := Integer(SubStr(line, pipe + 1))
-                postBody := '{"profile":"' . JsonEscape(profileName) . '","windowId":' . windowId . ',"tabId":' . tabId . '}'
+                tabId := Integer(SubStr(line, pipe + 1))
+                postBody := '{"profile":"' . JsonEscape(profileName) . '","windowId":' . windowId . ',"tabId":' . tabId .
+                '}'
                 http2 := ComObject("WinHttp.WinHttpRequest.5.1")
                 http2.Open("POST", "http://localhost:9876/switchtab", false)
                 http2.SetRequestHeader("Content-Type", "application/json")
@@ -498,7 +506,7 @@ FocusTab(profileName, urlPatterns, openUrl) {
 
     ; Query /findtab once per pattern; union results preserving each pattern's sort order.
     matchLines := []
-    seen       := Map()
+    seen := Map()
     for pattern in cleanPatterns {
         try {
             http := ComObject("WinHttp.WinHttpRequest.5.1")
@@ -556,9 +564,10 @@ FocusTab(profileName, urlPatterns, openUrl) {
                 httpDel.SetRequestHeader("X-AltTabSucks-Token", _serverToken)
                 httpDel.Send()
             }
-            Run('"' . CHROMIUM_EXE . '" --profile-directory="' . profileDir . '"')
+            Run('"' . CHROMIUM_EXE . '" --profile-directory="' . profileDir . '"' . (CHROMIUM_EXTRA_FLAGS != "" ? " " .
+                CHROMIUM_EXTRA_FLAGS : ""))
             _deadline := A_TickCount + 8000
-            _pats     := cleanPatterns
+            _pats := cleanPatterns
             SetTimer(() => _WaitForTabOrOpen(profileName, _pats, openUrl, _deadline), -1000)
             return
         }
@@ -579,17 +588,17 @@ FocusTab(profileName, urlPatterns, openUrl) {
     ; Reset to index 0 whenever arriving from outside the browser so the best tab is always
     ; the first destination; continue cycling when already inside the browser.
     matchCount := matchLines.Length
-    cacheKey   := profileName . ":" . patternKey
+    cacheKey := profileName . ":" . patternKey
     if arrivedFromOutside
         _focusTabLast[cacheKey] := 0
     currentIdx := _focusTabLast.Has(cacheKey) ? _focusTabLast[cacheKey] : 0
-    nextIdx    := Mod(currentIdx, matchCount)
+    nextIdx := Mod(currentIdx, matchCount)
     _focusTabLast[cacheKey] := nextIdx + 1
 
-    line     := matchLines[nextIdx + 1]
-    pipe     := InStr(line, "|")
+    line := matchLines[nextIdx + 1]
+    pipe := InStr(line, "|")
     windowId := Integer(SubStr(line, 1, pipe - 1))
-    tabId    := Integer(SubStr(line, pipe + 1))
+    tabId := Integer(SubStr(line, pipe + 1))
 
     ; POST switch command - extension picks it up on its next poll and handles focus natively
     postBody := '{"profile":"' . JsonEscape(profileName) . '","windowId":' . windowId . ',"tabId":' . tabId . '}'
@@ -601,7 +610,7 @@ FocusTab(profileName, urlPatterns, openUrl) {
 
     ; Poll every 50ms until a Chromium window becomes active (meaning the extension has
     ; completed the switch), then show the toast on it. Timeout after 1.5s.
-    _label    := profileName
+    _label := profileName
     _deadline := A_TickCount + 1500
     SetTimer(() => _WaitChromiumActiveAndToast(_label, _deadline), -50)
 }
@@ -624,13 +633,14 @@ RunChromiumProfile(profileName) {
     profileDir := GetChromiumProfileDir(profileName)
     if CHROMIUM_EXE = "" || profileDir = ""
         return false
-    Run('"' . CHROMIUM_EXE . '" --profile-directory="' . profileDir . '"')
+    Run('"' . CHROMIUM_EXE . '" --profile-directory="' . profileDir . '"' . (CHROMIUM_EXTRA_FLAGS != "" ? " " .
+        CHROMIUM_EXTRA_FLAGS : ""))
     return true
 }
 
 ShowAltTabSucksDebug() {
     profileMap := GetChromiumProfileDirMap()
-    tabDebug   := ""
+    tabDebug := ""
     try {
         http := ComObject("WinHttp.WinHttpRequest.5.1")
         http.Open("GET", "http://localhost:9876/debugtabs", false)
@@ -645,7 +655,8 @@ ShowAltTabSucksDebug() {
     } catch {
         tabDebug := "(server not running)"
     }
-    ShowTextGui("AltTabSucks Debug", "=== Profile Directories ===`n" . profileMap . "`n=== Tabs ===`n" . tabDebug, 900, 30)
+    ShowTextGui("AltTabSucks Debug", "=== Profile Directories ===`n" . profileMap . "`n=== Tabs ===`n" . tabDebug, 900,
+        30)
 }
 
 ; Moves all tabs from the focused Chromium window into the other window for the same
@@ -657,7 +668,7 @@ MergeFocusedWindow() {
         MergeFocusedWindowFirefox()
         return
     }
-    winFilter  := "ahk_class Chrome_WidgetWin_1 ahk_exe " . _chromiumExe
+    winFilter := "ahk_class Chrome_WidgetWin_1 ahk_exe " . _chromiumExe
     activeHwnd := WinActive(winFilter)
     if !activeHwnd
         return
@@ -687,7 +698,7 @@ SplitFocusedTab() {
         return
     }
 
-    winFilter  := "ahk_class Chrome_WidgetWin_1 ahk_exe " . _chromiumExe
+    winFilter := "ahk_class Chrome_WidgetWin_1 ahk_exe " . _chromiumExe
     activeHwnd := WinActive(winFilter)
     if !activeHwnd
         return
@@ -761,7 +772,7 @@ _DetectProfileFromWindow(hwnd, isFirefox := false) {
 ; both windows via Win+Arrow so Windows registers them as a snap pair.
 ; winFilter must match the browser being used (Chromium or Firefox).
 _WaitAndSnapSplit(origHwnd, existingHwnds, winFilter, deadline) {
-    newHwnd   := 0
+    newHwnd := 0
     for hwnd in WinGetList(winFilter) {
         if existingHwnds.Has(hwnd)
             continue
@@ -790,7 +801,7 @@ _WaitAndSnapSplit(origHwnd, existingHwnds, winFilter, deadline) {
     ocx := ox + ow // 2
     ocy := oy + oh // 2
     monLeft := 0, monTop := 0, monRight := A_ScreenWidth, monBottom := A_ScreenHeight
-    Loop MonitorGetCount() {
+    loop MonitorGetCount() {
         MonitorGetWorkArea(A_Index, &ml, &mt, &mr, &mb)
         if ocx >= ml && ocx < mr && ocy >= mt && ocy < mb {
             monLeft := ml, monTop := mt, monRight := mr, monBottom := mb
@@ -804,11 +815,10 @@ _WaitAndSnapSplit(origHwnd, existingHwnds, winFilter, deadline) {
     ; WinMove clears the window's snap state (programmatic moves via SetWindowPos do this),
     ; so Win+Left will snap to the left of this monitor rather than cycling to an adjacent one.
     halfW := (monRight - monLeft) // 2
-    winH  := monBottom - monTop
+    winH := monBottom - monTop
     WinMove(monLeft, monTop, halfW, winH, "ahk_id " origHwnd)
     Sleep(25)
     WinActivate("ahk_id " origHwnd)
     Send("{LWin down}{Left}{LWin up}")
     WinActivate("ahk_id " newHwnd)
 }
-
