@@ -62,26 +62,41 @@ _DetectInstalledBrowsers() {
     appData := EnvGet("APPDATA")
 
     ffIni := appData . "\Mozilla\Firefox\profiles.ini"
-    candidates := [{ name: "Brave", exe: pf . "\BraveSoftware\Brave-Browser\Application\brave.exe", data: localAppData .
-        "\BraveSoftware\Brave-Browser\User Data", profileIni: "", type: "chromium" }, { name: "Chrome", exe: pf .
-            "\Google\Chrome\Application\chrome.exe", data: localAppData . "\Google\Chrome\User Data", profileIni: "",
-            type: "chromium" }, { name: "Chrome", exe: pf86 . "\Google\Chrome\Application\chrome.exe", data: localAppData .
-                "\Google\Chrome\User Data", profileIni: "", type: "chromium" }, { name: "Chrome", exe: localAppData .
-                    "\Google\Chrome\Application\chrome.exe", data: localAppData . "\Google\Chrome\User Data",
-                    profileIni: "", type: "chromium" }, { name: "Edge", exe: pf86 .
-                        "\Microsoft\Edge\Application\msedge.exe", data: localAppData . "\Microsoft\Edge\User Data",
-                        profileIni: "", type: "chromium" }, { name: "Edge", exe: pf .
-                            "\Microsoft\Edge\Application\msedge.exe", data: localAppData . "\Microsoft\Edge\User Data",
-                            profileIni: "", type: "chromium" }, { name: "Vivaldi", exe: localAppData .
-                                "\Vivaldi\Application\vivaldi.exe", data: localAppData . "\Vivaldi\User Data",
-                                profileIni: "", type: "chromium" }, { name: "Opera", exe: localAppData .
-                                    "\Programs\Opera\opera.exe", data: appData . "\Opera Software\Opera Stable",
-                                    profileIni: "", type: "chromium" },
+    candidates := [
+        ; Brave — system-level and user-level installs
+        { name: "Brave", exe: pf . "\BraveSoftware\Brave-Browser\Application\brave.exe",
+            data: localAppData . "\BraveSoftware\Brave-Browser\User Data", profileIni: "", type: "chromium" }, { name: "Brave",
+                exe: localAppData . "\BraveSoftware\Brave-Browser\Application\brave.exe",
+                data: localAppData . "\BraveSoftware\Brave-Browser\User Data", profileIni: "", type: "chromium" },
+            ; Chrome — system-level (x64, x86) and user-level installs
+            { name: "Chrome", exe: pf . "\Google\Chrome\Application\chrome.exe",
+                data: localAppData . "\Google\Chrome\User Data", profileIni: "", type: "chromium" }, { name: "Chrome",
+                    exe: pf86 . "\Google\Chrome\Application\chrome.exe",
+                    data: localAppData . "\Google\Chrome\User Data", profileIni: "", type: "chromium" }, { name: "Chrome",
+                        exe: localAppData . "\Google\Chrome\Application\chrome.exe",
+                        data: localAppData . "\Google\Chrome\User Data", profileIni: "", type: "chromium" },
+                    ; Edge — system-level (x64, x86) and user-level installs
+                    { name: "Edge", exe: pf . "\Microsoft\Edge\Application\msedge.exe",
+                        data: localAppData . "\Microsoft\Edge\User Data", profileIni: "", type: "chromium" }, { name: "Edge",
+                            exe: pf86 . "\Microsoft\Edge\Application\msedge.exe",
+                            data: localAppData . "\Microsoft\Edge\User Data", profileIni: "", type: "chromium" }, { name: "Edge",
+                                exe: localAppData . "\Microsoft\Edge\Application\msedge.exe",
+                                data: localAppData . "\Microsoft\Edge\User Data", profileIni: "", type: "chromium" },
+                            ; Vivaldi — user-level install (Vivaldi always installs per-user by default)
+                            { name: "Vivaldi", exe: localAppData . "\Vivaldi\Application\vivaldi.exe",
+                                data: localAppData . "\Vivaldi\User Data", profileIni: "", type: "chromium" },
+                            ; Opera — user-level install
+                            { name: "Opera", exe: localAppData . "\Programs\Opera\opera.exe",
+                                data: appData . "\Opera Software\Opera Stable", profileIni: "", type: "chromium" },
+                            ; Opera GX — user-level install
+                            { name: "Opera GX", exe: localAppData . "\Programs\Opera GX\opera.exe",
+                                data: appData . "\Opera Software\Opera GX Stable", profileIni: "", type: "chromium" },
     ]
 
     ; Firefox writes its install dir to the registry — more reliable than hardcoded paths.
-    ; Try 64-bit key first, then WOW6432Node for 32-bit installs.
-    for regKey in ["HKLM\SOFTWARE\Mozilla\Mozilla Firefox", "HKLM\SOFTWARE\WOW6432Node\Mozilla\Mozilla Firefox"] {
+    ; Check HKCU first (user-level install), then HKLM (system-level), then WOW6432Node.
+    for regKey in ["HKCU\SOFTWARE\Mozilla\Mozilla Firefox", "HKLM\SOFTWARE\Mozilla\Mozilla Firefox",
+        "HKLM\SOFTWARE\WOW6432Node\Mozilla\Mozilla Firefox"] {
         try {
             version := RegRead(regKey, "CurrentVersion")
             installDir := RegRead(regKey . "\" . version . "\Main", "Install Directory")
@@ -92,6 +107,10 @@ _DetectInstalledBrowsers() {
             }
         }
     }
+    ; Fallback: check common user-level Firefox install path if registry lookup found nothing
+    ffUserExe := localAppData . "\Mozilla Firefox\firefox.exe"
+    if FileExist(ffUserExe)
+        candidates.Push({ name: "Firefox", exe: ffUserExe, data: "", profileIni: ffIni, type: "firefox" })
 
     result := []
     seen := Map()
