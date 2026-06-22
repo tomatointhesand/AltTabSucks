@@ -146,11 +146,12 @@ start "" "$RepoRoot\AltTabSucks.ahk"
 
         # Re-initialize browser config so auto-detection always runs with the current
         # default browser. Deleting config.ahk causes _PromptBrowserChoice() to re-detect
-        # on the next AltTabSucks.ahk launch.
+        # on the next AltTabSucks.ahk launch. Detection covers both system-level installs
+        # (Program Files) and user-level installs (LOCALAPPDATA, HKCU registry for Firefox).
         $configPath = Join-Path $RepoRoot "lib\config.ahk"
         if (Test-Path $configPath) {
             Remove-Item $configPath -Force
-            Write-Host "Removed lib\config.ahk — browser will be re-detected on launch."
+            Write-Host "Removed lib\config.ahk — browser will be re-detected on launch (includes user-level installs)."
         }
 
         # Seed app-hotkeys.ahk from the template if the user doesn't have one yet.
