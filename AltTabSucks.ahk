@@ -23,7 +23,8 @@ FIREFOX_PROFILE_INI := ""
 #Include lib\chromium.ahk     ; Chromium profile cycling + tab focus via AltTabSucks server
 #Include lib\firefox.ahk      ; Firefox profile cycling + tab focus via AltTabSucks server
 #Include lib\app-hotkeys.ahk  ; general app + browser hotkeys
-#Include *i lib\star-citizen.ahk ; Star Citizen automation (scoped to SC window) — optional
+#Include *i lib\SC.ahk ; SC automation (scoped to SC window) — optional
 
 A_TrayMenu.Insert("1&", "Settings", (*) => ShowSettingsGui())
-A_TrayMenu.Insert("2&")
+A_TrayMenu.Insert("2&", "Hotkey Reference", (*) => ShowTextGui("Hotkey Reference", _BuildHotkeyRef(), 1250, 45))
+A_TrayMenu.Insert("3&")

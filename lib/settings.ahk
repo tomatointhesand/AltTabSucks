@@ -9,18 +9,18 @@ ShowSettingsGui() {
         return
     }
 
-    origChromiumExe       := CHROMIUM_EXE
-    origChromiumUserdata  := CHROMIUM_USERDATA
-    origFirefoxExe        := FIREFOX_EXE
+    origChromiumExe := CHROMIUM_EXE
+    origChromiumUserdata := CHROMIUM_USERDATA
+    origFirefoxExe := FIREFOX_EXE
     origFirefoxProfileIni := FIREFOX_PROFILE_INI
-    origSwitcherEnabled   := SWITCHER_ENABLED
+    origSwitcherEnabled := SWITCHER_ENABLED
 
     isDark := _SwitcherIsDark()
-    bg         := isDark ? "202020" : ""
-    editBg     := isDark ? "2D2D2D" : ""
-    fg         := isDark ? "EFEFEF" : ""
-    hint       := isDark ? "A0A0A0" : "808080"
-    baseFont   := isDark ? "s10 Norm c" . fg : "s10 Norm"
+    bg := isDark ? "202020" : ""
+    editBg := isDark ? "2D2D2D" : ""
+    fg := isDark ? "EFEFEF" : ""
+    hint := isDark ? "A0A0A0" : "808080"
+    baseFont := isDark ? "s10 Norm c" . fg : "s10 Norm"
     headerFont := isDark ? "s10 Bold Underline c" . fg : "s10 Bold Underline"
 
     g := Gui("+AlwaysOnTop +Resize", "AltTabSucks Settings")
@@ -46,24 +46,57 @@ ShowSettingsGui() {
     ; ── Browser ──────────────────────────────────────────────────────────────
     hdrBrowser := addHeader("Browser", "xm w500")
 
-    g.AddText("xm y+6", "Chromium EXE")
-    chromiumExeEdit  := addEdit("xm w420 -HScroll", CHROMIUM_EXE)
-    browseChrExeBtn  := g.AddButton("x+4 yp", "Browse")
-    browseChrExeBtn.OnEvent("Click",  (*) => _BrowseForFile(chromiumExeEdit, "Executable (*.exe)", "*.exe"))
+    ; Detect installed browsers for the picker dropdown
+    _installedBrowsers := _DetectInstalledBrowsers()
+    _browserLabels := []
+    _browserDefault := _installedBrowsers.Length + 1  ; default to "(Custom)"
+    for _i, _b in _installedBrowsers {
+        _browserLabels.Push(_b.name . " (" . (_b.type = "firefox" ? "Firefox" : "Chromium") . ")")
+        if (_b.type = "firefox" && _b.exe = FIREFOX_EXE) || (_b.type = "chromium" && _b.exe = CHROMIUM_EXE)
+            _browserDefault := _i
+    }
+    _browserLabels.Push("(Custom)")
+
+    g.AddText("xm y+6", "Target browser")
+    browserDropdown := g.AddDropDownList("xm y+4 w280 Choose" . _browserDefault, _browserLabels)
+
+    OnBrowserSelect(*) {
+        idx := browserDropdown.Value
+        if idx > _installedBrowsers.Length  ; (Custom) — leave fields as-is
+            return
+        b := _installedBrowsers[idx]
+        if b.type = "firefox" {
+            firefoxExeEdit.Value := b.exe
+            firefoxProfileIniEdit.Value := b.profileIni
+            chromiumExeEdit.Value := ""
+            chromiumUserdataEdit.Value := ""
+        } else {
+            chromiumExeEdit.Value := b.exe
+            chromiumUserdataEdit.Value := b.data
+            firefoxExeEdit.Value := ""
+            firefoxProfileIniEdit.Value := ""
+        }
+    }
+    browserDropdown.OnEvent("Change", OnBrowserSelect)
+
+    g.AddText("xm y+10", "Chromium EXE")
+    chromiumExeEdit := addEdit("xm w420 -HScroll", CHROMIUM_EXE)
+    browseChrExeBtn := g.AddButton("x+4 yp", "Browse")
+    browseChrExeBtn.OnEvent("Click", (*) => _BrowseForFile(chromiumExeEdit, "Executable (*.exe)", "*.exe"))
 
     g.AddText("xm", "Chromium User Data folder")
     chromiumUserdataEdit := addEdit("xm w420 -HScroll", CHROMIUM_USERDATA)
-    browseChrDataBtn     := g.AddButton("x+4 yp", "Browse")
+    browseChrDataBtn := g.AddButton("x+4 yp", "Browse")
     browseChrDataBtn.OnEvent("Click", (*) => _BrowseForDir(chromiumUserdataEdit))
 
     g.AddText("xm", "Firefox EXE")
-    firefoxExeEdit  := addEdit("xm w420 -HScroll", FIREFOX_EXE)
-    browseFfExeBtn  := g.AddButton("x+4 yp", "Browse")
-    browseFfExeBtn.OnEvent("Click",   (*) => _BrowseForFile(firefoxExeEdit, "Executable (*.exe)", "*.exe"))
+    firefoxExeEdit := addEdit("xm w420 -HScroll", FIREFOX_EXE)
+    browseFfExeBtn := g.AddButton("x+4 yp", "Browse")
+    browseFfExeBtn.OnEvent("Click", (*) => _BrowseForFile(firefoxExeEdit, "Executable (*.exe)", "*.exe"))
 
     g.AddText("xm", "Firefox profiles.ini")
     firefoxProfileIniEdit := addEdit("xm w420 -HScroll", FIREFOX_PROFILE_INI)
-    browseFfProfileBtn    := g.AddButton("x+4 yp", "Browse")
+    browseFfProfileBtn := g.AddButton("x+4 yp", "Browse")
     browseFfProfileBtn.OnEvent("Click", (*) => _BrowseForFile(firefoxProfileIniEdit, "INI file (*.ini)", "*.ini"))
 
     ; ── Window Cycling ───────────────────────────────────────────────────────
@@ -79,17 +112,17 @@ ShowSettingsGui() {
 
     ; Determine current mode from globals
     previewMode := !SWITCHER_SHOW_PREVIEW ? 1
-                 : SWITCHER_GRID_PREVIEW  ? 3
-                 : 2
+        : SWITCHER_GRID_PREVIEW ? 3
+            : 2
 
     g.AddText("xm y+6", "Preview mode")
 
     ; All four radios must be added consecutively with no other controls between
     ; them — any intervening control with WS_GROUP (e.g. a DropDownList) splits
     ; the group and lets multiple radios be selected at once.
-    radioNone   := g.AddRadio("xm y+4 +Group w140", "None")
+    radioNone := g.AddRadio("xm y+4 +Group w140", "None")
     radioSingle := g.AddRadio("xm y+6 w140", "Single")
-    radioGrid   := g.AddRadio("xm y+6 w140", "Grid")
+    radioGrid := g.AddRadio("xm y+6 w140", "Grid")
 
     ; Grab each radio's y-coord so sub-controls can be placed on the same row.
     radioNone.GetPos(&rnX)
@@ -99,7 +132,7 @@ ShowSettingsGui() {
 
     ; ── Single sub-controls ───────────────────────────────────────────────────
     previewSideChoices := ["Right", "Left"]
-    previewSideKeys    := ["right", "left"]
+    previewSideKeys := ["right", "left"]
     previewSideDefault := 1
     for i, k in previewSideKeys
         if k = SWITCHER_PREVIEW_SIDE
@@ -107,24 +140,25 @@ ShowSettingsGui() {
     g.AddText("x" subX " y" (rsY + 3), "Side")
     previewSideDropdown := g.AddDropDownList("x+4 yp-3 w80 Choose" . previewSideDefault, previewSideChoices)
     g.AddText("x+10 yp+3", "Size")
-    previewSizeSlider := g.AddSlider("x+6 yp-4 w160 Range10-200 TickInterval10 NoTicks Line10 Page50", SWITCHER_PREVIEW_SIZE)
-    previewSizeLbl    := g.AddText("x+6 yp+4 w36", SWITCHER_PREVIEW_SIZE "%")
+    previewSizeSlider := g.AddSlider("x+6 yp-4 w160 Range10-200 TickInterval10 NoTicks Line10 Page50",
+        SWITCHER_PREVIEW_SIZE)
+    previewSizeLbl := g.AddText("x+6 yp+4 w36", SWITCHER_PREVIEW_SIZE "%")
     previewSizeSlider.OnEvent("Change", (*) => (
         previewSizeSlider.Value := Round(previewSizeSlider.Value / 10) * 10,
-        previewSizeLbl.Value    := previewSizeSlider.Value "%"
+        previewSizeLbl.Value := previewSizeSlider.Value "%"
     ))
 
     ; (Grid has no sub-controls — layout is fully automatic)
 
     ; ── Radio state ───────────────────────────────────────────────────────────
-    radioNone.Value   := (previewMode = 1)
+    radioNone.Value := (previewMode = 1)
     radioSingle.Value := (previewMode = 2)
-    radioGrid.Value   := (previewMode = 3)
+    radioGrid.Value := (previewMode = 3)
 
     UpdatePreviewState(*) {
         isSingle := radioSingle.Value
         previewSideDropdown.Enabled := isSingle
-        previewSizeSlider.Enabled   := isSingle
+        previewSizeSlider.Enabled := isSingle
     }
     UpdatePreviewState()
     for r in [radioNone, radioSingle, radioGrid]
@@ -137,7 +171,7 @@ ShowSettingsGui() {
     hdrAppearance := addHeader("Appearance")
     g.AddText("xm y+6", "Theme")
     themeChoices := ["Auto (follow system)", "Light", "Dark"]
-    themeKeys    := ["auto", "light", "dark"]
+    themeKeys := ["auto", "light", "dark"]
     themeDefault := 1
     for i, k in themeKeys
         if k = THEME
@@ -149,49 +183,60 @@ ShowSettingsGui() {
     cancelBtn := g.AddButton("x+6 yp w80", "Cancel")
     cancelBtn.OnEvent("Click", CloseGui)
     saveBtn.OnEvent("Click", SaveSettings)
-    g.OnEvent("Close",  CloseGui)
+    g.OnEvent("Close", CloseGui)
     g.OnEvent("Escape", CloseGui)
+
+    ; Declared before CloseGui so it can close over them for cleanup.
+    hbrDark := 0
+    _onCtlColor := 0
 
     CloseGui(*) {
         global _settingsGui
         _settingsGui := 0
+        if _onCtlColor {
+            OnMessage(0x014F, _onCtlColor, 0)  ; WM_CTLCOLORCOMBOBOX
+            OnMessage(0x0134, _onCtlColor, 0)  ; WM_CTLCOLORLISTBOX
+        }
+        if hbrDark
+            DllCall("DeleteObject", "Ptr", hbrDark)
         g.Destroy()
     }
 
     SaveSettings(*) {
-        newChromiumExe       := Trim(chromiumExeEdit.Value)
-        newChromiumUserdata  := Trim(chromiumUserdataEdit.Value)
-        newFirefoxExe        := Trim(firefoxExeEdit.Value)
+        newChromiumExe := Trim(chromiumExeEdit.Value)
+        newChromiumUserdata := Trim(chromiumUserdataEdit.Value)
+        newFirefoxExe := Trim(firefoxExeEdit.Value)
         newFirefoxProfileIni := Trim(firefoxProfileIniEdit.Value)
-        newCycleSingle       := cycleCb.Value
-        newTheme             := themeKeys[themeDropdown.Value]
+        newCycleSingle := cycleCb.Value
+        newTheme := themeKeys[themeDropdown.Value]
         newSwitcherEnabled := enabledCb.Value
         newShowPreview := !radioNone.Value
-        newShowGrid    := radioGrid.Value
+        newShowGrid := radioGrid.Value
         newPreviewSide := previewSideKeys[previewSideDropdown.Value]
         newPreviewSize := previewSizeSlider.Value
-        newShowHints   := showHintsCb.Value
+        newShowHints := showHintsCb.Value
 
-        _WriteConfigFile(newChromiumExe, newChromiumUserdata, newFirefoxExe, newFirefoxProfileIni, newCycleSingle, newTheme, newShowPreview, newPreviewSide, newPreviewSize, newShowHints, newShowGrid, newSwitcherEnabled)
+        _WriteConfigFile(newChromiumExe, newChromiumUserdata, newFirefoxExe, newFirefoxProfileIni, newCycleSingle,
+            newTheme, newShowPreview, newPreviewSide, newPreviewSize, newShowHints, newShowGrid, newSwitcherEnabled)
 
-        pathsChanged := newChromiumExe       != origChromiumExe
-                     || newChromiumUserdata  != origChromiumUserdata
-                     || newFirefoxExe        != origFirefoxExe
-                     || newFirefoxProfileIni != origFirefoxProfileIni
+        pathsChanged := newChromiumExe != origChromiumExe
+            || newChromiumUserdata != origChromiumUserdata
+            || newFirefoxExe != origFirefoxExe
+            || newFirefoxProfileIni != origFirefoxProfileIni
         if pathsChanged {
             CloseGui()
             Reload()
             return
         }
-        global CYCLE_SINGLE_AS_TOGGLE  := newCycleSingle
-        global THEME                   := newTheme
-        global SWITCHER_ENABLED        := newSwitcherEnabled
-        global SWITCHER_SHOW_PREVIEW   := newShowPreview
-        global SWITCHER_PREVIEW_SIDE   := newPreviewSide
-        global SWITCHER_PREVIEW_SIZE   := newPreviewSize
-        global SWITCHER_SHOW_HINTS     := newShowHints
-        global SWITCHER_GRID_PREVIEW   := newShowGrid
-        
+        global CYCLE_SINGLE_AS_TOGGLE := newCycleSingle
+        global THEME := newTheme
+        global SWITCHER_ENABLED := newSwitcherEnabled
+        global SWITCHER_SHOW_PREVIEW := newShowPreview
+        global SWITCHER_PREVIEW_SIDE := newPreviewSide
+        global SWITCHER_PREVIEW_SIZE := newPreviewSize
+        global SWITCHER_SHOW_HINTS := newShowHints
+        global SWITCHER_GRID_PREVIEW := newShowGrid
+
         ; Dynamically enable/disable hotkeys if SWITCHER_ENABLED changed
         if newSwitcherEnabled != origSwitcherEnabled {
             _SwitcherSetHotkeysEnabled(newSwitcherEnabled)
@@ -205,11 +250,11 @@ ShowSettingsGui() {
     browseChrExeBtn.GetPos(, , &_browseW)
 
     ResizeControls(gui, eventInfo, newW, newH) {
-        margin  := 10
-        gap     := 4
-        editW   := Max(100, newW - 2*margin - gap - _browseW)
+        margin := 10
+        gap := 4
+        editW := Max(100, newW - 2 * margin - gap - _browseW)
         browseX := margin + editW + gap
-        fullW   := newW - 2*margin
+        fullW := newW - 2 * margin
 
         ; Path edit boxes stretch; browse buttons follow
         for e in [chromiumExeEdit, chromiumUserdataEdit, firefoxExeEdit, firefoxProfileIniEdit]
@@ -226,22 +271,42 @@ ShowSettingsGui() {
     ; Apply per-control dark/light theming after Show so HWNDs are valid
     for ctrl in [chromiumExeEdit, chromiumUserdataEdit, firefoxExeEdit, firefoxProfileIniEdit]
         _ThemeEdit(ctrl, isDark)
-    _ThemeDropdown(themeDropdown,       isDark)
+    _ThemeDropdown(browserDropdown, isDark)
+    _ThemeDropdown(themeDropdown, isDark)
     _ThemeDropdown(previewSideDropdown, isDark)
     for ctrl in [saveBtn, cancelBtn, browseChrExeBtn, browseChrDataBtn, browseFfExeBtn, browseFfProfileBtn]
         _ThemeButton(ctrl, isDark)
     ; Dark title bar (Windows 10 20H1+ / Windows 11)
     DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", g.Hwnd, "UInt", 20, "Int*", isDark ? 1 : 0, "UInt", 4)
+
+    ; WM_CTLCOLORCOMBOBOX (0x014F) + WM_CTLCOLORLISTBOX (0x0134): intercept background
+    ; painting for all three DropDownList controls. SetWindowTheme alone is unreliable for
+    ; CBS_DROPDOWNLIST background color; these messages bypass the theme engine and work
+    ; consistently across Win10/11. Scoped to this GUI's HWND so other windows are unaffected.
+    if isDark {
+        hbrDark := DllCall("CreateSolidBrush", "UInt", 0x2D2D2D, "Ptr")
+        guiHwnd := g.Hwnd
+        _DarkCtlColor(wParam, lParam, msg, hwnd) {
+            if hwnd != guiHwnd
+                return
+            DllCall("SetBkColor", "Ptr", wParam, "UInt", 0x2D2D2D)
+            DllCall("SetTextColor", "Ptr", wParam, "UInt", 0xEFEFEF)
+            return hbrDark
+        }
+        _onCtlColor := _DarkCtlColor
+        OnMessage(0x014F, _onCtlColor, 2)  ; WM_CTLCOLORCOMBOBOX — closed combo background
+        OnMessage(0x0134, _onCtlColor, 2)  ; WM_CTLCOLORLISTBOX  — open dropdown background
+    }
 }
 
 _BrowseForFile(editCtrl, desc, filter) {
-    path := FileSelect(3,, desc, filter)
+    path := FileSelect(3, , desc, filter)
     if path != ""
         editCtrl.Value := path
 }
 
 _BrowseForDir(editCtrl) {
-    path := DirSelect("*" editCtrl.Value,, "Select folder")
+    path := DirSelect("*" editCtrl.Value, , "Select folder")
     if path != ""
         editCtrl.Value := path
 }
@@ -265,29 +330,44 @@ _ThemeEdit(ctrl, isDark) {
     DllCall("SendMessageW", "Ptr", ctrl.Hwnd, "UInt", 0x031A, "Ptr", 0, "Ptr", 0)
 }
 _ThemeDropdown(ctrl, isDark) {
+    static _allowDark := 0, _init := false
+    if !_init {
+        _init := true
+        hMod := DllCall("GetModuleHandle", "Str", "uxtheme.dll", "Ptr")
+        setPref := DllCall("GetProcAddress", "Ptr", hMod, "Ptr", 135, "Ptr")
+        if setPref
+            DllCall(setPref, "Int", 2, "Int")   ; ForceDark — enables AllowDarkModeForWindow
+        _allowDark := DllCall("GetProcAddress", "Ptr", hMod, "Ptr", 133, "Ptr")
+    }
+    if _allowDark
+        DllCall(_allowDark, "Ptr", ctrl.Hwnd, "Int", isDark ? 1 : 0, "Int")
     DllCall("uxtheme\SetWindowTheme", "Ptr", ctrl.Hwnd, "Str", isDark ? "DarkMode_CFD" : "CFD", "Ptr", 0)
+    DllCall("SendMessageW", "Ptr", ctrl.Hwnd, "UInt", 0x031A, "Ptr", 0, "Ptr", 0)
 }
 _ThemeButton(ctrl, isDark) {
     DllCall("uxtheme\SetWindowTheme", "Ptr", ctrl.Hwnd, "Str", isDark ? "DarkMode_Explorer" : "Explorer", "Ptr", 0)
 }
 
-_WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, cycleSingleAsToggle, theme := "auto", switcherShowPreview := true, switcherPreviewSide := "right", switcherPreviewSize := 100, switcherShowHints := true, switcherGridPreview := false, switcherEnabled := true) {
+_WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, cycleSingleAsToggle, theme := "auto",
+    switcherShowPreview := true, switcherPreviewSide := "right", switcherPreviewSize := 100, switcherShowHints := true,
+    switcherGridPreview := false, switcherEnabled := true) {
     esc := (s) => StrReplace(StrReplace(s, "``", "````"), '"', '`"')
-    content := '; config.ahk — AltTabSucks settings. Edit manually or use Ctrl+Alt+Shift+, to open the Settings UI.' . '`n'
-             . '; This file is gitignored.' . '`n'
-             . '`nglobal CHROMIUM_EXE        := "' . esc(chromiumExe)       . '"'
-             . '`nglobal CHROMIUM_USERDATA   := "' . esc(chromiumUserdata)  . '"'
-             . '`nglobal FIREFOX_EXE         := "' . esc(firefoxExe)        . '"'
-             . '`nglobal FIREFOX_PROFILE_INI := "' . esc(firefoxProfileIni) . '"'
-             . '`n`nglobal CYCLE_SINGLE_AS_TOGGLE  := ' . (cycleSingleAsToggle ? "true" : "false")
-             . '`nglobal THEME                    := "' . theme . '"'
-             . '`nglobal SWITCHER_ENABLED         := ' . (switcherEnabled ? "true" : "false")
-             . '`nglobal SWITCHER_SHOW_PREVIEW    := ' . (switcherShowPreview ? "true" : "false")
-             . '`nglobal SWITCHER_PREVIEW_SIDE    := "' . switcherPreviewSide . '"'
-             . '`nglobal SWITCHER_PREVIEW_SIZE    := ' . switcherPreviewSize
-             . '`nglobal SWITCHER_SHOW_HINTS      := ' . (switcherShowHints ? "true" : "false")
-             . '`nglobal SWITCHER_GRID_PREVIEW    := ' . (switcherGridPreview ? "true" : "false")
-             . '`n'
+    content := '; config.ahk — AltTabSucks settings. Edit manually or use Ctrl+Alt+Shift+, to open the Settings UI.' .
+        '`n'
+        . '; This file is gitignored.' . '`n'
+        . '`nglobal CHROMIUM_EXE        := "' . esc(chromiumExe) . '"'
+        . '`nglobal CHROMIUM_USERDATA   := "' . esc(chromiumUserdata) . '"'
+        . '`nglobal FIREFOX_EXE         := "' . esc(firefoxExe) . '"'
+        . '`nglobal FIREFOX_PROFILE_INI := "' . esc(firefoxProfileIni) . '"'
+        . '`n`nglobal CYCLE_SINGLE_AS_TOGGLE  := ' . (cycleSingleAsToggle ? "true" : "false")
+        . '`nglobal THEME                    := "' . theme . '"'
+        . '`nglobal SWITCHER_ENABLED         := ' . (switcherEnabled ? "true" : "false")
+        . '`nglobal SWITCHER_SHOW_PREVIEW    := ' . (switcherShowPreview ? "true" : "false")
+        . '`nglobal SWITCHER_PREVIEW_SIDE    := "' . switcherPreviewSide . '"'
+        . '`nglobal SWITCHER_PREVIEW_SIZE    := ' . switcherPreviewSize
+        . '`nglobal SWITCHER_SHOW_HINTS      := ' . (switcherShowHints ? "true" : "false")
+        . '`nglobal SWITCHER_GRID_PREVIEW    := ' . (switcherGridPreview ? "true" : "false")
+        . '`n'
     f := FileOpen(A_ScriptDir '\lib\config.ahk', 'w', 'UTF-8')
     f.Write(content)
     f.Close()
@@ -295,9 +375,10 @@ _WriteConfigFile(chromiumExe, chromiumUserdata, firefoxExe, firefoxProfileIni, c
 
 _PersistConfig() {
     global CHROMIUM_EXE, CHROMIUM_USERDATA, FIREFOX_EXE, FIREFOX_PROFILE_INI
-    global CYCLE_SINGLE_AS_TOGGLE, THEME, SWITCHER_ENABLED, SWITCHER_SHOW_PREVIEW, SWITCHER_PREVIEW_SIDE, SWITCHER_PREVIEW_SIZE
+    global CYCLE_SINGLE_AS_TOGGLE, THEME, SWITCHER_ENABLED, SWITCHER_SHOW_PREVIEW, SWITCHER_PREVIEW_SIDE,
+        SWITCHER_PREVIEW_SIZE
     global SWITCHER_SHOW_HINTS, SWITCHER_GRID_PREVIEW
     _WriteConfigFile(CHROMIUM_EXE, CHROMIUM_USERDATA, FIREFOX_EXE, FIREFOX_PROFILE_INI,
-                     CYCLE_SINGLE_AS_TOGGLE, THEME, SWITCHER_SHOW_PREVIEW, SWITCHER_PREVIEW_SIDE,
-                     SWITCHER_PREVIEW_SIZE, SWITCHER_SHOW_HINTS, SWITCHER_GRID_PREVIEW, SWITCHER_ENABLED)
+        CYCLE_SINGLE_AS_TOGGLE, THEME, SWITCHER_SHOW_PREVIEW, SWITCHER_PREVIEW_SIDE,
+        SWITCHER_PREVIEW_SIZE, SWITCHER_SHOW_HINTS, SWITCHER_GRID_PREVIEW, SWITCHER_ENABLED)
 }
