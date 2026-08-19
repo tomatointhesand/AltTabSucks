@@ -4,3 +4,4 @@ token.txt
 Server/token.txt
 .amo-credentials
 lib/star-citizen.ahk
+__pycache__/
