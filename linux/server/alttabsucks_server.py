@@ -2,16 +2,22 @@
 """
 AltTabSucks bridge server — Linux port of Server/AltTabSucksServer.ps1.
 
-Stdlib only, single-threaded (mirrors the PS1's serial HttpListener loop — this is polled by
-one browser extension every 50ms, there's no concurrency to gain and it keeps state access
-lock-free). Endpoint set, auth model, CORS policy, and body-size caps are meant to match the
-PS1 exactly; see CLAUDE.md's "AltTabSucks Server" section for the endpoint contract consumed by
-lib/chromium.ahk / lib/firefox.ahk today and by the KWin script + BrowserExtension/background.js
-on Linux.
+The HTTP side (this file) is stdlib only, single-threaded (mirrors the PS1's serial
+HttpListener loop — this is polled by one browser extension every 50ms, there's no concurrency
+to gain and it keeps state access lock-free for that part). Endpoint set, auth model, CORS
+policy, and body-size caps are meant to match the PS1 exactly; see CLAUDE.md's "AltTabSucks
+Server" section for the endpoint contract consumed by lib/chromium.ahk / lib/firefox.ahk today
+and by BrowserExtension/background.js on Linux.
+
+main() additionally starts dbus_bridge (see that module) on its own thread, so the KWin script
+can reach the same state via `callDBus` — its scripting sandbox has no XMLHttpRequest. That part
+needs dbus-python + PyGObject (system packages, not pip; see _start_dbus_bridge for the install
+message). Constructing AppState/make_handler directly (as the tests do) never touches D-Bus.
 
 State lives in an AppState instance rather than module globals, and the handler class is built
 per-instance by make_handler(state) — this is what lets tests/test_server.py spin up isolated
-server instances (own token, own store) instead of sharing process-wide state.
+server instances (own token, own store) instead of sharing process-wide state, and is also what
+dbus_bridge.Bridge shares directly rather than looping back through HTTP.
 """
 
 import json
@@ -288,9 +294,30 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
+def _start_dbus_bridge(state):
+    """Imports and starts dbus_bridge, failing with an actionable message rather than a bare
+    ImportError/connection traceback if the (system, not pip) dependencies or session bus aren't
+    available. Only called from main() — never at module import time — so the HTTP handler logic
+    and its test suite stay dependency-free regardless of whether this succeeds."""
+    try:
+        import dbus
+        import dbus_bridge
+    except ImportError as e:
+        sys.exit(
+            "AltTabSucks server: missing the D-Bus bridge's dependencies "
+            f"({e}).\nInstall on Arch with: sudo pacman -S python-dbus python-gobject\n"
+            "(These aren't pip packages — they wrap the system libdbus/GLib.)"
+        )
+    try:
+        dbus_bridge.start(state)
+    except dbus.exceptions.DBusException as e:
+        sys.exit(f"AltTabSucks server: couldn't connect to the D-Bus session bus ({e}).")
+
+
 def main():
     secret = load_or_create_token(TOKEN_PATH)
     state = AppState(secret)
+    _start_dbus_bridge(state)
     httpd = HTTPServer(("127.0.0.1", PORT), make_handler(state))
     print(f"AltTabSucks server listening on http://127.0.0.1:{PORT}/ (Ctrl+C to stop)")
     try:
