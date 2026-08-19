@@ -8,6 +8,11 @@ to Sway/Hyprland/etc. without rework.
 Work proceeds in the phases below, each one built and (where testable) verified before the next
 starts. Status: **Phase 1 done. Phase 2 (KWin script) up next.**
 
+**Deliberately out of scope for now** (see Deferred section at the bottom): the **secrets
+manager** and the **window switcher**. Both are explicitly deferred, not forgotten — do not pick
+either back up without checking in first, since the secrets manager in particular is planned to
+be approached differently than the Windows version was.
+
 ## Implementation Phases
 
 ### Phase 1: Bridge Server — ✅ done
@@ -42,14 +47,7 @@ starts. Status: **Phase 1 done. Phase 2 (KWin script) up next.**
 - [ ] End-to-end check against the real `BrowserExtension/` (carried over from Phase 1) once a
       tab-focus hotkey exists to drive it
 
-### Phase 3: Secrets — not started
-- [ ] `ydotool`/`ydotoold` setup
-- [ ] Companion daemon for lock-detection + secret cache + typing
-- [ ] Wire up the secrets-manager hotkey
-
-### Phase 4: Polish / Parity — not started
-- [ ] Window switcher (typeahead + previews) — scope down for v1 (see Key Features note on DWM
-      thumbnails)
+### Phase 3: Polish / Parity — not started
 - [ ] Toast overlay + titlebar color sampling
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
@@ -69,8 +67,8 @@ for work not yet started, kept close to the phase list rather than duplicated ac
       `kpackagetool6` for anything beyond dev iteration.
 - [ ] **Window enumeration/activation**: use the script's `workspace` global
       (`workspace.windowList()`, `client.frameGeometry`, `workspace.activeWindow`, activate/
-      minimize calls) — this is the direct equivalent of `lib/window-management.ahk` and
-      `lib/window-switcher-core.ahk`'s `WinGetList`/`WinActivate`/`WinMinimize` calls.
+      minimize calls) — this is the direct equivalent of `lib/window-management.ahk`'s
+      `WinGetList`/`WinActivate`/`WinMinimize` calls.
 - [ ] **Global hotkeys**: use the script's `registerShortcut(name, text, keySequence, callback)`,
       which registers through `kglobalaccel` (confirmed running) — this is the correct way to
       claim Meta/Super combos under Wayland; raw input grabs from a userspace process are not
@@ -83,15 +81,10 @@ for work not yet started, kept close to the phase list rather than duplicated ac
       / `client.resourceName` replace AHK's `WinGetProcessName`)
 - [ ] Titlebar-color sampling for the toast overlay (`lib/toast.ahk`'s per-app color) has no
       direct KWin equivalent yet — needs its own investigation (possibly read from the app's
-      `.desktop`/icon theme, or drop the color-sampling feature for v1) — Phase 4
+      `.desktop`/icon theme, or drop the color-sampling feature for v1) — Phase 3
 
 ### Key Features mapping (Phase 2)
 - [ ] App window cycling/toggle (`ManageAppWindows`) → KWin script using `workspace` API
-- [ ] Window switcher (typeahead Alt+Tab replacement) → KWin script UI. Note: the AHK version
-      draws its own GUI (edit box, DWM thumbnail previews via `DwmRegisterThumbnail`); KWin has
-      no direct DWM-thumbnail equivalent — likely needs a QML overlay (KWin scripts can load QML
-      components) using compositor-side thumbnails via `kwin` effects, or a much simpler
-      text-only picker for v1 (Phase 4)
 - [ ] Browser profile cycling / tab focus (`lib/chromium.ahk`, `lib/firefox.ahk`) → logic ports
       almost as-is into the KWin script, since it's mostly HTTP calls + window activation by
       class/exe match (`ahk_class Chrome_WidgetWin_1` → match on `client.resourceClass` for the
@@ -104,37 +97,24 @@ for work not yet started, kept close to the phase list rather than duplicated ac
       `localhost:9876` over HTTP and is loaded via the browser's own "load unpacked"/`.xpi`
       install flow, same on Linux as Windows
 - [ ] Update install docs (README) for Linux browser installs: extensions page paths are the same
-      URLs (`brave://extensions`, `about:addons`), no change needed there either (Phase 4)
+      URLs (`brave://extensions`, `about:addons`), no change needed there either (Phase 3)
 - [ ] Chromium/Firefox profile discovery (`_InitChromiumState`, `ReadFirefoxProfilesInfo`) needs
       Linux path equivalents: `~/.config/google-chrome/`, `~/.config/BraveSoftware/...`,
       `~/.mozilla/firefox/profiles.ini` instead of `%LOCALAPPDATA%`/`%APPDATA%` (Phase 2)
 
-### Secrets Workflow (Phase 3)
-- [ ] `lib/secret-bridge.sh` → `gopass` is already bash and largely portable as-is; verify it
-      doesn't shell out to any Windows-only tool
-- [ ] The AHK side (`lib/secrets.ahk`'s in-memory cache + lock-on-workstation-lock behavior) needs
-      a Linux replacement process — likely the companion daemon below, listening for KDE's
-      screen-lock DBus signal (`org.freedesktop.ScreenSaver` / `org.kde.screensaver`) instead of
-      AHK's lock-detection
-- [ ] **Typing the secret** (AHK's `Send`) has no Wayland equivalent from a regular process —
-      needs `ydotool` + `ydotoold` (uinput-based injection, requires the `input` group or a
-      running `ydotoold` daemon). Not installed on this machine yet.
-- [ ] `dev-scripts/manage-secrets.sh` menu is already bash — should work unmodified on Linux
-
-### Dependencies still to install (Phase 3 unless noted)
-- [ ] `ydotool` + `ydotoold` (Wayland input injection, for the secrets-typing hotkey)
+### Dependencies still to install
 - [ ] `kpackagetool6` for packaging the KWin script properly (Phase 2; already present via
       `kwin_wayland`/Plasma install, just needs to be invoked)
 - [ ] Linux installer script (bash) replacing `installer.ps1`: installs the KWin script
       (`kpackagetool6 -t KWin/Script -i ...`), installs/enables the systemd `--user` service,
-      writes `Server/token.txt` (Phase 4)
+      writes `Server/token.txt` (Phase 3)
 
 ### Infrastructure
 - [ ] ~~Docker containers~~ — dropped: this talks to the host compositor and browser profile
       dirs directly; containerizing it fights the design
 - [ ] ~~CI/CD for Linux builds~~ — premature until there's more of a working port to build;
       revisit after Phase 2
-- [ ] Linux setup docs (README section, mirroring the existing Windows Quick Start) — Phase 4
+- [ ] Linux setup docs (README section, mirroring the existing Windows Quick Start) — Phase 3
 
 ### Testing
 - [x] Bridge server: automated (`linux/server/tests/`, 30 tests, stdlib `unittest`)
@@ -142,4 +122,31 @@ for work not yet started, kept close to the phase list rather than duplicated ac
       compositor) — Phase 2
 - [ ] Integration test: extension ↔ server ↔ KWin script round trip for one hotkey (tab focus),
       once Phase 2's minimal script exists
-- [ ] User acceptance testing on this machine (KDE/Wayland) before considering other DEs — Phase 4
+- [ ] User acceptance testing on this machine (KDE/Wayland) before considering other DEs — Phase 3
+
+---
+
+## Deferred (not part of the active phases)
+
+### Secrets manager — deferred, revisit with a different approach
+Explicitly **not** being ported as designed. When this comes back, it'll be a different
+mechanism, not a straight AHK→Linux translation. Keeping the investigation notes below for
+whenever that redesign discussion happens, but none of this should be started without that
+discussion first:
+- `lib/secret-bridge.sh` → `gopass` is already bash and largely portable as-is
+- The AHK side (`lib/secrets.ahk`'s in-memory cache + lock-on-workstation-lock behavior) would
+  need a Linux replacement process — e.g. a companion daemon listening for KDE's screen-lock
+  DBus signal (`org.freedesktop.ScreenSaver` / `org.kde.screensaver`)
+- **Typing the secret** (AHK's `Send`) has no Wayland equivalent from a regular process — would
+  need `ydotool` + `ydotoold` (uinput-based injection, requires the `input` group or a running
+  `ydotoold` daemon)
+- `dev-scripts/manage-secrets.sh` menu is already bash — should work unmodified whenever this
+  picks back up
+
+### Window switcher — deferred to a later time
+Typeahead Alt+Tab replacement (`lib/window-switcher*.ahk`). Not part of Phase 2's window
+management work (which only covers `ManageAppWindows` cycle/toggle) or Phase 3. Note for
+whenever it does get picked up: the AHK version draws its own GUI (edit box, DWM thumbnail
+previews via `DwmRegisterThumbnail`); KWin has no direct DWM-thumbnail equivalent — likely needs
+a QML overlay (KWin scripts can load QML components) using compositor-side thumbnails via `kwin`
+effects, or a much simpler text-only picker to start.
