@@ -6,7 +6,8 @@ generic wlroots/wlr-protocols port — the mechanisms below are KDE-specific and
 to Sway/Hyprland/etc. without rework.
 
 Work proceeds in the phases below, each one built and (where testable) verified before the next
-starts. Status: **Phase 1 done. Phase 2 (KWin script) up next.**
+starts. Status: **Phase 1 done. Phase 2 in progress — window management working, tab-focus
+bridging still needs a design decision (see below).**
 
 **Deliberately out of scope for now** (see Deferred section at the bottom): the **secrets
 manager** and the **window switcher**. Both are explicitly deferred, not forgotten — do not pick
@@ -37,12 +38,30 @@ be approached differently than the Windows version was.
       (only exercised via curl/unittest so far) — worth doing once Phase 2 gives us a hotkey to
       trigger it end to end, rather than as a standalone step
 
-### Phase 2: Window Management + Hotkeys (KWin Script) — up next
-- [ ] Minimal KWin script: one `registerShortcut` call that lists/activates windows via
-      `workspace`, proving the DBus `loadScript` → hotkey → window-activate path end to end
-- [ ] Port `ManageAppWindows` cycle/toggle logic
-- [ ] Port `FocusTab`/`CycleChromiumProfile` logic (HTTP calls via the script's `XMLHttpRequest`
-      + `workspace` activation by `resourceClass`)
+### Phase 2: Window Management + Hotkeys (KWin Script) — in progress
+- [x] Minimal KWin script proven end to end: `linux/kwin/alttabsucks/` (installed via
+      `kpackagetool6 --type=KWin/Script -i`, enabled via `kwriteconfig6`/`qdbus6 reconfigure`) —
+      `registerShortcut` → real `kglobalaccel` registration → `kglobalaccel invokeShortcut` →
+      callback fires → `workspace` mutation, verified via journal + before/after window-state
+      inspection, not just "it loaded without error"
+- [x] Ported `ManageAppWindows` cycle/toggle logic → `findAppWindows`/`activateWindow`/
+      `manageAppWindows` in `main.js`. Manually verified against two independent, fully-controlled
+      test windows (spawned instances, not ambient ones — ambient windows turned out to be an
+      unreliable test fixture, see commit `2e59a2e`): cycle wraps correctly, toggle
+      minimizes-if-active / restores-and-activates-if-not, and `workspace.activeWindow =`
+      assignment auto-restores a minimized window (matches AHK's `WinActivate`).
+- [ ] **Open design decision before continuing**: `FocusTab`/`CycleChromiumProfile` need the
+      script to call the bridge server, but KWin's plain-JS scripting sandbox has **no
+      `XMLHttpRequest`** (confirmed empirically — corrects the assumption in the KDE/KWin
+      Specifics section below) — only `callDBus`/`readConfig` are available, no network, no
+      process spawn, no file read. The bridge server needs a DBus-facing interface for the script
+      to call into via `callDBus`, which likely means adding a small D-Bus service to
+      `linux/server/alttabsucks_server.py` (no dbus module in Python's stdlib — would need a
+      third-party pure-Python DBus library, e.g. `jeepney`; first new non-stdlib dependency in
+      this port). Same escape hatch would cover the still-unimplemented "launch app when no
+      windows exist" case in `manageAppWindows` too. **Don't start this without discussing the
+      dependency first.**
+- [ ] Port `FocusTab`/`CycleChromiumProfile` logic once the above is decided
 - [ ] Port Firefox equivalents
 - [ ] End-to-end check against the real `BrowserExtension/` (carried over from Phase 1) once a
       tab-focus hotkey exists to drive it
@@ -61,30 +80,41 @@ The phases above are the source of truth for sequencing; this section is the sup
 for work not yet started, kept close to the phase list rather than duplicated across both.
 
 ### KDE/KWin Specifics (Phase 2)
-- [ ] **KWin scripting, not wlr-protocols.** Load a `.js` KWin script via
-      `org.kde.kwin.Scripting`'s `loadScript`/`loadDeclarativeScript` DBus methods (confirmed
-      available: `qdbus6 org.kde.KWin /Scripting`). Package it properly as a `.kwinscript` via
-      `kpackagetool6` for anything beyond dev iteration.
-- [ ] **Window enumeration/activation**: use the script's `workspace` global
-      (`workspace.windowList()`, `client.frameGeometry`, `workspace.activeWindow`, activate/
-      minimize calls) — this is the direct equivalent of `lib/window-management.ahk`'s
-      `WinGetList`/`WinActivate`/`WinMinimize` calls.
-- [ ] **Global hotkeys**: use the script's `registerShortcut(name, text, keySequence, callback)`,
-      which registers through `kglobalaccel` (confirmed running) — this is the correct way to
-      claim Meta/Super combos under Wayland; raw input grabs from a userspace process are not
-      possible and are not the right approach.
-- [ ] **Bridge to the tab-focus server from inside the script**: KWin's JS engine exposes a
-      global `XMLHttpRequest`, so the script can call `/findtab`, `/switchtab`, etc. directly,
-      mirroring what AHK's `WinHttp` calls do today — no separate hotkey daemon needed for the
-      window-focus + tab-focus hotkeys.
-- [ ] Window title/PID → process name resolution inside the script (KWin's `client.resourceClass`
-      / `client.resourceName` replace AHK's `WinGetProcessName`)
+- [x] **KWin scripting, not wlr-protocols.** Load a `.js` KWin script via `org.kde.kwin.Scripting`'s
+      `loadScript`/`loadDeclarativeScript` DBus methods for dev iteration; package properly as a
+      `.kwinscript` (`metadata.json` + `contents/code/main.js`) and install via
+      `kpackagetool6 --type=KWin/Script -i <dir>`, enable via
+      `kwriteconfig6 --file kwinrc --group Plugins --key <id>Enabled true` +
+      `qdbus6 org.kde.KWin /KWin reconfigure`. Both paths proven working (`linux/kwin/alttabsucks/`).
+- [x] **Window enumeration/activation**: `workspace.stackingOrder` (array of Window objects,
+      z-ordered) + `workspace.activeWindow` (read-write — assigning it activates and, confirmed
+      empirically, auto-restores a minimized window). `Window.normalWindow` + `!Window.transient`
+      is the equivalent of AHK's WS_VISIBLE+unowned filter; `Window.minimized` is directly
+      read-write. See `linux/kwin/alttabsucks/contents/code/main.js`.
+- [x] **Global hotkeys**: `registerShortcut(title, text, keySequence, callback)` registers through
+      `kglobalaccel` (confirmed: shows up under `qdbus6 org.kde.kglobalaccel /component/kwin`,
+      and is invokable there via `invokeShortcut(name)` — useful for scripted verification without
+      physically pressing keys). This is the correct way to claim Meta/Super combos under Wayland.
+      To fully deregister a shortcut later (e.g. cleaning up dev/test bindings), unloading the
+      script isn't enough — kglobalaccel remembers shortcut names across unloads; use
+      `qdbus6 org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel.unregister kwin "<name>"`.
+- [x] **Correction from planning**: KWin's plain `"javascript"` scripting sandbox has **no
+      `XMLHttpRequest`, no process spawning, no file reads** — confirmed empirically, contradicting
+      earlier research (which likely described a different/older scripting mode). Only `callDBus`
+      and `readConfig` are available alongside `workspace`/`registerShortcut`. This blocks the
+      tab-focus bridge design — see the open item in Phase 2 above.
+- [x] Window process identification inside the script: `Window.resourceClass`/`.resourceName`
+      replace AHK's `WinGetProcessName`. Confirmed empirically these are **not** always the bare
+      exe name — KDE apps use reversed-domain style (`org.kde.kate`, `org.kde.dolphin`,
+      `org.kde.kwrite`) while others use the bare name (`brave-browser`, `code-oss`). Any
+      per-app hotkey config (the eventual Linux equivalent of `app-hotkeys.ahk`) needs the actual
+      `resourceClass` looked up per app, not assumed from the binary name.
 - [ ] Titlebar-color sampling for the toast overlay (`lib/toast.ahk`'s per-app color) has no
       direct KWin equivalent yet — needs its own investigation (possibly read from the app's
       `.desktop`/icon theme, or drop the color-sampling feature for v1) — Phase 3
 
 ### Key Features mapping (Phase 2)
-- [ ] App window cycling/toggle (`ManageAppWindows`) → KWin script using `workspace` API
+- [x] App window cycling/toggle (`ManageAppWindows`) → KWin script using `workspace` API
 - [ ] Browser profile cycling / tab focus (`lib/chromium.ahk`, `lib/firefox.ahk`) → logic ports
       almost as-is into the KWin script, since it's mostly HTTP calls + window activation by
       class/exe match (`ahk_class Chrome_WidgetWin_1` → match on `client.resourceClass` for the
@@ -118,10 +148,11 @@ for work not yet started, kept close to the phase list rather than duplicated ac
 
 ### Testing
 - [x] Bridge server: automated (`linux/server/tests/`, 30 tests, stdlib `unittest`)
-- [ ] KWin script: manual verification only (not meaningfully unit-testable without a running
-      compositor) — Phase 2
+- [x] KWin script: manual verification only (not meaningfully unit-testable without a running
+      compositor), as expected — `ManageAppWindows` cycle/toggle verified this way against real
+      windows (see Phase 2 above)
 - [ ] Integration test: extension ↔ server ↔ KWin script round trip for one hotkey (tab focus),
-      once Phase 2's minimal script exists
+      blocked on the callDBus bridge design decision (Phase 2)
 - [ ] User acceptance testing on this machine (KDE/Wayland) before considering other DEs — Phase 3
 
 ---
