@@ -6,8 +6,8 @@ generic wlroots/wlr-protocols port — the mechanisms below are KDE-specific and
 to Sway/Hyprland/etc. without rework.
 
 Work proceeds in the phases below, each one built and (where testable) verified before the next
-starts. Status: **Phase 1 done. Phase 2 in progress — window management working, tab-focus
-bridging still needs a design decision (see below).**
+starts. Status: **Phase 1 done. Phase 2 in progress — window management working, D-Bus bridge to
+the server working; FocusTab/CycleChromiumProfile logic itself not yet ported.**
 
 **Deliberately out of scope for now** (see Deferred section at the bottom): the **secrets
 manager** and the **window switcher**. Both are explicitly deferred, not forgotten — do not pick
@@ -50,18 +50,21 @@ be approached differently than the Windows version was.
       unreliable test fixture, see commit `2e59a2e`): cycle wraps correctly, toggle
       minimizes-if-active / restores-and-activates-if-not, and `workspace.activeWindow =`
       assignment auto-restores a minimized window (matches AHK's `WinActivate`).
-- [ ] **Open design decision before continuing**: `FocusTab`/`CycleChromiumProfile` need the
-      script to call the bridge server, but KWin's plain-JS scripting sandbox has **no
-      `XMLHttpRequest`** (confirmed empirically — corrects the assumption in the KDE/KWin
-      Specifics section below) — only `callDBus`/`readConfig` are available, no network, no
-      process spawn, no file read. The bridge server needs a DBus-facing interface for the script
-      to call into via `callDBus`, which likely means adding a small D-Bus service to
-      `linux/server/alttabsucks_server.py` (no dbus module in Python's stdlib — would need a
-      third-party pure-Python DBus library, e.g. `jeepney`; first new non-stdlib dependency in
-      this port). Same escape hatch would cover the still-unimplemented "launch app when no
-      windows exist" case in `manageAppWindows` too. **Don't start this without discussing the
-      dependency first.**
-- [ ] Port `FocusTab`/`CycleChromiumProfile` logic once the above is decided
+- [x] **D-Bus bridge decided and built**: KWin's plain-JS scripting sandbox has **no
+      `XMLHttpRequest`** (confirmed empirically — corrected the earlier assumption in the KDE/KWin
+      Specifics section below) — only `callDBus`/`readConfig`, no network, no process spawn, no
+      file read. Chose adding a D-Bus-facing interface to the bridge server (over the alternative
+      of splitting hotkey registration across two mechanisms) — see `linux/server/dbus_bridge.py`
+      (`com.github.tomatointhesand.AltTabSucks`, exposing `FindTab`/`GetActiveTitles`/
+      `GetProfiles`/`QueueSwitchTab`/`QueueSwitchOpenUrl`). Uses `dbus-python` + `PyGObject`
+      (`python-dbus`/`python-gobject` on Arch — system packages, not pip; already present on this
+      KDE install). Verified end to end including from an actual loaded KWin script's `callDBus`
+      — see commit `fc5c120`. Same escape hatch (not yet used) would cover the still-unimplemented
+      "launch app when no windows exist" case in `manageAppWindows`.
+- [ ] Port `FocusTab`/`CycleChromiumProfile` logic itself, now that the bridge exists — this is
+      the remaining Phase 2 work: window activation (`workspace`, already have the primitives)
+      + the `FindTab`/`QueueSwitchTab`/`QueueSwitchOpenUrl` D-Bus calls, matching
+      `lib/chromium.ahk`'s `FocusTab`/`CycleChromiumProfile` control flow
 - [ ] Port Firefox equivalents
 - [ ] End-to-end check against the real `BrowserExtension/` (carried over from Phase 1) once a
       tab-focus hotkey exists to drive it
@@ -101,8 +104,8 @@ for work not yet started, kept close to the phase list rather than duplicated ac
 - [x] **Correction from planning**: KWin's plain `"javascript"` scripting sandbox has **no
       `XMLHttpRequest`, no process spawning, no file reads** — confirmed empirically, contradicting
       earlier research (which likely described a different/older scripting mode). Only `callDBus`
-      and `readConfig` are available alongside `workspace`/`registerShortcut`. This blocks the
-      tab-focus bridge design — see the open item in Phase 2 above.
+      and `readConfig` are available alongside `workspace`/`registerShortcut`. Addressed via the
+      `linux/server/dbus_bridge.py` D-Bus bridge — see Phase 2 above.
 - [x] Window process identification inside the script: `Window.resourceClass`/`.resourceName`
       replace AHK's `WinGetProcessName`. Confirmed empirically these are **not** always the bare
       exe name — KDE apps use reversed-domain style (`org.kde.kate`, `org.kde.dolphin`,
@@ -133,11 +136,17 @@ for work not yet started, kept close to the phase list rather than duplicated ac
       `~/.mozilla/firefox/profiles.ini` instead of `%LOCALAPPDATA%`/`%APPDATA%` (Phase 2)
 
 ### Dependencies still to install
-- [ ] `kpackagetool6` for packaging the KWin script properly (Phase 2; already present via
-      `kwin_wayland`/Plasma install, just needs to be invoked)
+- [x] `kpackagetool6` for packaging the KWin script — already present via `kwin_wayland`/Plasma
+      install, no separate install step needed; used in Phase 2 (`linux/kwin/alttabsucks/`)
+- [x] `python-dbus` + `python-gobject` (Arch package names) for `linux/server/dbus_bridge.py` —
+      system packages, not pip; already present on this KDE Plasma install (pulled in
+      transitively by Plasma itself). The Linux installer script (below) should check for /
+      `pacman -S` these explicitly rather than assume every install has them, since
+      `_start_dbus_bridge()`'s error message can only help someone who's already watching the
+      server's stdout.
 - [ ] Linux installer script (bash) replacing `installer.ps1`: installs the KWin script
       (`kpackagetool6 -t KWin/Script -i ...`), installs/enables the systemd `--user` service,
-      writes `Server/token.txt` (Phase 3)
+      ensures `python-dbus`/`python-gobject` are installed, writes `Server/token.txt` (Phase 3)
 
 ### Infrastructure
 - [ ] ~~Docker containers~~ — dropped: this talks to the host compositor and browser profile
@@ -147,12 +156,15 @@ for work not yet started, kept close to the phase list rather than duplicated ac
 - [ ] Linux setup docs (README section, mirroring the existing Windows Quick Start) — Phase 3
 
 ### Testing
-- [x] Bridge server: automated (`linux/server/tests/`, 30 tests, stdlib `unittest`)
+- [x] Bridge server: automated (`linux/server/tests/`, 30 tests, stdlib `unittest`) for the HTTP
+      side; D-Bus bridge verified manually (constructing `AppState`/`make_handler` directly, as
+      the tests do, never touches D-Bus — see `dbus_bridge.py`'s module docstring)
 - [x] KWin script: manual verification only (not meaningfully unit-testable without a running
-      compositor), as expected — `ManageAppWindows` cycle/toggle verified this way against real
-      windows (see Phase 2 above)
+      compositor), as expected — `ManageAppWindows` cycle/toggle, and separately the D-Bus bridge
+      (HTTP↔D-Bus shared state, and `callDBus` from an actual loaded KWin script reaching the
+      service), both verified this way (see Phase 2 above)
 - [ ] Integration test: extension ↔ server ↔ KWin script round trip for one hotkey (tab focus),
-      blocked on the callDBus bridge design decision (Phase 2)
+      once `FocusTab`/`CycleChromiumProfile` are ported (Phase 2)
 - [ ] User acceptance testing on this machine (KDE/Wayland) before considering other DEs — Phase 3
 
 ---
