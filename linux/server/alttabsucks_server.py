@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""
+AltTabSucks bridge server — Linux port of Server/AltTabSucksServer.ps1.
+
+Stdlib only, single-threaded (mirrors the PS1's serial HttpListener loop — this is polled by
+one browser extension every 50ms, there's no concurrency to gain and it keeps state access
+lock-free). Endpoint set, auth model, CORS policy, and body-size caps are meant to match the
+PS1 exactly; see CLAUDE.md's "AltTabSucks Server" section for the endpoint contract consumed by
+lib/chromium.ahk / lib/firefox.ahk today and by the KWin script + BrowserExtension/background.js
+on Linux.
+"""
+
+import json
+import secrets
+import base64
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlsplit, parse_qs
+
+PORT = 9876
+
+# Server/token.txt at the repo root — same relative location the Windows server and
+# BrowserExtension setup docs already point at, so nothing else about the install needs to change.
+REPO_ROOT = __import__("pathlib").Path(__file__).resolve().parents[2]
+TOKEN_PATH = REPO_ROOT / "Server" / "token.txt"
+
+TABS_MAX_BODY = 1 * 1024 * 1024   # 1 MB, matches PS1
+SMALL_MAX_BODY = 4 * 1024         # 4 KB, matches PS1 (/profiles and /switchtab POST bodies)
+
+
+def load_or_create_token() -> str:
+    if TOKEN_PATH.exists():
+        return TOKEN_PATH.read_text(encoding="utf-8").strip()
+    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    token = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
+    TOKEN_PATH.write_text(token, encoding="utf-8")
+    print(f"Generated new auth token: {token}")
+    print("Paste this token into the extension Options page.")
+    return token
+
+
+SECRET = load_or_create_token()
+
+# Server-side state, keyed by browser profile display name — same shape as the PS1's hashtables.
+store: dict[str, list] = {}          # profile -> windows (list of {id, focused, tabs:[...]})
+switch_queue: dict[str, dict] = {}   # profile -> pending switch command, or absent/None
+profile_list: list[str] = []         # display names pushed by the hotkey layer at startup
+
+
+def is_extension_origin(origin: str | None) -> bool:
+    return bool(origin) and (origin.startswith("chrome-extension://") or origin.startswith("moz-extension://"))
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "AltTabSucks/1.0"
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt, *args):
+        pass  # PS1 doesn't log per-request either; keep stdout to the token banner only
+
+    # ---- shared plumbing -------------------------------------------------
+
+    def _origin(self) -> str | None:
+        return self.headers.get("Origin")
+
+    def _apply_cors(self):
+        origin = self._origin()
+        if is_extension_origin(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-AltTabSucks-Token")
+            self.send_header("Access-Control-Max-Age", "86400")
+            self.send_header("Vary", "Origin")
+
+    def _end(self, status: int, body: bytes = b"", content_type: str | None = None):
+        self.send_response(status)
+        self._apply_cors()
+        if content_type:
+            self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
+    def _end_json(self, status: int, obj):
+        self._end(status, json.dumps(obj).encode("utf-8"), "application/json; charset=utf-8")
+
+    def _end_text(self, status: int, text: str):
+        self._end(status, text.encode("utf-8"), "text/plain; charset=utf-8")
+
+    def _check_auth(self) -> bool:
+        # AHK/the KWin script send no Origin header and are unaffected by CORS but must still
+        # send the token; OPTIONS preflights are exempt (checked by caller before this runs).
+        return self.headers.get("X-AltTabSucks-Token") == SECRET
+
+    def _read_body(self, max_len: int) -> bytes | None:
+        """Returns the body, or None (and already wrote a 413) if it exceeds max_len."""
+        length = self.headers.get("Content-Length")
+        try:
+            length = int(length)
+        except (TypeError, ValueError):
+            length = -1
+        if length < 0 or length > max_len:
+            self._end(413)
+            return None
+        return self.rfile.read(length)
+
+    # ---- dispatch ----------------------------------------------------
+
+    def do_OPTIONS(self):
+        self._end(204)
+
+    def do_GET(self):
+        if not self._check_auth():
+            self._end(403)
+            return
+        parts = urlsplit(self.path)
+        path = parts.path
+        qs = parse_qs(parts.query)
+        profile = qs.get("profile", [None])[0]
+
+        if path == "/profiles":
+            self._end_json(200, profile_list)
+        elif path == "/tabs":
+            self._end_json(200, store)
+        elif path == "/activetitles":
+            windows = store.get(profile, [])
+            titles = []
+            for w in windows:
+                active = next((t for t in w.get("tabs", []) if t.get("active")), None)
+                if active:
+                    titles.append(active.get("title", ""))
+            self._end_text(200, "\n".join(titles))
+        elif path == "/findtab":
+            url_pattern = qs.get("url", [None])[0] or ""
+            windows = store.get(profile, [])
+            found = []
+            for w in windows:
+                for tab in w.get("tabs", []):
+                    if url_pattern in (tab.get("url") or ""):
+                        found.append({
+                            "line": f"{w.get('id')}|{tab.get('id')}",
+                            "micActive": bool(tab.get("micActive")),
+                            "audible": bool(tab.get("audible")),
+                            "index": int(tab.get("index", 0)),
+                        })
+            # micActive first, then audible, then leftmost by tab index — matches PS1's sort
+            found.sort(key=lambda f: (not f["micActive"], not f["audible"], f["index"]))
+            self._end_text(200, "\n".join(f["line"] for f in found))
+        elif path == "/switchtab":
+            origin = self._origin()
+            # Reject simple-request GETs from non-extension origins so a webpage can't drain
+            # the queue ahead of the real extension — same guard as the PS1.
+            if origin and not is_extension_origin(origin):
+                self._end(204)
+                return
+            cmd = switch_queue.get(profile)
+            if cmd:
+                switch_queue[profile] = None
+                self._end_json(200, cmd)
+            else:
+                self._end(204)
+        elif path == "/debugtabs":
+            lines = []
+            for prof, windows in store.items():
+                lines.append(f"=== {prof} ===")
+                for w in windows:
+                    label = f"  Window {w.get('id')}" + (" (focused)" if w.get("focused") else "")
+                    lines.append(label)
+                    for tab in w.get("tabs", []):
+                        flags = ""
+                        if tab.get("micActive"):
+                            flags += " [MIC]"
+                        if tab.get("audible"):
+                            flags += " [audible]"
+                        if tab.get("active"):
+                            flags += " [active]"
+                        lines.append(f"    [{tab.get('index')}] {tab.get('title')}{flags}")
+                lines.append("")
+            self._end_text(200, "\n".join(lines))
+        else:
+            self._end(404)
+
+    def do_POST(self):
+        if not self._check_auth():
+            self._end(403)
+            return
+        path = urlsplit(self.path).path
+
+        if path == "/profiles":
+            body = self._read_body(SMALL_MAX_BODY)
+            if body is None:
+                return
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError:
+                self._end(400)
+                return
+            global profile_list
+            profile_list = parsed  # replaces, doesn't accumulate — matches PS1's assignment
+            self._end(204)
+
+        elif path == "/tabs":
+            body = self._read_body(TABS_MAX_BODY)
+            if body is None:
+                return
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError:
+                self._end(400)
+                return
+            store[parsed.get("profile")] = parsed.get("windows")
+            self._end(204)
+
+        elif path == "/switchtab":
+            body = self._read_body(SMALL_MAX_BODY)
+            if body is None:
+                return
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                self._end(400)
+                return
+            profile = payload.get("profile")
+            if payload.get("splitTab"):
+                switch_queue[profile] = {"splitTab": True}
+            elif payload.get("mergeTabs"):
+                switch_queue[profile] = {"mergeTabs": True}
+            elif payload.get("openUrl"):
+                switch_queue[profile] = {"openUrl": payload["openUrl"]}
+            else:
+                switch_queue[profile] = {"windowId": payload.get("windowId"), "tabId": payload.get("tabId")}
+            self._end(204)
+
+        else:
+            self._end(404)
+
+    def do_DELETE(self):
+        if not self._check_auth():
+            self._end(403)
+            return
+        parts = urlsplit(self.path)
+        if parts.path == "/tabs":
+            profile = parse_qs(parts.query).get("profile", [None])[0]
+            store.pop(profile, None)
+            self._end(204)
+        else:
+            self._end(404)
+
+
+def main():
+    httpd = HTTPServer(("127.0.0.1", PORT), Handler)
+    print(f"AltTabSucks server listening on http://127.0.0.1:{PORT}/ (Ctrl+C to stop)")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+        print("Server stopped.")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
