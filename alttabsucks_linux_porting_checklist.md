@@ -6,8 +6,9 @@ generic wlroots/wlr-protocols port — the mechanisms below are KDE-specific and
 to Sway/Hyprland/etc. without rework.
 
 Work proceeds in the phases below, each one built and (where testable) verified before the next
-starts. Status: **Phase 1 done. Phase 2 in progress — window management working, D-Bus bridge to
-the server working; FocusTab/CycleChromiumProfile logic itself not yet ported.**
+starts. Status: **Phase 1 done. Phase 2 in progress — window management, D-Bus bridge, and
+CycleChromiumProfile/FocusTab all working for Chromium; Firefox equivalents + a check against the
+real BrowserExtension still remain.**
 
 **Deliberately out of scope for now** (see Deferred section at the bottom): the **secrets
 manager** and the **window switcher**. Both are explicitly deferred, not forgotten — do not pick
@@ -61,13 +62,29 @@ be approached differently than the Windows version was.
       KDE install). Verified end to end including from an actual loaded KWin script's `callDBus`
       — see commit `fc5c120`. Same escape hatch (not yet used) would cover the still-unimplemented
       "launch app when no windows exist" case in `manageAppWindows`.
-- [ ] Port `FocusTab`/`CycleChromiumProfile` logic itself, now that the bridge exists — this is
-      the remaining Phase 2 work: window activation (`workspace`, already have the primitives)
-      + the `FindTab`/`QueueSwitchTab`/`QueueSwitchOpenUrl` D-Bus calls, matching
-      `lib/chromium.ahk`'s `FocusTab`/`CycleChromiumProfile` control flow
-- [ ] Port Firefox equivalents
-- [ ] End-to-end check against the real `BrowserExtension/` (carried over from Phase 1) once a
-      tab-focus hotkey exists to drive it
+- [x] Ported `FocusTab`/`CycleChromiumProfile` → `cycleChromiumProfile`/`focusTab` in `main.js`,
+      using `workspace` for window activation and the D-Bus bridge for `GetActiveTitles`/
+      `FindTab`/`QueueSwitchTab`/`QueueSwitchOpenUrl`. Structured as callback chains, not
+      straight-line code — `callDBus` is async-only, and this engine has no `setTimeout` and
+      can't parse `async function` at all (confirmed empirically; `QTimer` is the delay
+      primitive, unused so far since nothing here needed one yet). Verified end to end against
+      real Brave windows with seeded server data: cycling between matched windows and back,
+      the no-match fallback (opens a new tab in an existing window), the match-found path
+      (`FindTab` → `QueueSwitchTab` → dequeued via the real `GET /switchtab` path), and
+      multi-match cycling with wraparound — all through the actual installed `kpackagetool6`
+      package, not just an ad-hoc dev-loaded copy. See commit `b586ec3` for the noted
+      simplifications (no HWND-style stable sort, no `_ServerHasAnyTabData()` distinction, no
+      duplicate-tab-open cooldown, launch-when-no-window-exists still stubbed like
+      `manageAppWindows`') and a real gotcha worth remembering: `kpackagetool6 --upgrade` +
+      `qdbus6 ... reconfigure` does **not** force an already-loaded script to reload its JS —
+      needs an explicit `unloadScript` first, or you'll silently keep testing stale code.
+- [ ] Port Firefox equivalents (`lib/firefox.ahk`'s `CycleFirefoxProfile`/`FocusTabFirefox`)
+- [ ] End-to-end check against the real `BrowserExtension/` (carried over from Phase 1) — still
+      not done; so far only verified against seeded server data, never a real loaded extension
+      actually driving `chrome.tabs.update`/`chrome.windows.update`
+- [ ] Process-spawn escape hatch for the three now-stubbed "launch when nothing's open" cases
+      (`manageAppWindows`, `cycleChromiumProfile`, `focusTab`'s full-launch tier) — needs a new
+      `dbus_bridge.py` method; not started
 
 ### Phase 3: Polish / Parity — not started
 - [ ] Toast overlay + titlebar color sampling
@@ -118,10 +135,10 @@ for work not yet started, kept close to the phase list rather than duplicated ac
 
 ### Key Features mapping (Phase 2)
 - [x] App window cycling/toggle (`ManageAppWindows`) → KWin script using `workspace` API
-- [ ] Browser profile cycling / tab focus (`lib/chromium.ahk`, `lib/firefox.ahk`) → logic ports
-      almost as-is into the KWin script, since it's mostly HTTP calls + window activation by
-      class/exe match (`ahk_class Chrome_WidgetWin_1` → match on `client.resourceClass` for the
-      browser's Linux window class, e.g. `google-chrome`, `brave-browser`, `firefox`)
+- [x] Browser profile cycling / tab focus, Chromium side (`lib/chromium.ahk`) → done, see Phase 2
+      above. Matching by `client.resourceClass` for the browser's Linux window class (e.g.
+      `brave-browser`) confirmed working as expected.
+- [ ] Firefox side (`lib/firefox.ahk`) — not started
 - [x] Profile management: unaffected by the OS port — this logic lives entirely in the bridge
       server + browser extension already (covered by Phase 1)
 
@@ -160,11 +177,12 @@ for work not yet started, kept close to the phase list rather than duplicated ac
       side; D-Bus bridge verified manually (constructing `AppState`/`make_handler` directly, as
       the tests do, never touches D-Bus — see `dbus_bridge.py`'s module docstring)
 - [x] KWin script: manual verification only (not meaningfully unit-testable without a running
-      compositor), as expected — `ManageAppWindows` cycle/toggle, and separately the D-Bus bridge
-      (HTTP↔D-Bus shared state, and `callDBus` from an actual loaded KWin script reaching the
-      service), both verified this way (see Phase 2 above)
-- [ ] Integration test: extension ↔ server ↔ KWin script round trip for one hotkey (tab focus),
-      once `FocusTab`/`CycleChromiumProfile` are ported (Phase 2)
+      compositor), as expected — `ManageAppWindows` cycle/toggle, the D-Bus bridge (HTTP↔D-Bus
+      shared state, `callDBus` from an actual loaded KWin script), and `cycleChromiumProfile`/
+      `focusTab` against real windows with seeded data, all verified this way (see Phase 2 above)
+- [ ] Integration test: extension ↔ server ↔ KWin script round trip for one hotkey (tab focus)
+      with a **real loaded `BrowserExtension/`** — still open; everything so far was verified
+      against seeded server data standing in for the extension, never the extension itself
 - [ ] User acceptance testing on this machine (KDE/Wayland) before considering other DEs — Phase 3
 
 ---
