@@ -1,0 +1,20 @@
+{
+    "KPlugin": {
+        "Name": "AltTabSucks",
+        "Description": "Window management + browser tab focus bridge for AltTabSucks hotkeys",
+        "Icon": "preferences-system-windows",
+        "Authors": [
+            {
+                "Name": "tomatointhesand",
+                "Email": "tomatointhesand@gmail.com"
+            }
+        ],
+        "Id": "alttabsucks",
+        "Version": "0.1",
+        "License": "GPL-3.0-or-later",
+        "Website": "https://github.com/tomatointhesand/AltTabSucks"
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js",
+    "KPackageStructure": "KWin/Script"
+}
