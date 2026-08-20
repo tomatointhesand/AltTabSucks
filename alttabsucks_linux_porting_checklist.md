@@ -26,8 +26,10 @@ be approached differently than the Windows version was.
       `splitTab`/`mergeTabs`/`openUrl`), `GET /debugtabs` — same token auth, same CORS
       restriction to extension origins (incl. the queue-drain-attack guard on `GET /switchtab`),
       same body-size caps (1 MB `/tabs`, 4 KB `/profiles` and `/switchtab`)
-- [x] `linux/systemd/alttabsucks-server.service` (`systemd --user` unit)
-- [x] 30-test stdlib `unittest` suite (`linux/server/tests/`) — run with
+- [x] `linux/systemd/alttabsucks-server.service` (`systemd --user` unit) — installed and enabled
+      on this machine (`~/.config/systemd/user/`, `systemctl --user enable --now`), actually
+      running persistently now rather than just existing as a file in the repo
+- [x] 38-test stdlib `unittest` suite (`linux/server/tests/`) — run with
       `python3 -m unittest discover -s linux/server/tests`
 - [x] Bug found by the suite and fixed: any early-return error response (403/413/404) that
       hadn't read the request body left a keep-alive connection desynced; fixed with a bounded
@@ -35,9 +37,17 @@ be approached differently than the Windows version was.
 - [x] Housekeeping: removed the stray `alttabsucks.service`/`server.js` stubs (superseded by the
       above) and the unrelated `disable.continue_config.py`/`test_file.py` leftovers from the
       repo root
-- [ ] Not yet done: manually verified against a **real** `BrowserExtension/` load-unpacked
-      (only exercised via curl/unittest so far) — worth doing once Phase 2 gives us a hotkey to
-      trigger it end to end, rather than as a standalone step
+- [x] **Chromium profile self-discovery** (`linux/server/profile_discovery.py` +
+      `linux/server/config.py`, gitignored, from `config.template.py`): fixes
+      `BrowserExtension/`'s Options page showing no profiles — root cause was two-fold, no server
+      was running at all, and even running, nothing populated `GET /profiles` since that's
+      normally AHK's `_InitChromiumState()` pushing what it found, and there's no Linux
+      equivalent doing that yet. Server now discovers profiles itself at startup by parsing
+      "Local State" (real JSON — simpler than AHK's regex approach). Verified live against this
+      machine's real Brave install (`Personal`), not just fixture data. See commit `ced7a50`.
+- [x] Manually verified against a **real, running server** (curl/unittest plus the live Brave
+      profile-discovery check above); verifying against a **loaded `BrowserExtension/`** itself
+      (not just what it calls) is still open — see Phase 2's equivalent item
 
 ### Phase 2: Window Management + Hotkeys (KWin Script) — in progress
 - [x] Minimal KWin script proven end to end: `linux/kwin/alttabsucks/` (installed via
@@ -148,9 +158,11 @@ for work not yet started, kept close to the phase list rather than duplicated ac
       install flow, same on Linux as Windows
 - [ ] Update install docs (README) for Linux browser installs: extensions page paths are the same
       URLs (`brave://extensions`, `about:addons`), no change needed there either (Phase 3)
-- [ ] Chromium/Firefox profile discovery (`_InitChromiumState`, `ReadFirefoxProfilesInfo`) needs
-      Linux path equivalents: `~/.config/google-chrome/`, `~/.config/BraveSoftware/...`,
-      `~/.mozilla/firefox/profiles.ini` instead of `%LOCALAPPDATA%`/`%APPDATA%` (Phase 2)
+- [x] Chromium profile discovery (`_InitChromiumState`'s equivalent) — done server-side, see
+      Phase 1 above (`linux/server/profile_discovery.py`), not in the KWin script
+- [ ] Firefox profile discovery (`ReadFirefoxProfilesInfo`'s equivalent, `~/.mozilla/firefox/
+      profiles.ini` instead of `%APPDATA%`) — not started; `profile_discovery.py` is the template
+      to follow (server-side discovery, not pushed by a hotkey-layer process) (Phase 2)
 
 ### Dependencies still to install
 - [x] `kpackagetool6` for packaging the KWin script — already present via `kwin_wayland`/Plasma
