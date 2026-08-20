@@ -20,6 +20,8 @@ KWIN_SCRIPT_DIR="$REPO_ROOT/linux/kwin/alttabsucks"
 KWIN_PLUGIN_ID="alttabsucks"
 CONFIG_PATH="$REPO_ROOT/linux/server/config.py"
 CONFIG_TEMPLATE="$REPO_ROOT/linux/server/config.template.py"
+HOTKEYS_PATH="$KWIN_SCRIPT_DIR/contents/code/hotkeys.js"
+HOTKEYS_TEMPLATE="$KWIN_SCRIPT_DIR/contents/code/hotkeys.template.js"
 TOKEN_PATH="$REPO_ROOT/Server/token.txt"
 
 ACTION="${1:-install}"
@@ -137,14 +139,47 @@ uninstall_service() {
 # the hard way — see the checklist's Phase 2 notes); loadScript unload + reconfigure is what
 # actually forces a fresh load, so that's what's used here rather than relying on --upgrade alone.
 
+ensure_hotkeys() {
+    if [ -f "$HOTKEYS_PATH" ]; then
+        return
+    fi
+    cp "$HOTKEYS_TEMPLATE" "$HOTKEYS_PATH"
+    echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.js from the template — edit it to add your hotkeys."
+}
+
+# Builds a staging copy of the KWin script package whose contents/code/main.js is the tracked
+# library code (main.js) concatenated with hotkeys.js (gitignored, your real bindings) — the two
+# can't be combined at *run* time the way AHK's #Include does, since the KWin scripting sandbox
+# has no file-read primitive (see main.js's header comment for why). Echoes the staging dir path;
+# caller is responsible for rm -rf'ing it once kpackagetool6 is done with it.
+build_staged_kwin_package() {
+    local staging
+    staging="$(mktemp -d)"
+    cp -r "$KWIN_SCRIPT_DIR"/. "$staging/"
+    {
+        cat "$KWIN_SCRIPT_DIR/contents/code/main.js"
+        echo
+        echo "// --- hotkeys.js (concatenated in by installer.sh) ---------------------------------------"
+        cat "$HOTKEYS_PATH"
+    } > "$staging/contents/code/main.js"
+    # hotkeys.js/hotkeys.template.js are source material only, not part of the shipped script —
+    # drop them from the staged copy so there's exactly one script file KWin could ever load.
+    rm -f "$staging/contents/code/hotkeys.js" "$staging/contents/code/hotkeys.template.js"
+    echo "$staging"
+}
+
 install_kwin_script() {
+    ensure_hotkeys
+    local staged
+    staged="$(build_staged_kwin_package)"
     if qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.isScriptLoaded "$KWIN_PLUGIN_ID" 2>/dev/null | grep -q true; then
-        kpackagetool6 --type=KWin/Script --upgrade "$KWIN_SCRIPT_DIR"
+        kpackagetool6 --type=KWin/Script --upgrade "$staged"
         qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "$KWIN_PLUGIN_ID" >/dev/null
     else
-        kpackagetool6 --type=KWin/Script -i "$KWIN_SCRIPT_DIR" 2>/dev/null \
-            || kpackagetool6 --type=KWin/Script --upgrade "$KWIN_SCRIPT_DIR"
+        kpackagetool6 --type=KWin/Script -i "$staged" 2>/dev/null \
+            || kpackagetool6 --type=KWin/Script --upgrade "$staged"
     fi
+    rm -rf "$staged"
     kwriteconfig6 --file kwinrc --group Plugins --key "${KWIN_PLUGIN_ID}Enabled" true
     qdbus6 org.kde.KWin /KWin reconfigure
     echo "KWin script installed and enabled: $KWIN_PLUGIN_ID"

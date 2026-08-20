@@ -270,16 +270,12 @@ function openInExistingWindow(resourceClass, profileName, openUrl) {
     });
 }
 
-// --- dev-only verification hotkeys ---------------------------------------------------------
-// Temporary, not real bindings (those belong in a gitignored local config once that pattern is
-// worked out for Linux, mirroring lib/app-hotkeys.ahk) — just enough to invoke manageAppWindows
-// against real windows for manual verification via:
-//   qdbus6 org.kde.kglobalaccel /component/kwin org.kde.kglobalaccel.Component.invokeShortcut "<title>"
-registerShortcut("ATS Dev Test: Cycle Brave", "AltTabSucks Dev Test: Cycle Brave Windows",
-    "Ctrl+Alt+Shift+F13", function () { manageAppWindows("brave-browser", "cycle"); });
-registerShortcut("ATS Dev Test: Toggle Brave", "AltTabSucks Dev Test: Toggle Brave Windows",
-    "Ctrl+Alt+Shift+F14", function () { manageAppWindows("brave-browser", "toggle"); });
-registerShortcut("ATS Dev Test: Cycle Profile", "AltTabSucks Dev Test: Cycle Chromium Profile",
-    "Ctrl+Alt+Shift+F15", function () { cycleChromiumProfile("brave-browser", "Default"); });
-registerShortcut("ATS Dev Test: Focus Tab", "AltTabSucks Dev Test: Focus Tab",
-    "Ctrl+Alt+Shift+F16", function () { focusTab("brave-browser", "Default", "google.com", "https://google.com"); });
+// --- your hotkeys go in hotkeys.js, not here --------------------------------------------------
+// This file has no registerShortcut calls of its own — it's the library half only. KWin's
+// scripting sandbox can't read a sibling file at runtime (no file-read primitive, confirmed
+// empirically — see the sandbox notes above), so unlike AHK's #Include lib\app-hotkeys.ahk, the
+// two halves can't be combined at *run* time. installer.sh's install_kwin_script() concatenates
+// this file with hotkeys.js (gitignored — seeded from hotkeys.template.js if missing, same
+// "seed from template on first install" behavior as installer.ps1 uses for app-hotkeys.ahk) into
+// the actual deployed contents/code/main.js at *install* time instead. See hotkeys.template.js
+// for the registerShortcut calls that used to live here as dev-test stubs.
