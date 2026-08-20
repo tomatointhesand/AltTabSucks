@@ -162,6 +162,29 @@ be approached differently than the Windows version was.
         auto-regenerate `hotkeys.template.js` with values redacted on commit. `hotkeys.template.js`
         is hand-written for now; extending the sanitizer to also handle `hotkeys.js`'s (different,
         JS-syntax) URL/profile-name patterns is real but modest follow-up work.
+- [x] **Hotkeys config UI, Linux half** (commit `d78cb65`): a shared local web page
+      (`shared/hotkeys-ui.html`) served by the bridge server, rather than a native GTK/PyQt app —
+      both platforms already run a local HTTP+token bridge server, so this needed nothing new on
+      either side beyond a couple of endpoints, no new GUI toolkit dependency on Linux, and no
+      new language runtime added to Windows to share code with. `hotkeys.json` (gitignored, like
+      `hotkeys.js`) is the source of truth once you save from the UI — `hotkeys_generator.py`
+      regenerates `hotkeys.js` from it on every `POST /hotkeys-config`, validating each binding
+      and rejecting (400 + message) rather than ever writing a broken `hotkeys.js`. `GET
+      /hotkeys-ui` deliberately isn't behind the token check (a plain browser navigation can't
+      attach a custom header the way the page's own `fetch()` calls do). 11 new tests; verified
+      live end to end — POSTed a real 3-binding config including a real "Focus Gmail" tabFocus
+      binding against the actual "Personal" profile, confirmed `hotkeys.json`/`hotkeys.js`
+      regenerated correctly, deployed via `./installer.sh install`, confirmed all three
+      registered as real `kglobalaccel` shortcuts.
+  - [ ] **Follow-up, deliberately not done here**: wiring the same `shared/hotkeys-ui.html` into
+        `AltTabSucksServer.ps1` (static-file serving + regenerating `app-hotkeys.ahk` from the
+        same `hotkeys.json` shape) — scoped as a separate step requiring explicit go-ahead, since
+        it touches working Windows code rather than adding something new. `hotkeys_generator.py`
+        would need a PowerShell/AHK-generating counterpart alongside the existing JS one.
+  - [ ] **Not built**: live resourceClass/running-window discovery inside the UI (you still type
+        `resourceClass` by hand, same as `hotkeys.template.js` always required) — would need a
+        reverse-direction channel (server asking the *KWin script* for live window data; today
+        everything flows KWin-script-to-server only). Noted as a possible enhancement, not started.
 - [ ] Toast overlay + titlebar color sampling
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
