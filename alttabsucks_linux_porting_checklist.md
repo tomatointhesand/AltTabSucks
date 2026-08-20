@@ -235,17 +235,16 @@ for work not yet started, kept close to the phase list rather than duplicated ac
 - [ ] Integration test: extension ↔ server ↔ KWin script round trip for one hotkey (tab focus)
       with a **real loaded `BrowserExtension/`** — still open; everything so far was verified
       against seeded server data standing in for the extension, never the extension itself
-- [ ] **Real physical keypresses, still not confirmed working** — every hotkey test all session
-      used `kglobalaccel invokeShortcut`, a direct programmatic trigger that bypasses the actual
-      key-press → `kglobalaccel` → dispatch path entirely. When the user tried real keys, nothing
-      happened for the (still-placeholder) profile/tab-focus bindings — expected — but it's not
-      yet confirmed whether "Toggle File Manager" (`Ctrl+Alt+Shift+E`, no placeholders) works via
-      a real keypress. Investigated one oddity along the way: `kglobalaccel`'s bulk
-      `allShortcutInfos()` query reports an empty "active keys" field for these shortcuts even
-      though the more direct `shortcut()`/`shortcutKeys()`/`defaultShortcut()` queries all confirm
-      the key *is* assigned — unresolved which field is right; ran `doRegister`+`setShortcut` as a
-      reinforcing no-op just in case, but the real answer is a physical keypress test, not more
-      DBus introspection.
+- [x] **Real physical keypresses confirmed working**: `Ctrl+Alt+Shift+E` ("Toggle File Manager")
+      correctly focuses a backgrounded Dolphin window when pressed for real — the first
+      confirmation all session that didn't go through `kglobalaccel invokeShortcut` (which
+      bypasses the real key-press → dispatch path entirely, unlike every prior test). The
+      `allShortcutInfos()` "empty active keys" oddity investigated alongside this was a red
+      herring, not a real problem — no need to chase it further.
+  - **What it surfaced instead**: pressed with no Dolphin window open at all, nothing happens —
+    this is empirical confirmation of the already-tracked "launch when nothing's open" gap (see
+    `manageAppWindows`'s TODO and the Phase 2 process-spawn escape-hatch item above), not a new
+    bug. First time that gap's been hit via a real keypress rather than just reasoned about.
 - [ ] User acceptance testing on this machine (KDE/Wayland) before considering other DEs — Phase 3
 
 ---
