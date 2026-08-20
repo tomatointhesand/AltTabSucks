@@ -96,11 +96,23 @@ be approached differently than the Windows version was.
       (`manageAppWindows`, `cycleChromiumProfile`, `focusTab`'s full-launch tier) — needs a new
       `dbus_bridge.py` method; not started
 
-### Phase 3: Polish / Parity — not started
+### Phase 3: Polish / Parity — in progress
+- [x] **`installer.sh`** (repo root, mirrors `installer.ps1`'s `install|uninstall|status|
+      start|stop` contract) — done ahead of the rest of Phase 3 since it was needed to actually
+      deploy the Phase 1/2 work for real use rather than leaving it as manually-run test
+      commands. Much smaller than `installer.ps1`: no elevation/UAC needed at all (`systemd
+      --user` and `kpackagetool6` are both ordinary per-user operations), no scheduled-task API,
+      no separate "launch the hotkey layer at login" step (the KWin script already runs inside
+      the always-running compositor once installed). Tested the full cycle live — install
+      (idempotent against an already-installed service + already-loaded KWin script), status,
+      stop, start, uninstall (confirmed config.py/token.txt survive, matching `installer.ps1`
+      leaving token.txt alone), reinstall. See commit `e6aacf5` for a real bug this surfaced:
+      `enable --now` on an already-running service doesn't restart it, so a naive re-run would
+      silently keep serving stale code.
 - [ ] Toast overlay + titlebar color sampling
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
-- [ ] Linux README section, install script polish
+- [ ] Linux README section (installer.sh usage still needs documenting there)
 
 ---
 
@@ -169,13 +181,13 @@ for work not yet started, kept close to the phase list rather than duplicated ac
       install, no separate install step needed; used in Phase 2 (`linux/kwin/alttabsucks/`)
 - [x] `python-dbus` + `python-gobject` (Arch package names) for `linux/server/dbus_bridge.py` —
       system packages, not pip; already present on this KDE Plasma install (pulled in
-      transitively by Plasma itself). The Linux installer script (below) should check for /
-      `pacman -S` these explicitly rather than assume every install has them, since
-      `_start_dbus_bridge()`'s error message can only help someone who's already watching the
-      server's stdout.
-- [ ] Linux installer script (bash) replacing `installer.ps1`: installs the KWin script
-      (`kpackagetool6 -t KWin/Script -i ...`), installs/enables the systemd `--user` service,
-      ensures `python-dbus`/`python-gobject` are installed, writes `Server/token.txt` (Phase 3)
+      transitively by Plasma itself). `installer.sh` checks for these explicitly (`check_deps`)
+      rather than assume every install has them, since `_start_dbus_bridge()`'s error message can
+      only help someone who's already watching the server's stdout.
+- [x] `installer.sh` (repo root) — done, see Phase 3 above. Installs the KWin script, installs/
+      enables the systemd `--user` service, checks for `python-dbus`/`python-gobject`, and
+      auto-generates `Server/token.txt` indirectly (the server itself still creates it on first
+      run — the installer just makes sure that first run actually happens and prints it).
 
 ### Infrastructure
 - [ ] ~~Docker containers~~ — dropped: this talks to the host compositor and browser profile
