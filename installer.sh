@@ -8,7 +8,10 @@
 # is the hotkey layer here (no separate "launch AHK at login" step exists on this side either —
 # the KWin script runs inside the always-running compositor once installed).
 #
-# Usage: ./installer.sh [install|uninstall|status|start|stop]  (default: install)
+# Usage: ./installer.sh [install|uninstall|status|start|stop|configure]  (default: install)
+# `configure` re-runs just the interactive browser wizard (choose_browser) to regenerate
+# linux/server/config.py without touching the service or KWin script — install runs it
+# automatically too, but only the first time (an existing config.py is left alone otherwise).
 
 set -euo pipefail
 
@@ -53,53 +56,111 @@ check_deps() {
 }
 
 # ---- browser config bootstrap ----------------------------------------------------------------
-# Known Linux Chromium-family user-data dirs, confirmed by the presence of a "Local State" file
-# (so an empty/leftover config dir from a since-uninstalled browser doesn't count as a hit).
+# Known Linux Chromium-family user-data dirs (confirmed by a "Local State" file, so a stale
+# leftover config dir from an uninstalled browser doesn't count as a hit) alongside their KWin
+# resourceClass — the value manageAppWindows/cycleChromiumProfile/focusTab match windows by, and
+# exactly the kind of thing that silently breaks every hotkey if wrong with no error anywhere
+# (see the porting checklist's troubleshooting notes). Only brave-browser is empirically confirmed
+# on this port; the rest are the standard Linux packaging convention, so choose_browser verifies
+# against a real open window when it can rather than trusting this table blindly.
+BROWSER_DIRS=("BraveSoftware/Brave-Browser" "google-chrome" "microsoft-edge" "vivaldi" "chromium")
+BROWSER_NAMES=("Brave" "Chrome" "Edge" "Vivaldi" "Chromium")
+BROWSER_RESOURCE_CLASSES=("brave-browser" "google-chrome" "microsoft-edge" "vivaldi-stable" "chromium-browser")
 
-detect_chromium_installs() {
-    local dirs=(
-        "$HOME/.config/BraveSoftware/Brave-Browser"
-        "$HOME/.config/google-chrome"
-        "$HOME/.config/microsoft-edge"
-        "$HOME/.config/vivaldi"
-        "$HOME/.config/chromium"
-    )
-    for dir in "${dirs[@]}"; do
-        [ -f "$dir/Local State" ] && echo "$dir"
+# Set by choose_browser on success; consumed by ensure_hotkeys to pre-fill hotkeys.js when it
+# seeds a fresh copy from the template. Left unset if choose_browser wasn't run this invocation
+# (config.py already existed) or the user picked manual entry without giving a resourceClass.
+CHOSEN_RESOURCE_CLASS=""
+
+# If a window matching "<caption> - <browser_name>" is open right now (the title-suffix
+# convention every Chromium-based browser uses), reports its *real* resourceClass on stdout —
+# ground truth instead of the guessed table above. Prints nothing if no such window is open.
+verify_resource_class() {
+    local browser_name="$1" probe plugin result
+    probe="$(mktemp --suffix=.js)"
+    cat > "$probe" <<PROBE_EOF
+var order = workspace.stackingOrder;
+for (var i = 0; i < order.length; i++) {
+    var w = order[i];
+    if (w.caption && w.caption.indexOf(" - ${browser_name}") !== -1) {
+        print("ATS_INSTALLER_PROBE:" + w.resourceClass);
+        break;
+    }
+}
+PROBE_EOF
+    plugin="atsinstallerprobe$$"
+    qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$probe" "$plugin" >/dev/null 2>&1
+    qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.start >/dev/null 2>&1
+    sleep 0.5
+    result="$(journalctl --user --since '-3 seconds' --no-pager 2>/dev/null | grep -o 'ATS_INSTALLER_PROBE:.*' | tail -1 | cut -d: -f2)"
+    qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "$plugin" >/dev/null 2>&1
+    rm -f "$probe"
+    echo "$result"
+}
+
+choose_browser() {
+    local detected=() i
+    for i in "${!BROWSER_DIRS[@]}"; do
+        [ -f "$HOME/.config/${BROWSER_DIRS[$i]}/Local State" ] && detected+=("$i")
     done
+
+    local menu=()
+    for i in "${detected[@]}"; do
+        menu+=("${BROWSER_NAMES[$i]} (detected at ~/.config/${BROWSER_DIRS[$i]})")
+    done
+    menu+=("Other / not detected — enter paths manually")
+
+    echo "Which browser should AltTabSucks manage?"
+    local pick chosen_idx="" manual=false
+    select pick in "${menu[@]}"; do
+        if [ -n "${pick:-}" ]; then
+            if [ "$((REPLY - 1))" -lt "${#detected[@]}" ]; then
+                chosen_idx="${detected[$((REPLY - 1))]}"
+            else
+                manual=true
+            fi
+            break
+        fi
+    done
+
+    local userdata resource_class name
+    if [ "$manual" = true ]; then
+        read -rp "Browser user-data directory (e.g. ~/.config/YourBrowser): " userdata
+        userdata="${userdata/#\~/$HOME}"
+        read -rp "Browser window resourceClass (see the checklist's KDE/KWin Specifics section for how to find this): " resource_class
+    else
+        userdata="$HOME/.config/${BROWSER_DIRS[$chosen_idx]}"
+        resource_class="${BROWSER_RESOURCE_CLASSES[$chosen_idx]}"
+        name="${BROWSER_NAMES[$chosen_idx]}"
+        echo "Checking whether $name is running right now, to confirm the resourceClass..."
+        local verified
+        verified="$(verify_resource_class "$name")"
+        if [ -n "$verified" ] && [ "$verified" != "$resource_class" ]; then
+            echo "Confirmed via a real open window: resourceClass is actually '$verified' (guessed '$resource_class')."
+            resource_class="$verified"
+        elif [ -n "$verified" ]; then
+            echo "Confirmed via a real open window: resourceClass is '$resource_class'."
+        else
+            echo "$name doesn't appear to be running right now, so this is the standard Linux"
+            echo "packaging guess ('$resource_class'), not empirically confirmed — worth double"
+            echo "checking once you've tried a hotkey (see the checklist's KDE/KWin Specifics section)."
+        fi
+    fi
+
+    {
+        echo "import os"
+        echo "CHROMIUM_USERDATA = \"$userdata\""
+    } > "$CONFIG_PATH"
+    echo "Wrote linux/server/config.py (CHROMIUM_USERDATA=$userdata)."
+    CHOSEN_RESOURCE_CLASS="$resource_class"
 }
 
 ensure_config() {
     if [ -f "$CONFIG_PATH" ]; then
-        echo "linux/server/config.py already exists — leaving it as-is (edit it by hand to change browsers)."
+        echo "linux/server/config.py already exists — leaving it as-is (run './installer.sh configure' to redo the browser wizard)."
         return
     fi
-
-    mapfile -t found < <(detect_chromium_installs)
-    local chosen=""
-    if [ ${#found[@]} -eq 0 ]; then
-        echo "No supported Chromium-based browser auto-detected."
-    elif [ ${#found[@]} -eq 1 ]; then
-        chosen="${found[0]}"
-        echo "Detected browser data at: $chosen"
-    else
-        echo "Multiple browsers detected — pick one (you can add more manually later):"
-        select dir in "${found[@]}"; do
-            if [ -n "${dir:-}" ]; then chosen="$dir"; break; fi
-        done
-    fi
-
-    if [ -n "$chosen" ]; then
-        {
-            echo "import os"
-            echo "CHROMIUM_USERDATA = \"$chosen\""
-        } > "$CONFIG_PATH"
-        echo "Wrote linux/server/config.py (CHROMIUM_USERDATA=$chosen)."
-    else
-        cp "$CONFIG_TEMPLATE" "$CONFIG_PATH"
-        echo "Wrote linux/server/config.py from the template — edit CHROMIUM_USERDATA by hand"
-        echo "before profile cycling will work."
-    fi
+    choose_browser
 }
 
 # ---- systemd service --------------------------------------------------------------------------
@@ -144,7 +205,14 @@ ensure_hotkeys() {
         return
     fi
     cp "$HOTKEYS_TEMPLATE" "$HOTKEYS_PATH"
-    echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.js from the template — edit it to add your hotkeys."
+    if [ -n "$CHOSEN_RESOURCE_CLASS" ]; then
+        sed -i "s/YOUR_BROWSER_RESOURCE_CLASS/$CHOSEN_RESOURCE_CLASS/g" "$HOTKEYS_PATH"
+        echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.js from the template, with your"
+        echo "browser's resourceClass ('$CHOSEN_RESOURCE_CLASS') already filled in — still edit in"
+        echo "your real profile name(s) and URLs before the examples do anything."
+    else
+        echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.js from the template — edit it to add your hotkeys."
+    fi
 }
 
 # Builds a staging copy of the KWin script package whose contents/code/main.js is the tracked
@@ -238,14 +306,22 @@ do_status() {
 do_start() { systemctl --user start "$SERVICE_NAME"; echo "Started $SERVICE_NAME."; }
 do_stop()  { systemctl --user stop "$SERVICE_NAME"; echo "Stopped $SERVICE_NAME."; }
 
+do_configure() {
+    check_deps
+    choose_browser
+    echo
+    echo "Run './installer.sh install' to redeploy the server with this browser config."
+}
+
 case "$ACTION" in
     install)   do_install ;;
     uninstall) do_uninstall ;;
     status)    do_status ;;
     start)     do_start ;;
     stop)      do_stop ;;
+    configure) do_configure ;;
     *)
-        echo "Usage: $0 [install|uninstall|status|start|stop]"
+        echo "Usage: $0 [install|uninstall|status|start|stop|configure]"
         exit 1
         ;;
 esac
