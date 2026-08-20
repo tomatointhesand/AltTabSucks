@@ -92,9 +92,34 @@ be approached differently than the Windows version was.
 - [ ] End-to-end check against the real `BrowserExtension/` (carried over from Phase 1) — still
       not done; so far only verified against seeded server data, never a real loaded extension
       actually driving `chrome.tabs.update`/`chrome.windows.update`
-- [ ] Process-spawn escape hatch for the three now-stubbed "launch when nothing's open" cases
-      (`manageAppWindows`, `cycleChromiumProfile`, `focusTab`'s full-launch tier) — needs a new
-      `dbus_bridge.py` method; not started
+- [x] **Process-spawn escape hatch, all three "launch when nothing's open" cases** (commit
+      `b68722b`): `dbus_bridge.py` gained `LaunchCommand(argv)` (general-purpose, used by
+      `manageAppWindows`'s new `launchArgv` param) and `LaunchChromiumProfile(profile)` (resolves
+      the profile *directory* via `AppState.chromium_profile_dirs`, clears stale server state for
+      it, spawns `$CHROMIUM_EXE --profile-directory=<dir> $CHROMIUM_EXTRA_FLAGS` — used by
+      `cycleChromiumProfile`/`focusTab`'s new launch-then-poll tiers,
+      `waitAndActivateProfile`/`waitForTabOrOpen`, mirroring AHK's `_WaitAndCycleProfile`/
+      `_WaitForTabOrOpen` via the `afterDelay`/`QTimer` polling primitive). `config.py` gained
+      `CHROMIUM_EXE`/`CHROMIUM_EXTRA_FLAGS`, resolved by the installer wizard against real
+      launch-command candidates on `PATH` per browser — confirmed empirically that command and
+      resourceClass are genuinely different things (this machine's Brave installs as plain
+      `brave`, not `brave-browser`, despite its resourceClass being `brave-browser`), not assumed
+      to match.
+  - Found and fixed two real bugs via live testing, not inspection: (1) `bridgeCall`'s
+    `args.concat()` spreads each element as its own D-Bus positional parameter — correct for
+    every method except `LaunchCommand`, whose single `as` parameter needs to arrive as ONE
+    array argument. The unwrapped call silently "succeeded" with no exception but launched
+    nothing (confirmed the exact mechanism: `dbus.Array("dolphin")` iterates the string into
+    `['d','o','l','p','h','i','n']` rather than treating it as one element) — fixed with an
+    explicit `[launchArgv]` wrap, documented at both the call site and `bridgeCall`'s own
+    definition for the next array-typed method. (2) Spawned processes were never reaped
+    (`Popen` without `wait()`), leaving zombies once the child exited — fixed with a background
+    reaper thread (`_spawn_detached`).
+  - Verified live end to end: closed all Dolphin windows, pressed the real "Toggle File Manager"
+    hotkey, confirmed a fresh process actually launched (this is what caught the marshaling bug
+    above) with no zombie afterward and correct toggle-not-relaunch on a second press; called
+    `LaunchChromiumProfile("Personal")` directly and confirmed a real new "New Tab - Brave"
+    window appeared, confirming profile-dir resolution + `CHROMIUM_EXE` lookup + the actual spawn.
 
 ### Phase 3: Polish / Parity — in progress
 - [x] **`installer.sh`** (repo root, mirrors `installer.ps1`'s `install|uninstall|status|
