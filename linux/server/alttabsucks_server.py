@@ -2,12 +2,18 @@
 """
 AltTabSucks bridge server — Linux port of Server/AltTabSucksServer.ps1.
 
-The HTTP side (this file) is stdlib only, single-threaded (mirrors the PS1's serial
-HttpListener loop — this is polled by one browser extension every 50ms, there's no concurrency
-to gain and it keeps state access lock-free for that part). Endpoint set, auth model, CORS
-policy, and body-size caps are meant to match the PS1 exactly; see CLAUDE.md's "AltTabSucks
-Server" section for the endpoint contract consumed by lib/chromium.ahk / lib/firefox.ahk today
-and by BrowserExtension/background.js on Linux.
+The HTTP side (this file) is stdlib only. Originally single-threaded (reasoned in Phase 1 as "one
+browser extension polling every 50ms, no concurrency to gain") — that assumption turned out wrong
+in production: a real, persistently-running deployment under actual extension traffic showed
+sustained concurrent connections (several at once, some plausibly stalled — see the porting
+checklist's Phase 1 notes) that a single-threaded server serialized behind whichever connection it
+was currently stuck on, wedging every other client including a real browser tab. Now
+ThreadingHTTPServer — see AppState.lock for the one place that genuinely needs a lock now that
+requests can run concurrently (everything else here is single dict-key get/set, already atomic
+under the GIL regardless of threading). Endpoint set, auth model, CORS policy, and body-size caps
+are meant to match the PS1 exactly; see CLAUDE.md's "AltTabSucks Server" section for the endpoint
+contract consumed by lib/chromium.ahk / lib/firefox.ahk today and by BrowserExtension/background.js
+on Linux.
 
 main() additionally starts dbus_bridge (see that module) on its own thread, so the KWin script
 can reach the same state via `callDBus` — its scripting sandbox has no XMLHttpRequest. That part
@@ -24,8 +30,9 @@ import json
 import secrets
 import base64
 import sys
+import threading
 from pathlib import Path
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs
 
 PORT = 9876
@@ -85,6 +92,14 @@ class AppState:
         # on every /hotkeys-config POST test.
         self.hotkeys_config_path: Path = HOTKEYS_CONFIG_PATH
         self.hotkeys_js_path: Path = HOTKEYS_JS_PATH
+        # Only switch_queue's GET /switchtab dequeue needs this: it's a check-then-clear
+        # (read switch_queue[profile], then set it back to None) — the one read-modify-write in
+        # this whole file, and now that requests can genuinely run concurrently
+        # (ThreadingHTTPServer), two threads racing that same profile's dequeue could both see
+        # the queued command and one delivery would be lost, or (less likely) corrupted. Every
+        # other dict access anywhere in this file is a single get/set/pop on one key, already
+        # atomic under the GIL regardless of threading — doesn't need this lock.
+        self.lock = threading.Lock()
 
 
 def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
@@ -96,15 +111,17 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
         # our own _read_body()/_drain_unread_body() — waits forever if a client stalls mid-request
         # (a malformed/partial send from a persistent keep-alive connection, observed in practice
         # under the extension's rapid, occasionally-duplicated 50ms polling — see the porting
-        # checklist). Since this server is deliberately single-threaded, one such stall blocks
-        # every other client permanently, which is exactly what happened. Setting `timeout` here
-        # makes socketserver.StreamRequestHandler.setup() call socket.settimeout(), and
-        # BaseHTTPRequestHandler.handle_one_request() already wraps request handling in a
-        # try/except TimeoutError that closes just that one connection — no server-side change
-        # needed beyond turning the timeout on. 10s is generous for any legitimate request on
-        # loopback (the extension's own requests complete in milliseconds) while still recovering
-        # promptly from a genuinely stuck client.
-        timeout = 10
+        # checklist). Switching to ThreadingHTTPServer (above) means one stalled connection no
+        # longer blocks every *other* client, but it'd still leak a thread forever without this —
+        # setting `timeout` makes socketserver.StreamRequestHandler.setup() call
+        # socket.settimeout(), and BaseHTTPRequestHandler.handle_one_request() already wraps
+        # request handling in a try/except TimeoutError that closes just that one connection — no
+        # further server-side change needed beyond turning the timeout on. Kept short (this is a
+        # loopback-only server; legitimate requests complete in milliseconds) rather than the more
+        # usual generous default, specifically so a burst of several simultaneous stalls — which
+        # is what actually happened here, not just one in isolation — can't add up to a long
+        # user-visible delay even though each one is individually bounded.
+        timeout = 3
 
         def log_message(self, fmt, *args):
             pass  # PS1 doesn't log per-request either; keep stdout to the token banner only
@@ -256,9 +273,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if origin and not is_extension_origin(origin):
                     self._end(204)
                     return
-                cmd = state.switch_queue.get(profile)
+                with state.lock:
+                    cmd = state.switch_queue.get(profile)
+                    if cmd:
+                        state.switch_queue[profile] = None
                 if cmd:
-                    state.switch_queue[profile] = None
                     self._end_json(200, cmd)
                 else:
                     self._end(204)
@@ -434,7 +453,12 @@ def main():
     state = AppState(secret)
     _load_chromium_config(state)
     _start_dbus_bridge(state)
-    httpd = HTTPServer(("127.0.0.1", PORT), make_handler(state))
+    httpd = ThreadingHTTPServer(("127.0.0.1", PORT), make_handler(state))
+    # Without this, server_close() joins every live worker thread before returning — so a single
+    # stuck connection (the exact scenario this file's Handler.timeout comment describes) would
+    # delay shutdown (systemctl stop, Ctrl+C) by however long that thread takes to time out, one
+    # more place the same underlying problem could still bite even with threading in place.
+    httpd.daemon_threads = True
     print(f"AltTabSucks server listening on http://127.0.0.1:{PORT}/ (Ctrl+C to stop)")
     try:
         httpd.serve_forever()

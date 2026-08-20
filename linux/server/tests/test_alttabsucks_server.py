@@ -3,8 +3,10 @@
 Tests for linux/server/alttabsucks_server.py.
 
 Stdlib-only (unittest + http.client), matching the server's own no-dependencies philosophy.
-Each test spins up a real HTTPServer on an ephemeral port with a fresh AppState, so tests don't
-share state or fight over port 9876 with a real running instance.
+Each test spins up a real ThreadingHTTPServer (matching production — see alttabsucks_server.py's
+module docstring for why it's threading now, not the plain HTTPServer it started as) on an
+ephemeral port with a fresh AppState, so tests don't share state or fight over port 9876 with a
+real running instance.
 
 Run with:  python3 -m unittest discover -s linux/server/tests
 """
@@ -14,10 +16,11 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import http.client
 from pathlib import Path
-from http.server import HTTPServer
+from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alttabsucks_server import AppState, make_handler, load_or_create_token  # noqa: E402
@@ -36,9 +39,14 @@ class ServerTestCase(unittest.TestCase):
         self._hotkeys_tmpdir = tempfile.TemporaryDirectory()
         self.state.hotkeys_config_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.json"
         self.state.hotkeys_js_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.js"
-        self.httpd = HTTPServer(("127.0.0.1", 0), make_handler(self.state))
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.state))
+        self.httpd.daemon_threads = True  # don't let tearDown block on a stuck test connection
         self.port = self.httpd.server_address[1]
-        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        # poll_interval default (0.5s) makes shutdown() in tearDown cost 0.5s per test with
+        # ThreadingHTTPServer (confirmed empirically — HTTPServer's shutdown() didn't have this
+        # cost, only Threading's does) — 0.05s keeps ~60 tests fast without changing anything
+        # about production behavior, which doesn't care how quickly shutdown() returns.
+        self.thread = threading.Thread(target=lambda: self.httpd.serve_forever(poll_interval=0.05), daemon=True)
         self.thread.start()
 
     def tearDown(self):
@@ -365,31 +373,39 @@ class ServerTestCase(unittest.TestCase):
 
     def test_stalled_client_does_not_wedge_the_server_for_other_clients(self):
         """Regression test for a real production hang: a client that opens a connection,
-        declares a Content-Length via headers, and then never sends the body used to block
-        every other client forever — this server is deliberately single-threaded, and with no
-        socket timeout configured, that blocking read waited indefinitely. Runs its own server
-        with a short timeout override (1s) rather than waiting out the real 10s default."""
+        declares a Content-Length via headers, and then never sends the body. Originally found
+        when this server was still single-threaded (no socket timeout configured at the time
+        either, making it worse) — a real, persistently-running deployment under real extension
+        traffic wedged completely, every client blocked forever behind whichever connection it
+        was stuck on, including a real browser tab. Now ThreadingHTTPServer, so this proves a
+        much stronger guarantee than "eventually, within the timeout": a concurrent client must
+        be served *fast*, not just before some generous ceiling — timing-based but with a wide
+        enough margin (comparing against the stall's own multi-second timeout) not to be flaky."""
         handler_cls = make_handler(self.state)
-        handler_cls.timeout = 1
-        httpd = HTTPServer(("127.0.0.1", 0), handler_cls)
+        handler_cls.timeout = 5  # only the stalled connection should ever wait this long
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+        httpd.daemon_threads = True  # don't let this test's own cleanup wait out the stall
         port = httpd.server_address[1]
-        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread = threading.Thread(target=lambda: httpd.serve_forever(poll_interval=0.05), daemon=True)
         thread.start()
         try:
-            stalled = socket.create_connection(("127.0.0.1", port), timeout=5)
+            stalled = socket.create_connection(("127.0.0.1", port), timeout=10)
             stalled.sendall(
                 f"POST /tabs HTTP/1.1\r\nHost: x\r\nX-AltTabSucks-Token: {TOKEN}\r\n"
                 "Content-Type: application/json\r\nContent-Length: 100\r\n\r\n".encode()
             )
             # Deliberately never send the promised 100-byte body.
 
-            # A second, independent client must still be served — proving the stalled
-            # connection above (queued behind it in this single-threaded server) didn't block
-            # forever, just for up to the configured timeout.
-            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            # A second, independent client must be served concurrently — fast, not just
+            # eventually — proving the stall above doesn't block other clients at all, not
+            # merely that it stops blocking them once its own timeout expires.
+            start = time.monotonic()
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
             conn.request("GET", "/tabs", headers={"X-AltTabSucks-Token": TOKEN})
             resp = conn.getresponse()
+            elapsed = time.monotonic() - start
             self.assertEqual(resp.status, 200)
+            self.assertLess(elapsed, 2, "a concurrent client should be served in well under the stalled connection's own timeout")
             conn.close()
         finally:
             stalled.close()
