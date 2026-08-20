@@ -29,7 +29,7 @@ be approached differently than the Windows version was.
 - [x] `linux/systemd/alttabsucks-server.service` (`systemd --user` unit) — installed and enabled
       on this machine (`~/.config/systemd/user/`, `systemctl --user enable --now`), actually
       running persistently now rather than just existing as a file in the repo
-- [x] 38-test stdlib `unittest` suite (`linux/server/tests/`) — run with
+- [x] 60-test stdlib `unittest` suite (`linux/server/tests/`) — run with
       `python3 -m unittest discover -s linux/server/tests`
 - [x] Bug found by the suite and fixed: any early-return error response (403/413/404) that
       hadn't read the request body left a keep-alive connection desynced; fixed with a bounded
@@ -48,6 +48,47 @@ be approached differently than the Windows version was.
 - [x] Manually verified against a **real, running server** (curl/unittest plus the live Brave
       profile-discovery check above); verifying against a **loaded `BrowserExtension/`** itself
       (not just what it calls) is still open — see Phase 2's equivalent item
+- [x] **Real production hang found and fixed — two rounds, second one was the actual fix**:
+      surfaced by the user's real browser failing to load `/hotkeys-ui`, the first time this
+      server had run persistently under real sustained extension traffic (every prior test this
+      session used short-lived instances).
+      - **Round 1** (commit `3d7dbb2`): diagnosed live via `/proc/<pid>/task/*/wchan` (main thread
+        stuck in `wait_woken`, an unbounded blocking read — `Handler.timeout` was never set, so
+        the request-line read inside `http.server`'s own `parse_request()`, and this file's own
+        `_read_body`/`_drain_unread_body`, all waited *forever* if a client ever stalled
+        mid-request). Since the server was deliberately single-threaded, one stall blocked every
+        other client permanently. Fixed with `Handler.timeout = 10` — confirmed via the actual
+        stdlib source that `handle_one_request()` already wraps request handling in a
+        `try/except TimeoutError` that closes just that connection, no other change needed.
+      - **Round 2** (commit `bc1688b`): redeployed, and `wchan` now showed a *bounded* `poll()` wait
+        — correct — but the symptom didn't actually go away: `ss` showed a steady 5+ connections
+        with real, non-trivial payloads (473 bytes each) queued behind whichever one the server
+        was on, and it never caught up faster than new problematic connections arrived. A single
+        per-connection timeout doesn't help when the *rate* of stalls exceeds the rate of
+        recovery — each stall is individually bounded, but they queue serially forever. Root
+        cause was the original Phase 1 design assumption itself ("one browser extension polling
+        every 50ms, no concurrency to gain") — empirically false in this exact investigation (see
+        the ~2x-expected-volume side-finding below). Switched to `ThreadingHTTPServer`; added
+        `AppState.lock` around the one genuine read-modify-write in the whole file (`GET
+        /switchtab`'s check-then-clear dequeue — the only spot two concurrent requests for the
+        same profile could actually race now that concurrency is real, not theoretical); set
+        `daemon_threads = True` so a stuck connection can't delay shutdown either; lowered
+        `timeout` to 3s (loopback-only server, no reason for the old generous default). Verified
+        live: 5 consecutive requests all sub-millisecond under the same real ongoing traffic that
+        wedged it before, not just immediately after a restart.
+      - Test suite updated to match (`ThreadingHTTPServer` throughout, `daemon_threads` in tests
+        too, stalled-client test now asserts *fast* concurrent service rather than just
+        eventual — a strictly stronger guarantee). Along the way, fixed an unrelated 18s test
+        suite regression the switch introduced: `ThreadingHTTPServer.shutdown()` costs a full
+        `poll_interval` (default 0.5s) per call, unlike plain `HTTPServer` — confirmed via a
+        direct A/B timing script rather than assumed — fixed with `poll_interval=0.05` in test
+        setup only (production doesn't care how fast shutdown() returns). 60/60 tests passing,
+        suite back to ~2s.
+  - **Side-finding, not fixed here**: roughly 2x the expected `/switchtab` poll volume for one
+    profile observed during diagnosis — consistent with a known MV3 service-worker-restart bug
+    class stacking up duplicate poll loops. Lives in `BrowserExtension/background.js`, not this
+    file; noted for awareness, not investigated further. Directly relevant to Round 2 above, since
+    it's plausibly *why* the single-threaded design's core assumption didn't hold in practice.
 
 ### Phase 2: Window Management + Hotkeys (KWin Script) — in progress
 - [x] Minimal KWin script proven end to end: `linux/kwin/alttabsucks/` (installed via
