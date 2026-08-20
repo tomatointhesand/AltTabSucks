@@ -91,6 +91,20 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "AltTabSucks/1.0"
         protocol_version = "HTTP/1.1"
+        # Root-caused a real hang via a live deployment (not just testing): with no timeout set,
+        # every blocking read here — the request-line/header read inside parse_request() *and*
+        # our own _read_body()/_drain_unread_body() — waits forever if a client stalls mid-request
+        # (a malformed/partial send from a persistent keep-alive connection, observed in practice
+        # under the extension's rapid, occasionally-duplicated 50ms polling — see the porting
+        # checklist). Since this server is deliberately single-threaded, one such stall blocks
+        # every other client permanently, which is exactly what happened. Setting `timeout` here
+        # makes socketserver.StreamRequestHandler.setup() call socket.settimeout(), and
+        # BaseHTTPRequestHandler.handle_one_request() already wraps request handling in a
+        # try/except TimeoutError that closes just that one connection — no server-side change
+        # needed beyond turning the timeout on. 10s is generous for any legitimate request on
+        # loopback (the extension's own requests complete in milliseconds) while still recovering
+        # promptly from a genuinely stuck client.
+        timeout = 10
 
         def log_message(self, fmt, *args):
             pass  # PS1 doesn't log per-request either; keep stdout to the token banner only

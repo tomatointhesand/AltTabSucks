@@ -10,6 +10,7 @@ Run with:  python3 -m unittest discover -s linux/server/tests
 """
 
 import json
+import socket
 import sys
 import tempfile
 import threading
@@ -359,6 +360,42 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("text/html", headers.get("Content-Type", ""))
         self.assertIn(b"<", body)  # something HTML-shaped came back, not an empty/error page
+
+    # ---- timeout / hang recovery -----------------------------------------------------------
+
+    def test_stalled_client_does_not_wedge_the_server_for_other_clients(self):
+        """Regression test for a real production hang: a client that opens a connection,
+        declares a Content-Length via headers, and then never sends the body used to block
+        every other client forever — this server is deliberately single-threaded, and with no
+        socket timeout configured, that blocking read waited indefinitely. Runs its own server
+        with a short timeout override (1s) rather than waiting out the real 10s default."""
+        handler_cls = make_handler(self.state)
+        handler_cls.timeout = 1
+        httpd = HTTPServer(("127.0.0.1", 0), handler_cls)
+        port = httpd.server_address[1]
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            stalled = socket.create_connection(("127.0.0.1", port), timeout=5)
+            stalled.sendall(
+                f"POST /tabs HTTP/1.1\r\nHost: x\r\nX-AltTabSucks-Token: {TOKEN}\r\n"
+                "Content-Type: application/json\r\nContent-Length: 100\r\n\r\n".encode()
+            )
+            # Deliberately never send the promised 100-byte body.
+
+            # A second, independent client must still be served — proving the stalled
+            # connection above (queued behind it in this single-threaded server) didn't block
+            # forever, just for up to the configured timeout.
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("GET", "/tabs", headers={"X-AltTabSucks-Token": TOKEN})
+            resp = conn.getresponse()
+            self.assertEqual(resp.status, 200)
+            conn.close()
+        finally:
+            stalled.close()
+            httpd.shutdown()
+            httpd.server_close()
+            thread.join(timeout=2)
 
 
 class TokenFileTestCase(unittest.TestCase):
