@@ -37,7 +37,16 @@ TOKEN_PATH = REPO_ROOT / "Server" / "token.txt"
 
 TABS_MAX_BODY = 1 * 1024 * 1024   # 1 MB, matches PS1
 SMALL_MAX_BODY = 4 * 1024         # 4 KB, matches PS1 (/profiles and /switchtab POST bodies)
+HOTKEYS_CONFIG_MAX_BODY = 256 * 1024  # generous room for dozens of bindings
 DRAIN_CAP = 8 * 1024 * 1024       # hard ceiling for draining a rejected body off the socket
+
+# hotkeys.json/hotkeys.js live alongside main.js in the KWin script package — see
+# hotkeys_generator.py's module docstring for how they relate. hotkeys-ui.html is the shared
+# (cross-platform, eventually) static settings page GET /hotkeys-ui serves.
+KWIN_CODE_DIR = REPO_ROOT / "linux" / "kwin" / "alttabsucks" / "contents" / "code"
+HOTKEYS_CONFIG_PATH = KWIN_CODE_DIR / "hotkeys.json"
+HOTKEYS_JS_PATH = KWIN_CODE_DIR / "hotkeys.js"
+HOTKEYS_UI_PATH = REPO_ROOT / "shared" / "hotkeys-ui.html"
 
 
 def load_or_create_token(token_path: Path) -> str:
@@ -71,6 +80,11 @@ class AppState:
                                                  # LaunchChromiumProfile — not always the same as
                                                  # the resourceClass hotkeys.js matches windows by)
         self.chromium_extra_flags: list[str] = []  # from config.py CHROMIUM_EXTRA_FLAGS
+        # Real paths by default (see the module-level constants); overridable per-instance so
+        # tests can point these at a tmp dir instead of writing the real hotkeys.js/hotkeys.json
+        # on every /hotkeys-config POST test.
+        self.hotkeys_config_path: Path = HOTKEYS_CONFIG_PATH
+        self.hotkeys_js_path: Path = HOTKEYS_JS_PATH
 
 
 def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
@@ -117,6 +131,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
 
         def _end_text(self, status: int, text: str):
             self._end(status, text.encode("utf-8"), "text/plain; charset=utf-8")
+
+        def _end_html(self, status: int, html: str):
+            self._end(status, html.encode("utf-8"), "text/html; charset=utf-8")
 
         def _check_auth(self) -> bool:
             # AHK/the KWin script send no Origin header and are unaffected by CORS but must still
@@ -166,6 +183,21 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             self._end(204)
 
         def do_GET(self):
+            # /hotkeys-ui is a public static page, not an API call — a plain browser navigation
+            # can't attach the X-AltTabSucks-Token header the way the page's own fetch() calls to
+            # /hotkeys-config do, so it can't be behind the same auth check. Nothing sensitive
+            # lives in the page itself (no token baked in); the token is entered by hand in the
+            # UI and used only for its own subsequent /hotkeys-config calls, same pattern as
+            # BrowserExtension/options.js.
+            if urlsplit(self.path).path == "/hotkeys-ui":
+                try:
+                    html = HOTKEYS_UI_PATH.read_text(encoding="utf-8")
+                except OSError:
+                    self._end(404)
+                    return
+                self._end_html(200, html)
+                return
+
             if not self._check_auth():
                 self._drain_unread_body()
                 self._end(403)
@@ -234,6 +266,12 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                             lines.append(f"    [{tab.get('index')}] {tab.get('title')}{flags}")
                     lines.append("")
                 self._end_text(200, "\n".join(lines))
+            elif path == "/hotkeys-config":
+                try:
+                    config = json.loads(state.hotkeys_config_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    config = {"bindings": []}
+                self._end_json(200, config)
             else:
                 self._end(404)
 
@@ -287,6 +325,35 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 else:
                     state.switch_queue[profile] = {"windowId": payload.get("windowId"), "tabId": payload.get("tabId")}
                 self._end(204)
+
+            elif path == "/hotkeys-config":
+                body = self._read_body(HOTKEYS_CONFIG_MAX_BODY)
+                if body is None:
+                    return
+                try:
+                    config = json.loads(body)
+                except json.JSONDecodeError:
+                    self._end_json(400, {"error": "invalid JSON"})
+                    return
+                import hotkeys_generator
+                try:
+                    js = hotkeys_generator.generate_hotkeys_js(config)
+                except ValueError as e:
+                    # A bad binding (missing field, unknown type) — the UI should have caught
+                    # this client-side already, but never trust that alone; report it back
+                    # rather than writing a hotkeys.js that would fail to parse in KWin, where
+                    # errors are far harder to see (see the porting checklist's notes on how
+                    # silent a KWin script parse failure is).
+                    self._end_json(400, {"error": str(e)})
+                    return
+                state.hotkeys_config_path.parent.mkdir(parents=True, exist_ok=True)
+                state.hotkeys_config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+                state.hotkeys_js_path.write_text(js, encoding="utf-8")
+                self._end_json(200, {
+                    "ok": True,
+                    "bindingCount": len(config.get("bindings", [])),
+                    "note": "Run ./installer.sh install to deploy this to the running KWin script.",
+                })
 
             else:
                 self._drain_unread_body()

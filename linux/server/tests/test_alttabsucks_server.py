@@ -29,6 +29,12 @@ PAGE_ORIGIN = "https://evil.example.com"
 class ServerTestCase(unittest.TestCase):
     def setUp(self):
         self.state = AppState(TOKEN)
+        # Never let a test write the real repo's hotkeys.json/hotkeys.js — see
+        # AppState.hotkeys_config_path/hotkeys_js_path's docstring for why these are
+        # per-instance overridable rather than bare module constants.
+        self._hotkeys_tmpdir = tempfile.TemporaryDirectory()
+        self.state.hotkeys_config_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.json"
+        self.state.hotkeys_js_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.js"
         self.httpd = HTTPServer(("127.0.0.1", 0), make_handler(self.state))
         self.port = self.httpd.server_address[1]
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
@@ -38,6 +44,7 @@ class ServerTestCase(unittest.TestCase):
         self.httpd.shutdown()
         self.httpd.server_close()
         self.thread.join(timeout=2)
+        self._hotkeys_tmpdir.cleanup()
 
     def request(self, method, path, json_body=None, raw_body=None, token=TOKEN, origin=None, extra_headers=None):
         """Returns (status, headers_dict, raw_bytes). Sends the token header unless token=None;
@@ -292,6 +299,66 @@ class ServerTestCase(unittest.TestCase):
     def test_unknown_path_404(self):
         status, _, _ = self.request("GET", "/nope")
         self.assertEqual(status, 404)
+
+    # ---- /hotkeys-config -------------------------------------------------
+
+    def test_hotkeys_config_get_defaults_to_empty_bindings_when_no_file_yet(self):
+        status, _, body = self.request("GET", "/hotkeys-config")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), {"bindings": []})
+
+    def test_hotkeys_config_post_writes_config_and_generates_js(self):
+        config = {"bindings": [
+            {"type": "windowToggle", "title": "Toggle File Manager", "key": "Ctrl+Alt+Shift+E",
+             "resourceClass": "org.kde.dolphin", "launchArgv": ["dolphin"]},
+        ]}
+        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        self.assertEqual(status, 200)
+        result = json.loads(body)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["bindingCount"], 1)
+
+        self.assertEqual(json.loads(self.state.hotkeys_config_path.read_text()), config)
+        js = self.state.hotkeys_js_path.read_text()
+        self.assertIn('manageAppWindows("org.kde.dolphin", "toggle", ["dolphin"]);', js)
+
+    def test_hotkeys_config_get_after_post_returns_what_was_saved(self):
+        config = {"bindings": [
+            {"type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P",
+             "resourceClass": "brave-browser", "profileName": "Work"},
+        ]}
+        self.request("POST", "/hotkeys-config", json_body=config)
+        status, _, body = self.request("GET", "/hotkeys-config")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), config)
+
+    def test_hotkeys_config_post_invalid_binding_rejected_without_writing_anything(self):
+        config = {"bindings": [{"type": "tabFocus", "title": "Broken"}]}  # missing required fields
+        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        self.assertEqual(status, 400)
+        self.assertIn("error", json.loads(body))
+        self.assertFalse(self.state.hotkeys_config_path.exists())
+        self.assertFalse(self.state.hotkeys_js_path.exists())
+
+    def test_hotkeys_config_post_invalid_json_rejected(self):
+        status, _, body = self.request("POST", "/hotkeys-config", raw_body="not json",
+                                        extra_headers={"Content-Type": "application/json"})
+        self.assertEqual(status, 400)
+        self.assertIn("error", json.loads(body))
+
+    def test_hotkeys_config_requires_auth(self):
+        status, _, _ = self.request("GET", "/hotkeys-config", token=None)
+        self.assertEqual(status, 403)
+        status, _, _ = self.request("POST", "/hotkeys-config", token=None, json_body={"bindings": []})
+        self.assertEqual(status, 403)
+
+    # ---- /hotkeys-ui -------------------------------------------------------
+
+    def test_hotkeys_ui_served_without_auth(self):
+        status, headers, body = self.request("GET", "/hotkeys-ui", token=None)
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", headers.get("Content-Type", ""))
+        self.assertIn(b"<", body)  # something HTML-shaped came back, not an empty/error page
 
 
 class TokenFileTestCase(unittest.TestCase):

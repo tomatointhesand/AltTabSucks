@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AltTabSucks — Hotkeys</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /*
+    Shared settings UI for AltTabSucks hotkey bindings — served by the local bridge server at
+    GET /hotkeys-ui (see alttabsucks_server.py). "Shared" as in: this same file is meant to work
+    unmodified whether it's served by the Linux Python server or (eventually) a Windows
+    PowerShell one — see alttabsucks_linux_porting_checklist.md for that follow-up. Everything
+    here talks to the server it was served *from* (relative fetch() URLs — same-origin, no CORS
+    config needed), never a hardcoded host/port.
+
+    Data model: this page is the source of truth once you save from it — GET /hotkeys-config
+    loads the current linux/kwin/alttabsucks/contents/code/hotkeys.json, POST regenerates
+    hotkeys.js from whatever you save here. Hand-editing hotkeys.js directly still works if you
+    never open this page, but once you save here, hand edits to hotkeys.js will be overwritten by
+    the next save (see hotkeys_generator.py's module docstring).
+  */
+  :root {
+    --bg: #0b0e14; --panel: #131722; --border: #232838;
+    --text: #e6e9ef; --text-dim: #8b92a5; --accent: #5b9cff;
+    --ok: #4cd97b; --err: #ff5b5b;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f6f8; --panel: #ffffff; --border: #e2e5eb;
+      --text: #1c1f27; --text-dim: #6b7280; --accent: #2563eb;
+      --ok: #1a9d54; --err: #d92626;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); padding: 24px;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
+  label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+  input[type=text], select {
+    width: 100%; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font: inherit; font-size: 13px;
+  }
+  .row { display: flex; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 200px; }
+  button {
+    font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.danger:hover { border-color: var(--err); color: var(--err); }
+  .binding { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+  .binding-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .binding-head .title { font-weight: 600; font-size: 13px; }
+  .hint { font-size: 11px; color: var(--text-dim); margin-top: -6px; margin-bottom: 10px; }
+  .status { font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+  .field-list { display: none; }
+  .field-list.active { display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AltTabSucks — Hotkeys</h1>
+  <div class="sub">Edits are saved to <code>hotkeys.json</code> and regenerate <code>hotkeys.js</code> — run <code>./installer.sh install</code> afterward to deploy.</div>
+
+  <div class="panel">
+    <label for="token">Auth token</label>
+    <input type="text" id="token" placeholder="paste the token from Server/token.txt or the installer output">
+  </div>
+
+  <div id="bindings"></div>
+
+  <div class="toolbar">
+    <button id="add">+ Add hotkey</button>
+    <button id="save" class="primary">Save</button>
+    <span id="status" class="status"></span>
+  </div>
+</div>
+
+<script>
+const TYPE_LABELS = {
+  windowCycle: "Cycle app windows",
+  windowToggle: "Toggle app windows",
+  profileCycle: "Cycle browser profile",
+  tabFocus: "Focus browser tab",
+};
+
+let profiles = [];
+let bindings = [];
+
+function el(tag, attrs, children) {
+  const e = document.createElement(tag);
+  for (const k in (attrs || {})) e.setAttribute(k, attrs[k]);
+  for (const c of (children || [])) e.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  return e;
+}
+
+function authHeaders() {
+  return { "X-AltTabSucks-Token": document.getElementById("token").value.trim() };
+}
+
+async function apiGet(path) {
+  const res = await fetch(path, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`${path} -> HTTP ${res.status}`);
+  return res.json();
+}
+
+function setStatus(msg, isError) {
+  const s = document.getElementById("status");
+  s.textContent = msg;
+  s.className = "status " + (isError ? "err" : "ok");
+}
+
+function profileOptions(selected) {
+  const opts = profiles.map(p => el("option", p === selected ? { value: p, selected: "" } : { value: p }, [p]));
+  if (selected && !profiles.includes(selected)) {
+    opts.unshift(el("option", { value: selected, selected: "" }, [selected + " (not in discovered list)"]));
+  }
+  return opts;
+}
+
+function renderBinding(binding, index) {
+  const card = el("div", { class: "binding" });
+
+  const typeSelect = el("select", {}, Object.keys(TYPE_LABELS).map(t =>
+    el("option", t === binding.type ? { value: t, selected: "" } : { value: t }, [TYPE_LABELS[t]])));
+  typeSelect.addEventListener("change", () => { binding.type = typeSelect.value; renderAll(); });
+
+  const removeBtn = el("button", { class: "danger", type: "button" }, ["Remove"]);
+  removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
+
+  const head = el("div", { class: "binding-head" }, [
+    el("div", { class: "title" }, [`#${index + 1}`]),
+    removeBtn,
+  ]);
+
+  function textField(labelText, key, placeholder) {
+    const input = el("input", { type: "text", placeholder: placeholder || "" });
+    input.value = binding[key] || "";
+    input.addEventListener("input", () => { binding[key] = input.value; });
+    return el("div", {}, [el("label", {}, [labelText]), input]);
+  }
+
+  function listField(labelText, key, placeholder) {
+    const input = el("input", { type: "text", placeholder: placeholder || "one per line, or comma-separated" });
+    input.value = (binding[key] || []).join(", ");
+    input.addEventListener("input", () => {
+      binding[key] = input.value.split(",").map(s => s.trim()).filter(Boolean);
+    });
+    return el("div", {}, [el("label", {}, [labelText]), input]);
+  }
+
+  function profileField() {
+    const select = el("select", {}, profileOptions(binding.profileName));
+    select.addEventListener("change", () => { binding.profileName = select.value; });
+    return el("div", {}, [el("label", {}, ["Browser profile"]), select]);
+  }
+
+  const common = el("div", { class: "row" }, [
+    el("div", {}, [el("label", {}, ["Type"]), typeSelect]),
+    textField("Title", "title", "Cycle Browser"),
+    textField("Key sequence", "key", "Ctrl+Alt+Shift+B"),
+  ]);
+
+  const resourceRow = el("div", { class: "row" }, [
+    textField("resourceClass (Linux window class)", "resourceClass", "brave-browser, org.kde.dolphin, ..."),
+  ]);
+
+  const typeFields = el("div", { class: "row" });
+  if (binding.type === "windowCycle" || binding.type === "windowToggle") {
+    typeFields.appendChild(listField("Launch command (optional — spawned if no window is open)", "launchArgv", "e.g. dolphin"));
+  } else if (binding.type === "profileCycle") {
+    typeFields.appendChild(profileField());
+  } else if (binding.type === "tabFocus") {
+    typeFields.appendChild(profileField());
+    typeFields.appendChild(listField("URL pattern(s)", "urlPatterns", "mail.google.com"));
+    typeFields.appendChild(textField("Open URL (if no matching tab)", "openUrl", "https://mail.google.com"));
+  }
+
+  card.appendChild(head);
+  card.appendChild(common);
+  card.appendChild(resourceRow);
+  card.appendChild(typeFields);
+  return card;
+}
+
+function renderAll() {
+  const container = document.getElementById("bindings");
+  container.innerHTML = "";
+  bindings.forEach((b, i) => container.appendChild(renderBinding(b, i)));
+}
+
+document.getElementById("add").addEventListener("click", () => {
+  bindings.push({ type: "windowCycle", title: "", key: "", resourceClass: "" });
+  renderAll();
+});
+
+document.getElementById("save").addEventListener("click", async () => {
+  setStatus("Saving…", false);
+  try {
+    const res = await fetch("/hotkeys-config", {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+      body: JSON.stringify({ bindings }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
+    setStatus(`Saved ${result.bindingCount} hotkey(s). ${result.note || ""}`, false);
+  } catch (e) {
+    setStatus("Save failed: " + e.message, true);
+  }
+});
+
+async function load() {
+  const token = localStorage.getItem("atsToken");
+  if (token) document.getElementById("token").value = token;
+  document.getElementById("token").addEventListener("input", (e) => {
+    localStorage.setItem("atsToken", e.target.value.trim());
+  });
+
+  try {
+    const [profilesResult, configResult] = await Promise.all([
+      apiGet("/profiles"),
+      apiGet("/hotkeys-config"),
+    ]);
+    profiles = profilesResult;
+    bindings = configResult.bindings || [];
+    renderAll();
+    setStatus(`Loaded ${bindings.length} hotkey(s), ${profiles.length} known profile(s).`, false);
+  } catch (e) {
+    setStatus("Load failed (check your token, and that the server is running): " + e.message, true);
+  }
+}
+
+load();
+</script>
+</body>
+</html>

@@ -7,3 +7,4 @@ lib/star-citizen.ahk
 __pycache__/
 linux/server/config.py
 linux/kwin/alttabsucks/contents/code/hotkeys.js
+linux/kwin/alttabsucks/contents/code/hotkeys.json
