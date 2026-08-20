@@ -5,3 +5,4 @@ Server/token.txt
 .amo-credentials
 lib/star-citizen.ahk
 __pycache__/
+linux/server/config.py
