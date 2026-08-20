@@ -93,14 +93,21 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self.send_header("Vary", "Origin")
 
         def _end(self, status: int, body: bytes = b"", content_type: str | None = None):
-            self.send_response(status)
-            self._apply_cors()
-            if content_type:
-                self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            if body:
-                self.wfile.write(body)
+            try:
+                self.send_response(status)
+                self._apply_cors()
+                if content_type:
+                    self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if body:
+                    self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                # Client vanished mid-response — normal/expected on any TCP server (a
+                # disconnected browser tab, a killed curl, etc.), not a real error. Swallowed
+                # here rather than propagating into socketserver's default handle_error(), which
+                # would otherwise log a full traceback for what's a routine occurrence.
+                self.close_connection = True
 
         def _end_json(self, status: int, obj):
             self._end(status, json.dumps(obj).encode("utf-8"), "application/json; charset=utf-8")
