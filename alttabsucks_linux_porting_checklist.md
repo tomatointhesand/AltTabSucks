@@ -109,6 +109,20 @@ be approached differently than the Windows version was.
       leaving token.txt alone), reinstall. See commit `e6aacf5` for a real bug this surfaced:
       `enable --now` on an already-running service doesn't restart it, so a naive re-run would
       silently keep serving stale code.
+- [x] **Hotkey definition management** (`hotkeys.js`/`hotkeys.template.js`, mirrors
+      `lib/app-hotkeys.ahk`) — also done ahead of the rest of Phase 3, for the same "needed to
+      actually use this" reason as `installer.sh`. Couldn't mirror AHK's `#Include` directly
+      since the KWin sandbox has no file-read primitive; the split happens at *install* time
+      instead — `installer.sh` concatenates the tracked `main.js` (library only, no
+      `registerShortcut` calls anymore) with gitignored `hotkeys.js` (seeded from
+      `hotkeys.template.js` on first install) into a staged copy before installing it. Verified
+      live end to end with a real binding needing no placeholder edits ("Toggle File Manager").
+      See commit `efa714b`.
+  - [ ] **Follow-up, not done**: `dev-scripts/make-template.sh`/the pre-commit hook don't know
+        about `hotkeys.js` yet — unlike `app-hotkeys.ahk`, editing your real `hotkeys.js` won't
+        auto-regenerate `hotkeys.template.js` with values redacted on commit. `hotkeys.template.js`
+        is hand-written for now; extending the sanitizer to also handle `hotkeys.js`'s (different,
+        JS-syntax) URL/profile-name patterns is real but modest follow-up work.
 - [ ] Toast overlay + titlebar color sampling
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
