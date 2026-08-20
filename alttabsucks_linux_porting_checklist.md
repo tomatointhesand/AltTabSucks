@@ -109,6 +109,20 @@ be approached differently than the Windows version was.
       leaving token.txt alone), reinstall. See commit `e6aacf5` for a real bug this surfaced:
       `enable --now` on an already-running service doesn't restart it, so a naive re-run would
       silently keep serving stale code.
+  - [x] **Upgraded to a real interactive wizard** (`choose_browser`, commit `a13d1ea`): always
+        prompts with a numbered menu (detected browsers + manual entry) instead of silently
+        auto-picking, and — the actual point — verifies the chosen browser's `resourceClass`
+        against a real open window when one exists (a one-off KWin script probe matching the
+        window caption's `" - <BrowserName>"` suffix) rather than trusting the guessed
+        `BROWSER_RESOURCE_CLASSES` table blindly. That table is guessed for everything except
+        `brave-browser` (this port's only empirical confirmation) — exactly the kind of value
+        that silently breaks every hotkey with zero error output if wrong, which is what
+        motivated this (see the "hotkeys not working" troubleshooting that preceded it).
+        `ensure_hotkeys` now pre-fills the confirmed `resourceClass` into a freshly-seeded
+        `hotkeys.js` too, so only `YOUR_BROWSER_PROFILE` (a personal choice, not guessable)
+        still needs manual editing. New `./installer.sh configure` action re-runs just the
+        wizard. Tested live: detected-browser path (confirmed `brave-browser` via a real
+        window), manual-entry path, and the full fresh-install flow.
 - [x] **Hotkey definition management** (`hotkeys.js`/`hotkeys.template.js`, mirrors
       `lib/app-hotkeys.ahk`) — also done ahead of the rest of Phase 3, for the same "needed to
       actually use this" reason as `installer.sh`. Couldn't mirror AHK's `#Include` directly
@@ -221,6 +235,17 @@ for work not yet started, kept close to the phase list rather than duplicated ac
 - [ ] Integration test: extension ↔ server ↔ KWin script round trip for one hotkey (tab focus)
       with a **real loaded `BrowserExtension/`** — still open; everything so far was verified
       against seeded server data standing in for the extension, never the extension itself
+- [ ] **Real physical keypresses, still not confirmed working** — every hotkey test all session
+      used `kglobalaccel invokeShortcut`, a direct programmatic trigger that bypasses the actual
+      key-press → `kglobalaccel` → dispatch path entirely. When the user tried real keys, nothing
+      happened for the (still-placeholder) profile/tab-focus bindings — expected — but it's not
+      yet confirmed whether "Toggle File Manager" (`Ctrl+Alt+Shift+E`, no placeholders) works via
+      a real keypress. Investigated one oddity along the way: `kglobalaccel`'s bulk
+      `allShortcutInfos()` query reports an empty "active keys" field for these shortcuts even
+      though the more direct `shortcut()`/`shortcutKeys()`/`defaultShortcut()` queries all confirm
+      the key *is* assigned — unresolved which field is right; ran `doRegister`+`setShortcut` as a
+      reinforcing no-op just in case, but the real answer is a physical keypress test, not more
+      DBus introspection.
 - [ ] User acceptance testing on this machine (KDE/Wayland) before considering other DEs — Phase 3
 
 ---
