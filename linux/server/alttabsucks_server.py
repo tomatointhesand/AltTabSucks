@@ -64,10 +64,13 @@ class AppState:
         self.store: dict[str, list] = {}         # profile -> windows (list of {id, focused, tabs:[...]})
         self.switch_queue: dict[str, dict] = {}   # profile -> pending switch command, or absent/None
         self.profile_list: list[str] = []         # display names — self-discovered at startup on
-                                                    # Linux (see _discover_profiles); pushed via
+                                                    # Linux (see _load_chromium_config); pushed via
                                                     # POST /profiles on Windows (AHK) or Firefox
-        self.chromium_profile_dirs: dict[str, str] = {}  # display name -> profile dir name, for
-                                                           # the future launch-a-browser escape hatch
+        self.chromium_profile_dirs: dict[str, str] = {}  # display name -> profile dir name
+        self.chromium_exe: str = ""            # from config.py; e.g. "brave" (see dbus_bridge's
+                                                 # LaunchChromiumProfile — not always the same as
+                                                 # the resourceClass hotkeys.js matches windows by)
+        self.chromium_extra_flags: list[str] = []  # from config.py CHROMIUM_EXTRA_FLAGS
 
 
 def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
@@ -325,13 +328,14 @@ def _start_dbus_bridge(state):
         sys.exit(f"AltTabSucks server: couldn't connect to the D-Bus session bus ({e}).")
 
 
-def _discover_profiles(state):
-    """Populates state.profile_list/chromium_profile_dirs from linux/server/config.py's
-    CHROMIUM_USERDATA, if that (gitignored, optional) file exists — see profile_discovery.py's
-    docstring for why this happens server-side on Linux instead of being pushed by a hotkey-layer
-    process the way AHK's _InitChromiumState does on Windows. Missing config.py (not yet copied
-    from config.template.py) just means an empty profile list, same as a fresh Windows install
-    before app-hotkeys.ahk/config.ahk exist — not a fatal error, so main() doesn't guard this."""
+def _load_chromium_config(state):
+    """Populates state.profile_list/chromium_profile_dirs (via profile_discovery.py) and
+    state.chromium_exe/chromium_extra_flags, all from linux/server/config.py, if that (gitignored,
+    optional) file exists — see profile_discovery.py's docstring for why profile discovery
+    happens server-side on Linux instead of being pushed by a hotkey-layer process the way AHK's
+    _InitChromiumState does on Windows. Missing config.py (not yet copied from
+    config.template.py) just means empty state, same as a fresh Windows install before
+    app-hotkeys.ahk/config.ahk exist — not a fatal error, so main() doesn't guard this."""
     try:
         import config
     except ImportError:
@@ -340,12 +344,14 @@ def _discover_profiles(state):
     profiles = profile_discovery.discover_chromium_profiles(getattr(config, "CHROMIUM_USERDATA", ""))
     state.chromium_profile_dirs = profiles
     state.profile_list = list(profiles.keys())
+    state.chromium_exe = getattr(config, "CHROMIUM_EXE", "")
+    state.chromium_extra_flags = getattr(config, "CHROMIUM_EXTRA_FLAGS", [])
 
 
 def main():
     secret = load_or_create_token(TOKEN_PATH)
     state = AppState(secret)
-    _discover_profiles(state)
+    _load_chromium_config(state)
     _start_dbus_bridge(state)
     httpd = HTTPServer(("127.0.0.1", PORT), make_handler(state))
     print(f"AltTabSucks server listening on http://127.0.0.1:{PORT}/ (Ctrl+C to stop)")

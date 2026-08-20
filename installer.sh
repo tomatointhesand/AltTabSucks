@@ -66,11 +66,31 @@ check_deps() {
 BROWSER_DIRS=("BraveSoftware/Brave-Browser" "google-chrome" "microsoft-edge" "vivaldi" "chromium")
 BROWSER_NAMES=("Brave" "Chrome" "Edge" "Vivaldi" "Chromium")
 BROWSER_RESOURCE_CLASSES=("brave-browser" "google-chrome" "microsoft-edge" "vivaldi-stable" "chromium-browser")
+# Space-separated launch-command candidates per browser, checked in order via `command -v` —
+# package naming varies by distro (this port's dev machine installs Brave's binary as plain
+# "brave", not "brave-browser", even though its *resourceClass* is "brave-browser" — confirmed
+# empirically, not assumed; see config.template.py's CHROMIUM_EXE comment). Used for the
+# launch-a-browser-profile escape hatch, not window matching.
+BROWSER_EXE_CANDIDATES=(
+    "brave brave-browser"
+    "google-chrome-stable google-chrome"
+    "microsoft-edge-stable microsoft-edge"
+    "vivaldi-stable vivaldi"
+    "chromium chromium-browser"
+)
 
 # Set by choose_browser on success; consumed by ensure_hotkeys to pre-fill hotkeys.js when it
 # seeds a fresh copy from the template. Left unset if choose_browser wasn't run this invocation
 # (config.py already existed) or the user picked manual entry without giving a resourceClass.
 CHOSEN_RESOURCE_CLASS=""
+
+# Returns the first candidate (space-separated in $1) actually found on PATH, or empty.
+find_on_path() {
+    local candidate
+    for candidate in $1; do
+        command -v "$candidate" >/dev/null 2>&1 && { echo "$candidate"; return; }
+    done
+}
 
 # If a window matching "<caption> - <browser_name>" is open right now (the title-suffix
 # convention every Chromium-based browser uses), reports its *real* resourceClass on stdout —
@@ -123,11 +143,12 @@ choose_browser() {
         fi
     done
 
-    local userdata resource_class name
+    local userdata resource_class exe="" name
     if [ "$manual" = true ]; then
         read -rp "Browser user-data directory (e.g. ~/.config/YourBrowser): " userdata
         userdata="${userdata/#\~/$HOME}"
         read -rp "Browser window resourceClass (see the checklist's KDE/KWin Specifics section for how to find this): " resource_class
+        read -rp "Browser launch command (e.g. what you'd type in a terminal to start it): " exe
     else
         userdata="$HOME/.config/${BROWSER_DIRS[$chosen_idx]}"
         resource_class="${BROWSER_RESOURCE_CLASSES[$chosen_idx]}"
@@ -145,13 +166,23 @@ choose_browser() {
             echo "packaging guess ('$resource_class'), not empirically confirmed — worth double"
             echo "checking once you've tried a hotkey (see the checklist's KDE/KWin Specifics section)."
         fi
+
+        exe="$(find_on_path "${BROWSER_EXE_CANDIDATES[$chosen_idx]}")"
+        if [ -n "$exe" ]; then
+            echo "Found launch command on PATH: '$exe'."
+        else
+            echo "Couldn't find $name on PATH under any known name — the launch-a-browser-profile"
+            echo "escape hatch won't work until CHROMIUM_EXE is set by hand in linux/server/config.py."
+        fi
     fi
 
     {
         echo "import os"
         echo "CHROMIUM_USERDATA = \"$userdata\""
+        echo "CHROMIUM_EXE = \"$exe\""
+        echo "CHROMIUM_EXTRA_FLAGS = []"
     } > "$CONFIG_PATH"
-    echo "Wrote linux/server/config.py (CHROMIUM_USERDATA=$userdata)."
+    echo "Wrote linux/server/config.py (CHROMIUM_USERDATA=$userdata, CHROMIUM_EXE=$exe)."
     CHOSEN_RESOURCE_CLASS="$resource_class"
 }
 

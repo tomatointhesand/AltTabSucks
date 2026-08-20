@@ -2,9 +2,10 @@
 """
 D-Bus bridge for the AltTabSucks server — lets the KWin script (which has no XMLHttpRequest, no
 process spawning, and no file reads in its scripting sandbox — see the porting checklist's "KDE/
-KWin Specifics" section) reach the bridge server's tab state via `callDBus`, the one thing that
-sandbox *does* expose. This is the chosen alternative over splitting hotkeys across two
-registration mechanisms: everything stays reachable from inside the one KWin script.
+KWin Specifics" section) reach the bridge server's tab state, and spawn processes on its behalf,
+via `callDBus`, the one thing that sandbox *does* expose. This is the chosen alternative over
+splitting hotkeys across two registration mechanisms: everything stays reachable from inside the
+one KWin script.
 
 Requires dbus-python + PyGObject (`python-dbus` and `python-gobject` on Arch) for the D-Bus
 object + GLib mainloop. Both were already present on this KDE Plasma install (pulled in
@@ -23,6 +24,7 @@ round-trip). See the concurrency note above QueueSwitchTab/QueueSwitchOpenUrl be
 doesn't need a lock despite the two loops touching the same dicts from different threads.
 """
 
+import subprocess
 import threading
 
 import dbus
@@ -33,6 +35,18 @@ from gi.repository import GLib
 BUS_NAME = "com.github.tomatointhesand.AltTabSucks"
 OBJECT_PATH = "/com/github/tomatointhesand/AltTabSucks"
 INTERFACE = "com.github.tomatointhesand.AltTabSucks"
+
+
+def _spawn_detached(argv):
+    """Popen + a background reaper thread. Without ever calling wait()/poll() on a Popen, the
+    child becomes a zombie once it exits (its intermediate launcher process, if any, exits well
+    before the real app does) and stays one until this long-running server process itself exits
+    — confirmed empirically while testing the launch escape hatch. The reaper thread just blocks
+    on wait() so the kernel can clean up the process table entry; doesn't touch the D-Bus call
+    itself, which already returned by the time this runs."""
+    proc = subprocess.Popen(argv, start_new_session=True)
+    threading.Thread(target=proc.wait, daemon=True).start()
+    return proc
 
 
 class Bridge(dbus.service.Object):
@@ -94,6 +108,46 @@ class Bridge(dbus.service.Object):
     def QueueSwitchOpenUrl(self, profile, url):
         # Mirrors POST /switchtab's {openUrl} variant.
         self._state.switch_queue[str(profile)] = {"openUrl": str(url)}
+
+    # ---- process spawning ---------------------------------------------------------------
+    # The one thing the KWin sandbox categorically cannot do itself (see module docstring) —
+    # this is the "launch when nothing's open" escape hatch for manageAppWindows,
+    # cycleChromiumProfile, and focusTab's full-launch tier. subprocess.Popen with an argv list
+    # (never shell=True) — nothing here is attacker-controlled (hotkeys.js/config.py are local,
+    # user-authored files), argv just avoids quoting bugs with paths containing spaces.
+
+    @dbus.service.method(INTERFACE, in_signature="as")
+    def LaunchCommand(self, argv):
+        # General-purpose launch for manageAppWindows — argv is e.g. ["dolphin"] or
+        # ["code", "--new-window"]. Detached: Popen returns immediately, no waiting on the child.
+        try:
+            _spawn_detached([str(a) for a in argv])
+        except OSError as e:
+            print(f"AltTabSucks D-Bus bridge: LaunchCommand{list(argv)} failed: {e}")
+
+    @dbus.service.method(INTERFACE, in_signature="s", out_signature="b")
+    def LaunchChromiumProfile(self, profile):
+        # Mirrors RunChromiumProfile/the launch branches of CycleChromiumProfile & FocusTab:
+        # resolves profile -> profile *directory* (from the self-discovery in
+        # profile_discovery.py — see AppState.chromium_profile_dirs), clears stale server-side
+        # tab state for it first (same as AHK's DELETE /tabs before Run(), so a subsequent
+        # FindTab/GetActiveTitles poll only ever sees freshly-posted windows from *this* launch,
+        # not leftover data from a previous session), then spawns
+        # `$CHROMIUM_EXE --profile-directory=<dir> $CHROMIUM_EXTRA_FLAGS`. Returns False (and
+        # spawns nothing) if the profile or CHROMIUM_EXE aren't configured/known.
+        profile = str(profile)
+        profile_dir = self._state.chromium_profile_dirs.get(profile)
+        if not profile_dir or not self._state.chromium_exe:
+            return False
+        self._state.store.pop(profile, None)
+        argv = [self._state.chromium_exe, f"--profile-directory={profile_dir}"]
+        argv.extend(self._state.chromium_extra_flags)
+        try:
+            _spawn_detached(argv)
+        except OSError as e:
+            print(f"AltTabSucks D-Bus bridge: LaunchChromiumProfile({profile!r}) failed: {e}")
+            return False
+        return True
 
 
 def start(state):

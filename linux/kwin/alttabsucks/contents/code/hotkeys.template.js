@@ -13,15 +13,17 @@
 // "Ctrl+Alt+Shift+G". Unlike AHK's ^!+g:: syntax there's no single-character shorthand.
 
 // --- app window cycling/toggle ---------------------------------------------------------------
-// manageAppWindows(resourceClass, mode) — resourceClass is the app's Linux window class, not
-// its binary name (they often differ — KDE apps commonly use reversed-domain names like
-// "org.kde.dolphin"; check with a KWin script probe or `xprop`/similar if unsure).
+// manageAppWindows(resourceClass, mode, launchArgv) — resourceClass is the app's Linux window
+// class, not its binary name (they often differ — KDE apps commonly use reversed-domain names
+// like "org.kde.dolphin"; check with a KWin script probe or `xprop`/similar if unsure).
+// launchArgv (optional) is the argv to spawn when no window is open — e.g. ["dolphin"]; omit it
+// to just no-op instead of launching.
 
 registerShortcut("Cycle Browser", "AltTabSucks: Cycle Browser Windows",
-    "Ctrl+Alt+Shift+B", function () { manageAppWindows("YOUR_BROWSER_RESOURCE_CLASS", "cycle"); });
+    "Ctrl+Alt+Shift+B", function () { manageAppWindows("YOUR_BROWSER_RESOURCE_CLASS", "cycle", ["YOUR_BROWSER_COMMAND"]); });
 
 registerShortcut("Toggle File Manager", "AltTabSucks: Toggle File Manager",
-    "Ctrl+Alt+Shift+E", function () { manageAppWindows("org.kde.dolphin", "toggle"); });
+    "Ctrl+Alt+Shift+E", function () { manageAppWindows("org.kde.dolphin", "toggle", ["dolphin"]); });
 
 // --- browser profile cycling -------------------------------------------------------------------
 // cycleChromiumProfile(resourceClass, profileName) — profileName is the display name from
