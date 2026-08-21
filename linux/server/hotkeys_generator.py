@@ -91,6 +91,22 @@ def generate_binding_js(binding: dict) -> str:
 
 def generate_hotkeys_js(config: dict) -> str:
     bindings = config.get("bindings", [])
+    # registerShortcut's first argument (title) is the kglobalaccel action's unique ID within
+    # this script's component — two bindings sharing a title silently collide there (confirmed
+    # live: only one "discord"-named action ever existed in kglobalaccel's allShortcutInfos()
+    # even with two registerShortcut("discord", ...) calls in the generated file, and the one
+    # that survived kept the *first* registration's key while some later call's callback took
+    # over — net effect: the second binding's key does nothing, seemingly at random depending on
+    # registration order). Easy to hit via the hotkeys-ui "Dup" button, which clones a binding
+    # (title included) as a starting point for editing — catching it here, at generation time,
+    # turns a silently-broken-in-KWin hotkey into an immediate, readable save error instead.
+    seen_titles = set()
+    for binding in bindings:
+        title = (binding.get("title") or "").strip()
+        if title and title in seen_titles:
+            raise ValueError(f"duplicate title {title!r} — each hotkey needs a unique title")
+        seen_titles.add(title)
+
     parts = [GENERATED_HEADER, ""]
     for binding in bindings:
         parts.append(generate_binding_js(binding))

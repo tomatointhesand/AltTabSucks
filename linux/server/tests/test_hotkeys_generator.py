@@ -111,6 +111,16 @@ class GenerateHotkeysJsTestCase(unittest.TestCase):
         self.assertIn('"A"', js)
         self.assertIn('"B"', js)
 
+    def test_duplicate_title_raises(self):
+        # registerShortcut's title is the kglobalaccel action ID — two bindings sharing one
+        # silently collide in KWin (confirmed live: only one action ever gets registered, and
+        # only one binding's key ends up doing anything). Catch it at generation time instead.
+        with self.assertRaises(ValueError):
+            generate_hotkeys_js({"bindings": [
+                {"type": "windowCycle", "title": "A", "key": "Ctrl+Alt+Shift+A", "resourceClass": "x"},
+                {"type": "windowToggle", "title": "A", "key": "Ctrl+Alt+Shift+B", "resourceClass": "y"},
+            ]})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -385,7 +385,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._end_json(200, {
                     "ok": True,
                     "bindingCount": len(config.get("bindings", [])),
-                    "note": "Run ./installer.sh install to deploy this to the running KWin script.",
+                    "note": "Press Ctrl+Alt+Shift+' (or run ./installer.sh reload-hotkeys) to deploy this to the running KWin script.",
                 })
 
             else:
