@@ -36,7 +36,7 @@
     margin: 0; background: var(--bg); color: var(--text); padding: 24px;
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
-  .wrap { max-width: 900px; margin: 0 auto; }
+  .wrap { max-width: 1500px; margin: 0 auto; }
   h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
   .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 20px; }
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; }
@@ -54,16 +54,24 @@
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   button.danger:hover { border-color: var(--err); color: var(--err); }
-  .binding { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; }
-  .binding-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  .binding-head .title { font-weight: 600; font-size: 13px; }
-  .hint { font-size: 11px; color: var(--text-dim); margin-top: -6px; margin-bottom: 10px; }
+  /* Each binding is one flex-wrapping row rather than a stacked card: on a wide window a
+     whole hotkey fits on a single line, and as the window narrows fields wrap onto extra
+     lines (still grouped under the same binding, still readable) purely via flex-wrap — no
+     JS resize handling needed. This matters once you have more than a handful of hotkeys;
+     the old one-card-per-binding layout took a full screen for 3-4 entries. */
+  .binding { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 6px 10px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+  .field { display: flex; flex-direction: column; gap: 3px; flex: 1 1 110px; min-width: 90px; }
+  .field label { font-size: 10px; margin-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .field.grow { flex: 2 1 170px; }
+  .field.fixed { flex: 0 0 auto; }
+  .field.fixed select, .field.fixed input { width: auto; }
+  .field.fixed select { min-width: 160px; }
+  .badge-box { padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 600; color: var(--text-dim); text-align: center; min-width: 30px; }
+  .remove-btn { padding: 6px 10px; font-size: 12px; }
   .status { font-size: 13px; margin-top: 10px; min-height: 18px; }
   .status.ok { color: var(--ok); }
   .status.err { color: var(--err); }
   .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
-  .field-list { display: none; }
-  .field-list.active { display: block; }
 </style>
 </head>
 <body>
@@ -133,65 +141,64 @@ function profileOptions(selected) {
 function renderBinding(binding, index) {
   const card = el("div", { class: "binding" });
 
-  const typeSelect = el("select", {}, Object.keys(TYPE_LABELS).map(t =>
-    el("option", t === binding.type ? { value: t, selected: "" } : { value: t }, [TYPE_LABELS[t]])));
-  typeSelect.addEventListener("change", () => { binding.type = typeSelect.value; renderAll(); });
+  function field(labelText, inputEl, extraClass) {
+    const wrap = el("div", { class: "field" + (extraClass ? " " + extraClass : "") });
+    wrap.appendChild(el("label", {}, [labelText]));
+    wrap.appendChild(inputEl);
+    return wrap;
+  }
 
-  const removeBtn = el("button", { class: "danger", type: "button" }, ["Remove"]);
-  removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
-
-  const head = el("div", { class: "binding-head" }, [
-    el("div", { class: "title" }, [`#${index + 1}`]),
-    removeBtn,
-  ]);
-
-  function textField(labelText, key, placeholder) {
+  function textField(labelText, key, placeholder, extraClass) {
     const input = el("input", { type: "text", placeholder: placeholder || "" });
     input.value = binding[key] || "";
     input.addEventListener("input", () => { binding[key] = input.value; });
-    return el("div", {}, [el("label", {}, [labelText]), input]);
+    return field(labelText, input, extraClass);
   }
 
-  function listField(labelText, key, placeholder) {
+  function listField(labelText, key, placeholder, extraClass) {
     const input = el("input", { type: "text", placeholder: placeholder || "one per line, or comma-separated" });
     input.value = (binding[key] || []).join(", ");
     input.addEventListener("input", () => {
       binding[key] = input.value.split(",").map(s => s.trim()).filter(Boolean);
     });
-    return el("div", {}, [el("label", {}, [labelText]), input]);
+    return field(labelText, input, extraClass);
   }
 
   function profileField() {
     const select = el("select", {}, profileOptions(binding.profileName));
     select.addEventListener("change", () => { binding.profileName = select.value; });
-    return el("div", {}, [el("label", {}, ["Browser profile"]), select]);
+    return field("Profile", select, "fixed");
   }
 
-  const common = el("div", { class: "row" }, [
-    el("div", {}, [el("label", {}, ["Type"]), typeSelect]),
-    textField("Title", "title", "Cycle Browser"),
-    textField("Key sequence", "key", "Ctrl+Alt+Shift+B"),
-  ]);
+  // Empty-but-present labels (" ") on the badge and remove button keep them baseline-
+  // aligned with the labeled inputs (align-items: flex-end on .binding aligns by bottom edge,
+  // so every field needs the same label-height-plus-input stack, real or not).
+  const badgeBox = el("div", { class: "badge-box" }, [`#${index + 1}`]);
 
-  const resourceRow = el("div", { class: "row" }, [
-    textField("resourceClass (Linux window class)", "resourceClass", "brave-browser, org.kde.dolphin, ..."),
-  ]);
+  const typeSelect = el("select", {}, Object.keys(TYPE_LABELS).map(t =>
+    el("option", t === binding.type ? { value: t, selected: "" } : { value: t }, [TYPE_LABELS[t]])));
+  typeSelect.addEventListener("change", () => { binding.type = typeSelect.value; renderAll(); });
 
-  const typeFields = el("div", { class: "row" });
+  const removeBtn = el("button", { class: "danger remove-btn", type: "button", title: "Remove this hotkey" }, ["✕"]);
+  removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
+
+  card.appendChild(field(" ", badgeBox, "fixed"));
+  card.appendChild(field("Type", typeSelect, "fixed"));
+  card.appendChild(textField("Title", "title", "Cycle Browser"));
+  card.appendChild(textField("Key sequence", "key", "Ctrl+Alt+Shift+B"));
+  card.appendChild(textField("resourceClass", "resourceClass", "brave-browser, org.kde.dolphin, ...", "grow"));
+
   if (binding.type === "windowCycle" || binding.type === "windowToggle") {
-    typeFields.appendChild(listField("Launch command (optional — spawned if no window is open)", "launchArgv", "e.g. dolphin"));
+    card.appendChild(listField("Launch command (optional — spawned if no window open)", "launchArgv", "e.g. dolphin", "grow"));
   } else if (binding.type === "profileCycle") {
-    typeFields.appendChild(profileField());
+    card.appendChild(profileField());
   } else if (binding.type === "tabFocus") {
-    typeFields.appendChild(profileField());
-    typeFields.appendChild(listField("URL pattern(s)", "urlPatterns", "mail.google.com"));
-    typeFields.appendChild(textField("Open URL (if no matching tab)", "openUrl", "https://mail.google.com"));
+    card.appendChild(profileField());
+    card.appendChild(listField("URL pattern(s)", "urlPatterns", "mail.google.com", "grow"));
+    card.appendChild(textField("Open URL (if no match)", "openUrl", "https://mail.google.com", "grow"));
   }
 
-  card.appendChild(head);
-  card.appendChild(common);
-  card.appendChild(resourceRow);
-  card.appendChild(typeFields);
+  card.appendChild(field(" ", removeBtn, "fixed"));
   return card;
 }
 
