@@ -49,6 +49,10 @@
   /* Same specificity as input[type=text] above (class+tag either way) — declared after it so
      this wins the cascade and the token input doesn't stretch to fill the header row. */
   .token-row input { width: 220px; }
+  /* The key-sequence field is the only readonly input on the page — it's a hotkey recorder,
+     not free text (see recordKeyField()), so it gets a distinct affordance. */
+  input[readonly] { cursor: pointer; }
+  input[readonly]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .row { display: flex; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
   .row > div { flex: 1 1 200px; }
   button {
@@ -153,6 +157,72 @@ function profileOptions(selected) {
   return opts;
 }
 
+// Qt key-sequence names for keys whose KeyboardEvent.key doesn't already match (registerShortcut
+// takes a Qt-style string like "Ctrl+Alt+Shift+B" — see main.js's header comment). Letters,
+// digits, and F1-F12 need no lookup; anything not listed here falls back to e.key as-is, which
+// covers most punctuation keys correctly (Qt accepts ",", ".", "/", etc. verbatim).
+const QT_KEY_NAMES = {
+  " ": "Space", "Escape": "Escape", "Enter": "Return", "Tab": "Tab",
+  "Backspace": "Backspace", "Delete": "Delete", "Insert": "Insert",
+  "Home": "Home", "End": "End", "PageUp": "PageUp", "PageDown": "PageDown",
+  "ArrowUp": "Up", "ArrowDown": "Down", "ArrowLeft": "Left", "ArrowRight": "Right",
+};
+const MODIFIER_KEYS = new Set(["Control", "Alt", "Shift", "Meta"]);
+
+function qtKeyName(key) {
+  if (/^[a-zA-Z]$/.test(key)) return key.toUpperCase();
+  return QT_KEY_NAMES[key] || key;
+}
+
+function heldModifiers(e) {
+  const mods = [];
+  if (e.ctrlKey) mods.push("Ctrl");
+  if (e.altKey) mods.push("Alt");
+  if (e.shiftKey) mods.push("Shift");
+  if (e.metaKey) mods.push("Meta");
+  return mods;
+}
+
+// Turns a plain text input into a hotkey recorder: click in, hold modifiers, press a key —
+// no more hand-typing "Ctrl+Alt+Shift+B" and getting the casing/plus-signs wrong. readOnly
+// blocks normal character insertion (there's nothing to type; the field only reflects what
+// the keyboard is actually doing) while still receiving focus and key events like any input.
+function recordKeyField(input, binding) {
+  input.readOnly = true;
+  input.placeholder = "click, then press keys";
+
+  input.addEventListener("keydown", (e) => {
+    e.preventDefault();
+    if (e.key === "Escape" && heldModifiers(e).length === 0) {
+      // Bare Escape cancels/clears rather than being recorded as the key itself — otherwise
+      // there'd be no way to back out of a recording without also overwriting the binding.
+      binding.key = "";
+      input.value = "";
+      input.blur();
+      return;
+    }
+    if (MODIFIER_KEYS.has(e.key)) {
+      // Still just holding modifiers — show a live "Ctrl+Alt+…" preview so the user can see
+      // what's being held before committing to a final key.
+      input.value = heldModifiers(e).join("+") + "+";
+      return;
+    }
+    binding.key = heldModifiers(e).concat(qtKeyName(e.key)).join("+");
+    input.value = binding.key;
+  });
+
+  // Releasing a modifier before pressing a real key (e.g. tapped Ctrl, let go) would otherwise
+  // leave the live "Ctrl+" preview stuck on screen — revert to the last saved value once no
+  // modifiers are held.
+  input.addEventListener("keyup", (e) => {
+    if (MODIFIER_KEYS.has(e.key) && heldModifiers(e).length === 0) {
+      input.value = binding.key || "";
+    }
+  });
+
+  input.addEventListener("blur", () => { input.value = binding.key || ""; });
+}
+
 function renderBinding(binding, index) {
   const card = el("div", { class: "binding" });
 
@@ -185,6 +255,13 @@ function renderBinding(binding, index) {
     return field("Profile", select, "fixed");
   }
 
+  function keyField() {
+    const input = el("input", { type: "text" });
+    input.value = binding.key || "";
+    recordKeyField(input, binding);
+    return field("Key sequence", input);
+  }
+
   // Empty-but-present labels (" ") on the badge and remove button keep them baseline-
   // aligned with the labeled inputs (align-items: flex-end on .binding aligns by bottom edge,
   // so every field needs the same label-height-plus-input stack, real or not).
@@ -200,7 +277,7 @@ function renderBinding(binding, index) {
   card.appendChild(field(" ", badgeBox, "fixed"));
   card.appendChild(field("Type", typeSelect, "fixed"));
   card.appendChild(textField("Title", "title", "Cycle Browser"));
-  card.appendChild(textField("Key sequence", "key", "Ctrl+Alt+Shift+B"));
+  card.appendChild(keyField());
   card.appendChild(textField("resourceClass", "resourceClass", "brave-browser, org.kde.dolphin, ...", "grow"));
 
   if (binding.type === "windowCycle" || binding.type === "windowToggle") {
