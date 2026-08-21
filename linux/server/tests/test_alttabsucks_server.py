@@ -39,6 +39,11 @@ class ServerTestCase(unittest.TestCase):
         self._hotkeys_tmpdir = tempfile.TemporaryDirectory()
         self.state.hotkeys_config_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.json"
         self.state.hotkeys_js_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.js"
+        # Never let a test invoke the real installer.sh (which would touch the real KWin script
+        # installation) — see AppState.deploy_command's docstring. "true" is a real subprocess
+        # (exit 0, no output) so POST /hotkeys-config's subprocess.run()-and-report-the-result
+        # code path is still genuinely exercised, just against a harmless command.
+        self.state.deploy_command = ["true"]
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.state))
         self.httpd.daemon_threads = True  # don't let tearDown block on a stuck test connection
         self.port = self.httpd.server_address[1]
@@ -354,6 +359,37 @@ class ServerTestCase(unittest.TestCase):
                                         extra_headers={"Content-Type": "application/json"})
         self.assertEqual(status, 400)
         self.assertIn("error", json.loads(body))
+
+    def test_hotkeys_config_post_deploys_on_success(self):
+        # self.state.deploy_command is ["true"] (see setUp) — a real subprocess, exit 0.
+        config = {"bindings": []}
+        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        self.assertEqual(status, 200)
+        result = json.loads(body)
+        self.assertTrue(result["deployed"])
+        self.assertIn("Deployed", result["note"])
+
+    def test_hotkeys_config_post_reports_deploy_failure_without_losing_the_save(self):
+        self.state.deploy_command = ["false"]  # real subprocess, exit 1, no output
+        config = {"bindings": [
+            {"type": "windowCycle", "title": "X", "key": "Ctrl+Alt+Shift+X", "resourceClass": "y"},
+        ]}
+        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        self.assertEqual(status, 200)  # the save itself still succeeded
+        result = json.loads(body)
+        self.assertFalse(result["deployed"])
+        self.assertIn("deploy failed", result["note"])
+        # hotkeys.json/hotkeys.js were still written — a deploy failure doesn't roll those back.
+        self.assertEqual(json.loads(self.state.hotkeys_config_path.read_text()), config)
+        self.assertTrue(self.state.hotkeys_js_path.exists())
+
+    def test_hotkeys_config_post_reports_deploy_command_not_found(self):
+        self.state.deploy_command = ["/no/such/binary-xyz"]
+        status, _, body = self.request("POST", "/hotkeys-config", json_body={"bindings": []})
+        self.assertEqual(status, 200)
+        result = json.loads(body)
+        self.assertFalse(result["deployed"])
+        self.assertIn("deploy failed", result["note"])
 
     def test_hotkeys_config_requires_auth(self):
         status, _, _ = self.request("GET", "/hotkeys-config", token=None)

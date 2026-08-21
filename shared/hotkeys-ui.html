@@ -108,7 +108,7 @@
   <div class="header">
     <div>
       <h1>AltTabSucks — Hotkeys</h1>
-      <div class="sub">Edits are saved to <code>hotkeys.json</code> and regenerate <code>hotkeys.js</code> — press <code>Ctrl+Alt+Shift+'</code> afterward to deploy (or run <code>./installer.sh reload-hotkeys</code>).</div>
+      <div class="sub">Saving regenerates <code>hotkeys.js</code> and deploys it to the running KWin script automatically.</div>
     </div>
     <div class="token-row">
       <input type="text" id="token" placeholder="auth token (Server/token.txt)">
@@ -404,7 +404,10 @@ document.getElementById("save").addEventListener("click", async () => {
     });
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
-    setStatus(`Saved ${result.bindingCount} hotkey(s). ${result.note || ""}`, false);
+    // deployed:false isn't a fetch/network failure (the save itself succeeded, res.ok is true)
+    // but it does mean the server's own installer.sh reload-hotkeys attempt failed — worth the
+    // status line's error styling so a deploy problem doesn't read as identical to full success.
+    setStatus(`Saved ${result.bindingCount} hotkey(s). ${result.note || ""}`, result.deployed === false);
   } catch (e) {
     setStatus("Save failed: " + e.message, true);
   }

@@ -29,6 +29,7 @@ dbus_bridge.Bridge shares directly rather than looping back through HTTP.
 import json
 import secrets
 import base64
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -92,6 +93,12 @@ class AppState:
         # on every /hotkeys-config POST test.
         self.hotkeys_config_path: Path = HOTKEYS_CONFIG_PATH
         self.hotkeys_js_path: Path = HOTKEYS_JS_PATH
+        # Same overridability reasoning as the two paths above: POST /hotkeys-config runs this
+        # after writing hotkeys.js, to actually deploy it — real installer.sh in production,
+        # overridden to a harmless stub (["true"]/["false"]) in tests so they exercise the real
+        # subprocess.run()-and-report-the-result code path without ever touching the real
+        # installer.sh or the real KWin script installation.
+        self.deploy_command: list = [str(REPO_ROOT / "installer.sh"), "reload-hotkeys"]
         # Only switch_queue's GET /switchtab dequeue needs this: it's a check-then-clear
         # (read switch_queue[profile], then set it back to None) — the one read-modify-write in
         # this whole file, and now that requests can genuinely run concurrently
@@ -382,10 +389,38 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 state.hotkeys_config_path.parent.mkdir(parents=True, exist_ok=True)
                 state.hotkeys_config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
                 state.hotkeys_js_path.write_text(js, encoding="utf-8")
+
+                # Deploy immediately rather than making Save a two-step "save, then separately
+                # remember to press Ctrl+Alt+Shift+' or run installer.sh" — same command that
+                # hotkey itself runs (installer.sh reload-hotkeys), just triggered from here
+                # instead of from a runCommand binding. Synchronous: ThreadingHTTPServer means a
+                # few hundred ms of kpackagetool6 work blocks only this one request's thread, and
+                # the whole point is telling the UI whether the deploy actually succeeded rather
+                # than firing it detached and hoping.
+                deployed = False
+                deploy_error = None
+                try:
+                    result = subprocess.run(
+                        state.deploy_command, capture_output=True, text=True, timeout=15,
+                    )
+                    deployed = result.returncode == 0
+                    if not deployed:
+                        deploy_error = (result.stderr or result.stdout or f"exit code {result.returncode}").strip()
+                except (OSError, subprocess.TimeoutExpired) as e:
+                    deploy_error = str(e)
+
+                if deployed:
+                    note = "Deployed to the running KWin script."
+                elif deploy_error:
+                    note = f"Saved, but deploy failed ({deploy_error}) — press Ctrl+Alt+Shift+' or run ./installer.sh reload-hotkeys by hand."
+                else:
+                    note = "Saved — press Ctrl+Alt+Shift+' or run ./installer.sh reload-hotkeys to deploy."
+
                 self._end_json(200, {
                     "ok": True,
                     "bindingCount": len(config.get("bindings", [])),
-                    "note": "Press Ctrl+Alt+Shift+' (or run ./installer.sh reload-hotkeys) to deploy this to the running KWin script.",
+                    "deployed": deployed,
+                    "note": note,
                 })
 
             else:

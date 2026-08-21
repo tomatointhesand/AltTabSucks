@@ -266,6 +266,26 @@ be approached differently than the Windows version was.
         `kglobalaccel.invokeShortcut`, confirmed via a one-off KWin script probe that
         `workspace.activeWindow` actually flipped from `discord` to `brave-browser` on the
         correct Gmail tab.
+  - [x] **Drag-handle reordering** — a small `⋮⋮` handle pinned to each row's corner (not a flex
+        field — would've stolen row width from Title/Key/etc., which is also what a `.field.fixed`
+        `min-width: 90px` leak was independently doing to the badge/Dup/Remove buttons, fixed in
+        the same pass), native HTML5 drag-and-drop, restricted to the handle so ordinary text
+        selection in the row's inputs doesn't turn into an accidental drag.
+  - [x] **`#N` badge is now an enable/disable toggle**, not just an index label — click to flip
+        `binding.enabled`, dims the whole row. `generate_hotkeys_js` skips `enabled:false`
+        bindings entirely (no `registerShortcut` emitted, same as if absent from `hotkeys.json`),
+        which also exempts a disabled binding from the duplicate-title check and lets it be left
+        half-filled-in as a draft without failing validation. 5 new tests.
+  - [x] **Save now deploys automatically** — `POST /hotkeys-config` runs `installer.sh
+        reload-hotkeys` itself (via `AppState.deploy_command`, overridable so tests exercise the
+        real `subprocess.run`-and-report-the-result path against a harmless stub instead of the
+        real installer.sh) right after writing `hotkeys.js`, and reports `deployed: true/false` +
+        a status-line-visible note back to the UI. Turns Save from a two-step "save, then
+        remember to redeploy" into one step; the `Ctrl+Alt+Shift+'`/manual-`reload-hotkeys` paths
+        still exist for hand-edits made outside the UI. 3 new tests (success, failure, command-
+        not-found). Verified live: POSTed a real config change through the running server,
+        confirmed `deployed: true` in well under a second, and confirmed via the deployed
+        `main.js`'s mtime that a real redeploy — not just a claimed one — had just happened.
 - [x] **Toast overlay** (`linux/toast/`) — Linux port of `lib/toast.ahk`'s `ShowProfileToast` only
       (`ShowSetupToast`/`ShowChoiceDialog` not ported, out of scope). KWin's scripting sandbox has
       no popup-window primitive of its own (same category of gap the window switcher's DWM
