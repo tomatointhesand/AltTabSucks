@@ -115,7 +115,18 @@ function el(tag, attrs, children) {
 }
 
 function authHeaders() {
-  return { "X-AltTabSucks-Token": document.getElementById("token").value.trim() };
+  return { "X-AltTabSucks-Token": actualToken };
+}
+
+// The token input displays a masked value (first 8 chars, then a dot per remaining char) so
+// the full secret isn't sitting on screen for a screenshot/share to catch — but the real
+// value has to live somewhere other than the input's own .value, since that's what's on
+// display. actualToken is that real value; the input unmasks to it on focus (so it's still
+// editable/selectable/copyable) and re-masks on blur.
+let actualToken = "";
+
+function maskToken(v) {
+  return v.length <= 8 ? v : v.slice(0, 8) + "•".repeat(v.length - 8);
 }
 
 async function apiGet(path) {
@@ -250,10 +261,13 @@ async function load() {
 // "change" (fires on blur/Enter) covers paste-then-click-away, and the Reload button covers
 // paste-then-click-Reload. Neither call is "load once at page load and hope" like before.
 const tokenInput = document.getElementById("token");
-const stored = localStorage.getItem("atsToken");
-if (stored) tokenInput.value = stored;
+actualToken = (localStorage.getItem("atsToken") || "").trim();
+tokenInput.value = maskToken(actualToken);
+tokenInput.addEventListener("focus", () => { tokenInput.value = actualToken; });
+tokenInput.addEventListener("blur", () => { tokenInput.value = maskToken(actualToken); });
 tokenInput.addEventListener("input", (e) => {
-  localStorage.setItem("atsToken", e.target.value.trim());
+  actualToken = e.target.value.trim();
+  localStorage.setItem("atsToken", actualToken);
 });
 tokenInput.addEventListener("change", load);
 document.getElementById("reload").addEventListener("click", load);
