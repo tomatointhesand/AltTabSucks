@@ -226,6 +226,18 @@ be approached differently than the Windows version was.
         `resourceClass` by hand, same as `hotkeys.template.js` always required) — would need a
         reverse-direction channel (server asking the *KWin script* for live window data; today
         everything flows KWin-script-to-server only). Noted as a possible enhancement, not started.
+  - [x] **`Ctrl+Alt+Shift+'` reloads hotkeys** — the Linux equivalent of `AltTabSucks.ahk`'s
+        built-in `^!+'::Reload` (framework, not an `app-hotkeys.ahk`/`hotkeys.js` entry — lives in
+        `main.js`, not `hotkeys.js`). `main.js` registers the shortcut; its handler calls the new
+        `ReloadHotkeys` D-Bus method (`dbus_bridge.py`), which shells out to
+        `installer.sh reload-hotkeys` — a narrower action than plain `install` (skips
+        deps/config/service, just `install_kwin_script`) since a hotkey-triggered reload has no
+        business restarting the running server. Also updated `hotkeys-ui.html`'s "deploy" hint to
+        point at the hotkey instead of `./installer.sh install`. Verified live end to end: called
+        `ReloadHotkeys` over `qdbus6` directly, confirmed `installer.sh` ran (journalctl), the
+        script stayed `isScriptLoaded == true` afterward, and `Reload Hotkeys` shows up in
+        `kglobalaccel`'s real shortcut list. One bootstrap caveat: a clone needs one manual
+        `./installer.sh install` (or `reload-hotkeys`) before the hotkey itself exists to press.
 - [ ] Toast overlay + titlebar color sampling
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)

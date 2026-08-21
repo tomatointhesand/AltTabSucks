@@ -8,10 +8,14 @@
 # is the hotkey layer here (no separate "launch AHK at login" step exists on this side either —
 # the KWin script runs inside the always-running compositor once installed).
 #
-# Usage: ./installer.sh [install|uninstall|status|start|stop|configure]  (default: install)
+# Usage: ./installer.sh [install|uninstall|status|start|stop|configure|reload-hotkeys]  (default: install)
 # `configure` re-runs just the interactive browser wizard (choose_browser) to regenerate
 # linux/server/config.py without touching the service or KWin script — install runs it
 # automatically too, but only the first time (an existing config.py is left alone otherwise).
+# `reload-hotkeys` re-runs just install_kwin_script (rebuild + force-reload, no deps/config/
+# service touched) — this is what the D-Bus bridge's ReloadHotkeys method shells out to, wired to
+# Ctrl+Alt+Shift+' in main.js, the Linux side of AltTabSucks.ahk's own built-in `^!+'::Reload`.
+# Picks up hotkeys.json edits saved via the hotkeys-ui page without a manual terminal step.
 
 set -euo pipefail
 
@@ -344,15 +348,25 @@ do_configure() {
     echo "Run './installer.sh install' to redeploy the server with this browser config."
 }
 
+# Deliberately skips check_deps/ensure_config/install_service — by the time this can run at all
+# (triggered from inside the KWin script via a live D-Bus call), kpackagetool6 etc. already
+# succeeded once and the server is already running; re-verifying/restarting either on every
+# hotkey-triggered reload would just be slower and risk a server hiccup for something that never
+# touches the server.
+do_reload_hotkeys() {
+    install_kwin_script
+}
+
 case "$ACTION" in
-    install)   do_install ;;
-    uninstall) do_uninstall ;;
-    status)    do_status ;;
-    start)     do_start ;;
-    stop)      do_stop ;;
-    configure) do_configure ;;
+    install)         do_install ;;
+    uninstall)       do_uninstall ;;
+    status)          do_status ;;
+    start)           do_start ;;
+    stop)            do_stop ;;
+    configure)       do_configure ;;
+    reload-hotkeys)  do_reload_hotkeys ;;
     *)
-        echo "Usage: $0 [install|uninstall|status|start|stop|configure]"
+        echo "Usage: $0 [install|uninstall|status|start|stop|configure|reload-hotkeys]"
         exit 1
         ;;
 esac

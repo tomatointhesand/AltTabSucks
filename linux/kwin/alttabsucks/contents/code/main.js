@@ -360,11 +360,22 @@ function waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, de
 }
 
 // --- your hotkeys go in hotkeys.js, not here --------------------------------------------------
-// This file has no registerShortcut calls of its own — it's the library half only. KWin's
-// scripting sandbox can't read a sibling file at runtime (no file-read primitive, confirmed
-// empirically — see the sandbox notes above), so unlike AHK's #Include lib\app-hotkeys.ahk, the
-// two halves can't be combined at *run* time. installer.sh's install_kwin_script() concatenates
-// this file with hotkeys.js (gitignored — seeded from hotkeys.template.js if missing, same
-// "seed from template on first install" behavior as installer.ps1 uses for app-hotkeys.ahk) into
-// the actual deployed contents/code/main.js at *install* time instead. See hotkeys.template.js
-// for the registerShortcut calls that used to live here as dev-test stubs.
+// This file has no *app* registerShortcut calls of its own (the one below is framework, not an
+// app hotkey — see its own comment) — it's the library half only. KWin's scripting sandbox can't
+// read a sibling file at runtime (no file-read primitive, confirmed empirically — see the sandbox
+// notes above), so unlike AHK's #Include lib\app-hotkeys.ahk, the two halves can't be combined at
+// *run* time. installer.sh's install_kwin_script() concatenates this file with hotkeys.js
+// (gitignored — seeded from hotkeys.template.js if missing, same "seed from template on first
+// install" behavior as installer.ps1 uses for app-hotkeys.ahk) into the actual deployed
+// contents/code/main.js at *install* time instead. See hotkeys.template.js for the
+// registerShortcut calls that used to live here as dev-test stubs.
+
+// Reload — the Linux equivalent of AltTabSucks.ahk's own built-in `^!+'::Reload`. Lives here
+// rather than in hotkeys.js for the same reason Reload lives in AltTabSucks.ahk rather than
+// app-hotkeys.ahk: it's framework, not a user-customizable app hotkey. ReloadHotkeys (see
+// dbus_bridge.py) shells out to `installer.sh reload-hotkeys`, which rebuilds this very script
+// from main.js+hotkeys.js and force-reloads it — picks up hotkeys.json edits saved via the
+// hotkeys-ui page without a manual terminal step.
+registerShortcut("Reload Hotkeys", "AltTabSucks: Reload Hotkeys", "Ctrl+Alt+Shift+'", function () {
+    bridgeCall("ReloadHotkeys", [], function () {});
+});
