@@ -76,6 +76,13 @@
   .field.fixed select { min-width: 160px; }
   .badge-box { padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 600; color: var(--text-dim); text-align: center; min-width: 30px; }
   .remove-btn, .dupe-btn { padding: 6px 10px; font-size: 12px; }
+  .drag-handle {
+    padding: 7px 6px; font-size: 13px; line-height: 1; color: var(--text-dim); text-align: center;
+    cursor: grab; user-select: none; border-radius: 6px;
+  }
+  .drag-handle:hover { color: var(--text); background: var(--bg); }
+  .drag-handle:active { cursor: grabbing; }
+  .binding.dragging { opacity: 0.4; }
   .status { font-size: 13px; margin-top: 10px; min-height: 18px; }
   .status.ok { color: var(--ok); }
   .status.err { color: var(--err); }
@@ -115,6 +122,7 @@ const TYPE_LABELS = {
 
 let profiles = [];
 let bindings = [];
+let draggedIndex = null; // set by a drag-handle's dragstart, read by another binding's drop
 
 function el(tag, attrs, children) {
   const e = document.createElement(tag);
@@ -273,10 +281,41 @@ function renderBinding(binding, index) {
     return field("Key sequence", input);
   }
 
-  // Empty-but-present labels (" ") on the badge and remove button keep them baseline-
-  // aligned with the labeled inputs (align-items: flex-end on .binding aligns by bottom edge,
-  // so every field needs the same label-height-plus-input stack, real or not).
+  // Empty-but-present labels (" ") on the badge/handle/dupe/remove buttons keep them
+  // baseline-aligned with the labeled inputs (align-items: flex-end on .binding aligns by
+  // bottom edge, so every field needs the same label-height-plus-input stack, real or not).
   const badgeBox = el("div", { class: "badge-box" }, [`#${index + 1}`]);
+
+  // Native HTML5 drag-and-drop, restricted to this one small handle rather than the whole
+  // card (draggable="true" on the card would turn ordinary text selection inside its inputs
+  // into an accidental drag). dragover/drop still listen on the *card* below, not the
+  // handle — the user drops wherever the mouse ends up, not necessarily on another handle.
+  const dragHandle = el("div", { class: "drag-handle", draggable: "true", title: "Drag to reorder" }, ["⋮⋮"]);
+  dragHandle.addEventListener("dragstart", (e) => {
+    draggedIndex = index;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index)); // Firefox requires setData to actually start a drag
+    card.classList.add("dragging");
+  });
+  dragHandle.addEventListener("dragend", () => {
+    draggedIndex = null;
+    card.classList.remove("dragging");
+  });
+  card.addEventListener("dragover", (e) => {
+    if (draggedIndex === null) return;
+    e.preventDefault(); // required for drop to fire at all
+    e.dataTransfer.dropEffect = "move";
+  });
+  card.addEventListener("drop", (e) => {
+    if (draggedIndex === null) return;
+    e.preventDefault(); // even for a same-row no-op drop below — otherwise the browser's
+                         // default handling of the dragstart's text/plain payload can kick in
+    if (draggedIndex === index) return;
+    const [moved] = bindings.splice(draggedIndex, 1);
+    bindings.splice(index, 0, moved);
+    draggedIndex = null;
+    renderAll();
+  });
 
   const typeSelect = el("select", {}, Object.keys(TYPE_LABELS).map(t =>
     el("option", t === binding.type ? { value: t, selected: "" } : { value: t }, [TYPE_LABELS[t]])));
@@ -295,6 +334,7 @@ function renderBinding(binding, index) {
   const removeBtn = el("button", { class: "danger remove-btn", type: "button", title: "Remove this hotkey" }, ["✕"]);
   removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
 
+  card.appendChild(field(" ", dragHandle, "fixed"));
   card.appendChild(field(" ", badgeBox, "fixed"));
   card.appendChild(field("Type", typeSelect, "fixed"));
   card.appendChild(textField("Title", "title", "Cycle Browser"));
