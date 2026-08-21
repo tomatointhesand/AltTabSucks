@@ -227,17 +227,45 @@ be approached differently than the Windows version was.
         reverse-direction channel (server asking the *KWin script* for live window data; today
         everything flows KWin-script-to-server only). Noted as a possible enhancement, not started.
   - [x] **`Ctrl+Alt+Shift+'` reloads hotkeys** — the Linux equivalent of `AltTabSucks.ahk`'s
-        built-in `^!+'::Reload` (framework, not an `app-hotkeys.ahk`/`hotkeys.js` entry — lives in
-        `main.js`, not `hotkeys.js`). `main.js` registers the shortcut; its handler calls the new
-        `ReloadHotkeys` D-Bus method (`dbus_bridge.py`), which shells out to
-        `installer.sh reload-hotkeys` — a narrower action than plain `install` (skips
-        deps/config/service, just `install_kwin_script`) since a hotkey-triggered reload has no
-        business restarting the running server. Also updated `hotkeys-ui.html`'s "deploy" hint to
-        point at the hotkey instead of `./installer.sh install`. Verified live end to end: called
-        `ReloadHotkeys` over `qdbus6` directly, confirmed `installer.sh` ran (journalctl), the
-        script stayed `isScriptLoaded == true` afterward, and `Reload Hotkeys` shows up in
-        `kglobalaccel`'s real shortcut list. One bootstrap caveat: a clone needs one manual
+        built-in `^!+'::Reload`, but *not* hardcoded as a framework special case the way it first
+        shipped (a `main.js` `registerShortcut` + a dedicated `dbus_bridge.py` `ReloadHotkeys`
+        method) — superseded one commit later by the generic **`runCommand` binding type**
+        (below): "Reload Hotkeys" is now an ordinary `hotkeys.json` binding like any other,
+        editable/removable in the UI, with `argv` pointing at this clone's `installer.sh
+        reload-hotkeys`. `installer.sh reload-hotkeys` itself is unchanged — still the narrow
+        action (skips deps/config/service, just `install_kwin_script`) a hotkey-triggered reload
+        should run. `hotkeys.template.js` got the same binding as an example (`YOUR_REPO_ROOT`
+        placeholder, substituted unconditionally by `ensure_hotkeys()` — unlike
+        `YOUR_BROWSER_RESOURCE_CLASS` this needs no user input, `$REPO_ROOT` is always known) so
+        hand-editors who never touch the UI still get a working reload hotkey out of the box.
+        Verified live end to end post-refactor: `kglobalaccel.invokeShortcut("Reload Hotkeys")`
+        (the most faithful real-keypress simulation available over D-Bus) actually ran
+        `installer.sh` (journalctl), left the script `isScriptLoaded == true` afterward, and
+        `Reload Hotkeys` appears in `kglobalaccel`'s shortcut list with no other action colliding
+        on its title. One bootstrap caveat unchanged: a clone needs one manual
         `./installer.sh install` (or `reload-hotkeys`) before the hotkey itself exists to press.
+  - [x] **`runCommand` binding type** — generic "spawn this argv on this key" binding
+        (`bridgeCall("LaunchCommand", [argv], ...)`, the same escape hatch `manageAppWindows`'s
+        optional `launchArgv` already uses), added specifically so "Reload Hotkeys" (above) could
+        stop being a bespoke hardcoded case and become just another configurable hotkey. No
+        `resourceClass` field (nothing to match against) — `hotkeys_generator.py`'s per-type
+        validation and `hotkeys-ui.html`'s field rendering both special-case that. Also fixed
+        while building this: two bindings sharing a `title` collide silently in `kglobalaccel`
+        (title is the action's unique ID) — root-caused a real "Focus Gmail doesn't work" report
+        to exactly this (cloned via the UI's "Dup" button, never renamed from "discord"); 
+        `generate_hotkeys_js` now rejects duplicate titles at save time. 3 new tests.
+  - [x] **`focusTab` wasn't raising the target window** — the common "tab already open in an
+        existing window" path queued `QueueSwitchTab` with no `activateWindow`/`activateAnyWindow`
+        call, unlike the other two `focusTab` paths (`waitForTabOrOpen`, `openOrLaunchTab`'s
+        existing-window branch), relying entirely on the browser extension's own
+        `chrome.windows.update({focused:true})` to raise the window — unreliable under Wayland,
+        where a client generally can't force itself to the front (only the compositor can, which
+        is the entire reason this is a KWin script). Added the missing `activateAnyWindow(
+        resourceClass)` call. Verified live with a real before/after check (not just code
+        reading): started with Discord focused, invoked "Focus Gmail" via
+        `kglobalaccel.invokeShortcut`, confirmed via a one-off KWin script probe that
+        `workspace.activeWindow` actually flipped from `discord` to `brave-browser` on the
+        correct Gmail tab.
 - [ ] Toast overlay + titlebar color sampling
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)

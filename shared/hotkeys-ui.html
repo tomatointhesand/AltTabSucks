@@ -110,6 +110,7 @@ const TYPE_LABELS = {
   windowToggle: "Toggle app windows",
   profileCycle: "Cycle browser profile",
   tabFocus: "Focus browser tab",
+  runCommand: "Run command",
 };
 
 let profiles = [];
@@ -298,7 +299,11 @@ function renderBinding(binding, index) {
   card.appendChild(field("Type", typeSelect, "fixed"));
   card.appendChild(textField("Title", "title", "Cycle Browser"));
   card.appendChild(keyField());
-  card.appendChild(textField("resourceClass", "resourceClass", "brave-browser, org.kde.dolphin, ...", "grow"));
+  // runCommand has no window/tab/profile to match against, so resourceClass is irrelevant
+  // to it — hidden rather than shown-but-unused/silently-ignored.
+  if (binding.type !== "runCommand") {
+    card.appendChild(textField("resourceClass", "resourceClass", "brave-browser, org.kde.dolphin, ...", "grow"));
+  }
 
   if (binding.type === "windowCycle" || binding.type === "windowToggle") {
     card.appendChild(listField("Launch command (optional — spawned if no window open)", "launchArgv", "e.g. dolphin", "grow"));
@@ -308,6 +313,8 @@ function renderBinding(binding, index) {
     card.appendChild(profileField());
     card.appendChild(listField("URL pattern(s)", "urlPatterns", "mail.google.com", "grow"));
     card.appendChild(textField("Open URL (if no match)", "openUrl", "https://mail.google.com", "grow"));
+  } else if (binding.type === "runCommand") {
+    card.appendChild(listField("Command (argv, no shell — one arg per line/comma)", "argv", "/path/to/installer.sh, reload-hotkeys", "grow"));
   }
 
   card.appendChild(field(" ", dupeBtn, "fixed"));

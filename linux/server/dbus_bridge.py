@@ -26,7 +26,6 @@ doesn't need a lock despite the two loops touching the same dicts from different
 
 import subprocess
 import threading
-from pathlib import Path
 
 import dbus
 import dbus.mainloop.glib
@@ -36,12 +35,6 @@ from gi.repository import GLib
 BUS_NAME = "com.github.tomatointhesand.AltTabSucks"
 OBJECT_PATH = "/com/github/tomatointhesand/AltTabSucks"
 INTERFACE = "com.github.tomatointhesand.AltTabSucks"
-
-# linux/server/dbus_bridge.py -> repo root, same depth/computation as alttabsucks_server.py's
-# REPO_ROOT. Only used by ReloadHotkeys, to find installer.sh without hardcoding a path that
-# would only be correct for one particular clone location.
-REPO_ROOT = Path(__file__).resolve().parents[2]
-INSTALLER_PATH = REPO_ROOT / "installer.sh"
 
 
 def _spawn_detached(argv):
@@ -155,22 +148,6 @@ class Bridge(dbus.service.Object):
             print(f"AltTabSucks D-Bus bridge: LaunchChromiumProfile({profile!r}) failed: {e}")
             return False
         return True
-
-    @dbus.service.method(INTERFACE, in_signature="")
-    def ReloadHotkeys(self):
-        # Wired to Ctrl+Alt+Shift+' in main.js — the Linux equivalent of AltTabSucks.ahk's own
-        # built-in `^!+'::Reload` (a framework hotkey, not something app-hotkeys.ahk/hotkeys.js
-        # defines). Shells out to `installer.sh reload-hotkeys`, which rebuilds the deployed KWin
-        # script from main.js+hotkeys.js and force-reloads it (see installer.sh's
-        # install_kwin_script for why unloadScript, not just --upgrade, is required) — the point
-        # is picking up hotkeys.json edits saved via the hotkeys-ui page without a manual
-        # terminal step. Detached like the other spawns here: nothing waits on it, and its own
-        # unloadScript call will tear down this D-Bus method's caller mid-flight, which is fine
-        # (same as AHK's Reload() never "returning" to the hotkey that triggered it).
-        try:
-            _spawn_detached([str(INSTALLER_PATH), "reload-hotkeys"])
-        except OSError as e:
-            print(f"AltTabSucks D-Bus bridge: ReloadHotkeys failed: {e}")
 
 
 def start(state):

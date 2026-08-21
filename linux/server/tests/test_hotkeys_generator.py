@@ -44,6 +44,27 @@ class GenerateBindingJsTestCase(unittest.TestCase):
             js,
         )
 
+    def test_run_command(self):
+        js = generate_binding_js({
+            "type": "runCommand", "title": "Reload Hotkeys", "key": "Ctrl+Alt+Shift+'",
+            "argv": ["/home/dab/git/alttabsucks/installer.sh", "reload-hotkeys"],
+        })
+        self.assertIn(
+            'bridgeCall("LaunchCommand", [["/home/dab/git/alttabsucks/installer.sh", "reload-hotkeys"]], function () {});',
+            js,
+        )
+
+    def test_run_command_missing_argv_raises(self):
+        with self.assertRaises(ValueError):
+            generate_binding_js({"type": "runCommand", "title": "X", "key": "Ctrl+Alt+Shift+B"})
+
+    def test_run_command_does_not_require_resource_class(self):
+        # Unlike every other type, runCommand has no window/tab/profile to match against.
+        js = generate_binding_js({
+            "type": "runCommand", "title": "X", "key": "Ctrl+Alt+Shift+B", "argv": ["dolphin"],
+        })
+        self.assertIn('bridgeCall("LaunchCommand", [["dolphin"]], function () {});', js)
+
     def test_strings_with_quotes_and_backslashes_escape_safely(self):
         # Also proves generated output is at least well-formed enough that a naive brace/paren
         # balance check passes — a real JS parser isn't available in this test environment (see

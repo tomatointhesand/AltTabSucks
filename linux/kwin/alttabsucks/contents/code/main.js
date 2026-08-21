@@ -278,6 +278,18 @@ function focusTab(resourceClass, profileName, urlPatterns, openUrl) {
         _focusTabIdx[cacheKey] = idx + 1;
 
         var parts = matchLines[idx].split("|");
+        // Explicitly raise the window here rather than trusting chrome.windows.update({focused:
+        // true}) (triggered by the extension once it dequeues /switchtab) to do it alone — a
+        // Wayland client generally can't force itself to the front; only the compositor can,
+        // which is exactly why this is a KWin script and not just a browser extension. This was
+        // the one focusTab path missing that raise (waitForTabOrOpen and openOrLaunchTab's
+        // existing-window branch both already do it) — the common case of an already-open
+        // matching tab, silently relying on the extension alone and (per report) not actually
+        // coming to the front. Same activateAnyWindow(resourceClass) simplification as those
+        // other call sites: picks *a* window of this browser, not necessarily the exact one
+        // containing the matched tab when several are open — acceptable in the common single-
+        // window case, noted rather than silently assumed correct.
+        activateAnyWindow(resourceClass);
         bridgeCall("QueueSwitchTab", [profileName, parseInt(parts[0], 10), parseInt(parts[1], 10)], function () {});
     });
 }
@@ -360,22 +372,15 @@ function waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, de
 }
 
 // --- your hotkeys go in hotkeys.js, not here --------------------------------------------------
-// This file has no *app* registerShortcut calls of its own (the one below is framework, not an
-// app hotkey — see its own comment) — it's the library half only. KWin's scripting sandbox can't
-// read a sibling file at runtime (no file-read primitive, confirmed empirically — see the sandbox
-// notes above), so unlike AHK's #Include lib\app-hotkeys.ahk, the two halves can't be combined at
-// *run* time. installer.sh's install_kwin_script() concatenates this file with hotkeys.js
-// (gitignored — seeded from hotkeys.template.js if missing, same "seed from template on first
-// install" behavior as installer.ps1 uses for app-hotkeys.ahk) into the actual deployed
-// contents/code/main.js at *install* time instead. See hotkeys.template.js for the
-// registerShortcut calls that used to live here as dev-test stubs.
-
-// Reload — the Linux equivalent of AltTabSucks.ahk's own built-in `^!+'::Reload`. Lives here
-// rather than in hotkeys.js for the same reason Reload lives in AltTabSucks.ahk rather than
-// app-hotkeys.ahk: it's framework, not a user-customizable app hotkey. ReloadHotkeys (see
-// dbus_bridge.py) shells out to `installer.sh reload-hotkeys`, which rebuilds this very script
-// from main.js+hotkeys.js and force-reloads it — picks up hotkeys.json edits saved via the
-// hotkeys-ui page without a manual terminal step.
-registerShortcut("Reload Hotkeys", "AltTabSucks: Reload Hotkeys", "Ctrl+Alt+Shift+'", function () {
-    bridgeCall("ReloadHotkeys", [], function () {});
-});
+// This file has no registerShortcut calls of its own — it's the library half only. KWin's
+// scripting sandbox can't read a sibling file at runtime (no file-read primitive, confirmed
+// empirically — see the sandbox notes above), so unlike AHK's #Include lib\app-hotkeys.ahk, the
+// two halves can't be combined at *run* time. installer.sh's install_kwin_script() concatenates
+// this file with hotkeys.js (gitignored — seeded from hotkeys.template.js if missing, same
+// "seed from template on first install" behavior as installer.ps1 uses for app-hotkeys.ahk) into
+// the actual deployed contents/code/main.js at *install* time instead. See hotkeys.template.js
+// for the registerShortcut calls that used to live here as dev-test stubs — including "Reload
+// Hotkeys" (the Linux equivalent of AltTabSucks.ahk's built-in `^!+'::Reload`), which used to be
+// hardcoded here as a special case but is now just an ordinary runCommand binding like any other
+// (see hotkeys_generator.py's runCommand docs) — editable/removable in the hotkeys-ui page same
+// as everything else, no bespoke framework carve-out.

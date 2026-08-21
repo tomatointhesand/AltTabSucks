@@ -13,9 +13,10 @@
 # linux/server/config.py without touching the service or KWin script — install runs it
 # automatically too, but only the first time (an existing config.py is left alone otherwise).
 # `reload-hotkeys` re-runs just install_kwin_script (rebuild + force-reload, no deps/config/
-# service touched) — this is what the D-Bus bridge's ReloadHotkeys method shells out to, wired to
-# Ctrl+Alt+Shift+' in main.js, the Linux side of AltTabSucks.ahk's own built-in `^!+'::Reload`.
-# Picks up hotkeys.json edits saved via the hotkeys-ui page without a manual terminal step.
+# service touched) — not a special case, just what a "Reload Hotkeys" runCommand binding's argv
+# points at (see hotkeys_generator.py's runCommand docs and hotkeys.template.js), the Linux side
+# of AltTabSucks.ahk's own built-in `^!+'::Reload`. Picks up hotkeys.json edits saved via the
+# hotkeys-ui page without a manual terminal step — run it by hand too, any time.
 
 set -euo pipefail
 
@@ -240,6 +241,10 @@ ensure_hotkeys() {
         return
     fi
     cp "$HOTKEYS_TEMPLATE" "$HOTKEYS_PATH"
+    # Unconditional (unlike CHOSEN_RESOURCE_CLASS below, which depends on the browser wizard
+    # having run) — $REPO_ROOT is always known, so the template's "Reload Hotkeys" example
+    # always ends up pointing at this exact clone's installer.sh, no user input required.
+    sed -i "s|YOUR_REPO_ROOT|$REPO_ROOT|g" "$HOTKEYS_PATH"
     if [ -n "$CHOSEN_RESOURCE_CLASS" ]; then
         sed -i "s/YOUR_BROWSER_RESOURCE_CLASS/$CHOSEN_RESOURCE_CLASS/g" "$HOTKEYS_PATH"
         echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.js from the template, with your"

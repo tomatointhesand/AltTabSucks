@@ -8,6 +8,13 @@ Binding "type" maps to one main.js function each:
   windowCycle / windowToggle -> manageAppWindows(resourceClass, mode, launchArgv)
   profileCycle                -> cycleChromiumProfile(resourceClass, profileName)
   tabFocus                    -> focusTab(resourceClass, profileName, urlPatterns, openUrl)
+  runCommand                  -> bridgeCall("LaunchCommand", [argv], ...) — spawns argv[0]
+                                  directly (no shell), same escape hatch manageAppWindows uses
+                                  for its optional launchArgv. Generic "run this command on this
+                                  key" binding, not tied to any window/tab/profile — this is what
+                                  a "Reload Hotkeys" binding is made of (argv pointing at this
+                                  clone's installer.sh), rather than that being a special case
+                                  hardcoded into main.js/dbus_bridge.py.
 
 Once hotkeys.json has been saved via the UI, it — not hand-edited hotkeys.js — is the source of
 truth: every save regenerates hotkeys.js from scratch, so direct edits to hotkeys.js won't
@@ -43,14 +50,14 @@ def generate_binding_js(binding: dict) -> str:
     kind = binding.get("type")
     title = (binding.get("title") or "").strip()
     key = (binding.get("key") or "").strip()
+    # resourceClass isn't required for every type (runCommand has no window/tab/profile to
+    # match), so its check lives per-branch below rather than up here with title/key.
     resource_class = (binding.get("resourceClass") or "").strip()
 
     if not title:
         raise ValueError(f"binding missing title: {binding!r}")
     if not key:
         raise ValueError(f"binding {title!r} missing key")
-    if not resource_class:
-        raise ValueError(f"binding {title!r} missing resourceClass")
 
     header = (
         f"registerShortcut({_js_string(title)}, {_js_string('AltTabSucks: ' + title)},\n"
@@ -58,6 +65,8 @@ def generate_binding_js(binding: dict) -> str:
     )
 
     if kind in ("windowCycle", "windowToggle"):
+        if not resource_class:
+            raise ValueError(f"binding {title!r} missing resourceClass")
         mode = "cycle" if kind == "windowCycle" else "toggle"
         launch_argv = binding.get("launchArgv") or []
         call = f"manageAppWindows({_js_string(resource_class)}, {_js_string(mode)}"
@@ -65,11 +74,15 @@ def generate_binding_js(binding: dict) -> str:
             call += f", {_js_array_of_strings(launch_argv)}"
         call += ");"
     elif kind == "profileCycle":
+        if not resource_class:
+            raise ValueError(f"binding {title!r} missing resourceClass")
         profile = (binding.get("profileName") or "").strip()
         if not profile:
             raise ValueError(f"binding {title!r} missing profileName")
         call = f"cycleChromiumProfile({_js_string(resource_class)}, {_js_string(profile)});"
     elif kind == "tabFocus":
+        if not resource_class:
+            raise ValueError(f"binding {title!r} missing resourceClass")
         profile = (binding.get("profileName") or "").strip()
         url_patterns = binding.get("urlPatterns") or []
         open_url = (binding.get("openUrl") or "").strip()
@@ -83,6 +96,11 @@ def generate_binding_js(binding: dict) -> str:
             f"focusTab({_js_string(resource_class)}, {_js_string(profile)}, "
             f"{_js_array_of_strings(url_patterns)}, {_js_string(open_url)});"
         )
+    elif kind == "runCommand":
+        argv = binding.get("argv") or []
+        if not argv:
+            raise ValueError(f"binding {title!r} missing argv")
+        call = f'bridgeCall("LaunchCommand", [{_js_array_of_strings(argv)}], function () {{}});'
     else:
         raise ValueError(f"binding {title!r} has unknown type: {kind!r}")
 
