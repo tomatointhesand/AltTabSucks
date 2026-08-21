@@ -37,10 +37,12 @@ function findAppWindows(resourceClass) {
 
 // Assigning workspace.activeWindow auto-restores a minimized window (confirmed empirically) —
 // matches AHK's WinActivate semantics, so callers don't need a separate restore step first.
-function activateWindow(w) {
+// toastLabel is optional — omit it for activations that shouldn't show a toast (e.g. focusTab's
+// preliminary focus-steal before the real tab switch is confirmed; AHK doesn't toast that step
+// either). See showToast() below for what actually renders it.
+function activateWindow(w, toastLabel) {
     workspace.activeWindow = w;
-    // TODO(Phase 3): ShowProfileToast equivalent (lib/toast.ahk) — needs its own titlebar-color
-    // sampling investigation, see checklist.
+    if (toastLabel) showToast(toastLabel, w);
 }
 
 // manageAppWindows(resourceClass, mode, launchArgv)
@@ -89,7 +91,7 @@ function manageAppWindows(resourceClass, mode, launchArgv) {
             for (var i = 0; i < visible.length; i++) visible[i].minimized = true;
         } else {
             for (var i = 0; i < minimized.length; i++) minimized[i].minimized = false;
-            activateWindow(visible.length > 0 ? visible[0] : minimized[0]);
+            activateWindow(visible.length > 0 ? visible[0] : minimized[0], resourceClass);
         }
         return;
     }
@@ -104,7 +106,7 @@ function manageAppWindows(resourceClass, mode, launchArgv) {
     for (var i = 0; i < all.length; i++) {
         if (all[i] === active) { activeIdx = i; break; }
     }
-    activateWindow(all[(activeIdx + 1) % all.length]);
+    activateWindow(all[(activeIdx + 1) % all.length], resourceClass);
 }
 
 // --- D-Bus bridge to linux/server/dbus_bridge.py ---------------------------------------------
@@ -129,6 +131,33 @@ function afterDelay(ms, fn) {
     t.singleShot = true;
     t.timeout.connect(fn);
     t.start();
+}
+
+// --- Toast overlay (linux/toast/alttabsucks_toast.py) -----------------------------------------
+// Linux port of lib/toast.ahk's ShowProfileToast — a separate D-Bus service, not dbus_bridge.py,
+// since it's a standalone GTK4 daemon rather than part of the Python HTTP bridge server (see that
+// file's module docstring for why it's built the way it is, including why there's no titlebar-
+// color sampling here the way SampleTitlebarColor does on Windows).
+//
+// Label convention, matching every currently-ported hotkey type's own activateWindow/
+// activateAnyWindow call site: manageAppWindows toasts with resourceClass (no _SwitcherExeName-
+// style friendly-name table has been ported — same deferral as the window switcher itself, see
+// the checklist), cycleChromiumProfile/focusTab toast with profileName, matching
+// ShowProfileToast's own callers exactly (AHK always toasts with the profile name for any
+// Chromium window activation, never the tab title).
+//
+// Fire-and-forget: if the toast daemon isn't installed/running (gtk4-layer-shell is a non-fatal
+// dependency — see installer.sh's check_toast_deps), this callDBus just fails the same silent way
+// any call to a D-Bus service with no owner does. Nothing here depends on toasts actually
+// appearing — every hotkey works identically whether or not the daemon exists.
+var TOAST_BUS_NAME = "com.github.tomatointhesand.AltTabSucksToast";
+var TOAST_OBJECT_PATH = "/com/github/tomatointhesand/AltTabSucksToast";
+var TOAST_INTERFACE = "com.github.tomatointhesand.AltTabSucksToast";
+
+function showToast(label, w) {
+    if (!w) return;
+    callDBus(TOAST_BUS_NAME, TOAST_OBJECT_PATH, TOAST_INTERFACE, "ShowToast",
+        label, "", w.x, w.y, w.width, w.height, 500, function () {});
 }
 
 // --- Browser window helpers ---------------------------------------------------------------
@@ -199,7 +228,7 @@ function cycleChromiumProfile(resourceClass, profileName) {
         for (var i = 0; i < matching.length; i++) {
             if (matching[i] === active) { activeIdx = i; break; }
         }
-        activateWindow(matching[(activeIdx + 1) % matching.length]);
+        activateWindow(matching[(activeIdx + 1) % matching.length], profileName);
     });
 }
 
@@ -226,7 +255,7 @@ function waitAndActivateProfile(resourceClass, profileName, deadline) {
             for (var i = 0; i < candidates.length; i++) {
                 for (var j = 0; j < titles.length; j++) {
                     if (titles[j] && candidates[i].caption.indexOf(titles[j]) !== -1) {
-                        activateWindow(candidates[i]);
+                        activateWindow(candidates[i], profileName);
                         return;
                     }
                 }
@@ -289,7 +318,7 @@ function focusTab(resourceClass, profileName, urlPatterns, openUrl) {
         // other call sites: picks *a* window of this browser, not necessarily the exact one
         // containing the matched tab when several are open — acceptable in the common single-
         // window case, noted rather than silently assumed correct.
-        activateAnyWindow(resourceClass);
+        activateAnyWindow(resourceClass, profileName);
         bridgeCall("QueueSwitchTab", [profileName, parseInt(parts[0], 10), parseInt(parts[1], 10)], function () {});
     });
 }
@@ -310,9 +339,9 @@ function findTabAcrossPatterns(profileName, patterns, i, acc, seen, done) {
     });
 }
 
-function activateAnyWindow(resourceClass) {
+function activateAnyWindow(resourceClass, toastLabel) {
     var w = listBrowserWindows(resourceClass)[0];
-    if (w) activateWindow(w);
+    if (w) activateWindow(w, toastLabel);
 }
 
 // No matching tab in an already-open window — open openUrl in an existing window for this
@@ -335,7 +364,7 @@ function openOrLaunchTab(resourceClass, profileName, cleanPatterns, openUrl) {
         if (!w) w = listBrowserWindows(resourceClass)[0];
 
         if (w) {
-            activateWindow(w);
+            activateWindow(w, profileName);
             bridgeCall("QueueSwitchOpenUrl", [profileName, openUrl], function () {});
             return;
         }
@@ -358,7 +387,7 @@ function waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, de
     findTabAcrossPatterns(profileName, cleanPatterns, 0, [], {}, function (matchLines) {
         if (matchLines.length > 0) {
             var parts = matchLines[0].split("|");
-            activateAnyWindow(resourceClass);
+            activateAnyWindow(resourceClass, profileName);
             bridgeCall("QueueSwitchTab", [profileName, parseInt(parts[0], 10), parseInt(parts[1], 10)], function () {});
             return;
         }
@@ -366,7 +395,7 @@ function waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, de
             afterDelay(500, function () { waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, deadline); });
             return;
         }
-        activateAnyWindow(resourceClass);
+        activateAnyWindow(resourceClass, profileName);
         bridgeCall("QueueSwitchOpenUrl", [profileName, openUrl], function () {});
     });
 }

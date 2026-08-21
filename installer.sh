@@ -31,6 +31,9 @@ CONFIG_TEMPLATE="$REPO_ROOT/linux/server/config.template.py"
 HOTKEYS_PATH="$KWIN_SCRIPT_DIR/contents/code/hotkeys.js"
 HOTKEYS_TEMPLATE="$KWIN_SCRIPT_DIR/contents/code/hotkeys.template.js"
 TOKEN_PATH="$REPO_ROOT/Server/token.txt"
+TOAST_SERVICE_SRC="$REPO_ROOT/linux/systemd/alttabsucks-toast.service"
+TOAST_SERVICE_NAME="alttabsucks-toast.service"
+TOAST_SERVICE_DEST="$HOME/.config/systemd/user/$TOAST_SERVICE_NAME"
 
 ACTION="${1:-install}"
 
@@ -231,6 +234,72 @@ uninstall_service() {
     pkill -f "python3 .*alttabsucks_server\.py" 2>/dev/null || true
 }
 
+# ---- toast daemon (linux/toast/alttabsucks_toast.py) -----------------------------------------
+# Separate service, separate (non-fatal) dependency check — toasts are a pure enhancement layered
+# on top of core functionality (every hotkey works fine without them), so a machine without
+# gtk4-layer-shell installed shouldn't be blocked from installing the rest of AltTabSucks the way
+# check_deps()'s hard requirements do.
+
+find_gtk4_layer_shell_so() {
+    # awk's `exit` closes its read end as soon as it finds a match, well before ldconfig (which
+    # lists hundreds of libraries) finishes writing — ldconfig then gets SIGPIPE, and under
+    # set -o pipefail that failure (141) propagates as this whole script exiting, even though the
+    # awk side succeeded and got what it needed. `|| true` on ldconfig's own exit status is what
+    # actually neutralizes that — piping its output through unchanged doesn't (confirmed the hard
+    # way: the plain pipe version killed `./installer.sh install` immediately after the KWin
+    # script step, with no other explanation than this).
+    { ldconfig -p 2>/dev/null || true; } | awk '/libgtk4-layer-shell\.so / { print $NF; exit }'
+}
+
+check_toast_deps() {
+    if ! python3 -c "
+import gi
+gi.require_version('Gtk', '4.0')
+gi.require_version('Gtk4LayerShell', '1.0')
+from gi.repository import Gtk4LayerShell
+" >/dev/null 2>&1; then
+        echo "Toast overlay feedback (a colored on-screen confirmation after a hotkey fires) needs"
+        echo "gtk4-layer-shell, not found — skipping it, everything else installs normally. Install"
+        echo "it and re-run to enable: sudo pacman -S gtk4-layer-shell"
+        return 1
+    fi
+    return 0
+}
+
+install_toast_service() {
+    local so_path staged
+    so_path="$(find_gtk4_layer_shell_so)"
+    if [ -z "$so_path" ]; then
+        echo "Couldn't resolve libgtk4-layer-shell.so's path via ldconfig — skipping toast daemon."
+        return
+    fi
+    mkdir -p "$(dirname "$TOAST_SERVICE_DEST")"
+    staged="$(mktemp)"
+    sed -e "s|YOUR_GTK4_LAYER_SHELL_SO|$so_path|g" -e "s|YOUR_REPO_ROOT|$REPO_ROOT|g" \
+        "$TOAST_SERVICE_SRC" > "$staged"
+    cp "$staged" "$TOAST_SERVICE_DEST"
+    rm -f "$staged"
+    systemctl --user daemon-reload
+    if systemctl --user is-active "$TOAST_SERVICE_NAME" >/dev/null 2>&1; then
+        systemctl --user enable "$TOAST_SERVICE_NAME"
+        systemctl --user restart "$TOAST_SERVICE_NAME"
+        echo "Toast daemon already running — restarted to pick up any changes: $TOAST_SERVICE_NAME"
+    else
+        systemctl --user enable --now "$TOAST_SERVICE_NAME"
+        echo "Toast daemon installed and started: $TOAST_SERVICE_NAME"
+    fi
+}
+
+uninstall_toast_service() {
+    if systemctl --user is-enabled "$TOAST_SERVICE_NAME" >/dev/null 2>&1 || [ -f "$TOAST_SERVICE_DEST" ]; then
+        systemctl --user disable --now "$TOAST_SERVICE_NAME" 2>/dev/null || true
+        rm -f "$TOAST_SERVICE_DEST"
+        systemctl --user daemon-reload
+        echo "Toast daemon removed: $TOAST_SERVICE_NAME"
+    fi
+    pkill -f "python3 .*alttabsucks_toast\.py" 2>/dev/null || true
+}
+
 # ---- KWin script -----------------------------------------------------------------------------
 # kpackagetool6 --upgrade on an already-*loaded* script does NOT make KWin reload its JS (learned
 # the hard way — see the checklist's Phase 2 notes); loadScript unload + reconfigure is what
@@ -308,6 +377,7 @@ do_install() {
     ensure_config
     install_service
     install_kwin_script
+    check_toast_deps && install_toast_service
 
     sleep 1
     if [ -f "$TOKEN_PATH" ]; then
@@ -325,6 +395,7 @@ do_install() {
 do_uninstall() {
     uninstall_service
     uninstall_kwin_script
+    uninstall_toast_service
     echo "Note: linux/server/config.py and Server/token.txt were left in place (same as the"
     echo "Windows uninstaller leaves token.txt) — remove them by hand if you want a clean slate."
 }
@@ -332,6 +403,9 @@ do_uninstall() {
 do_status() {
     echo "--- server ---"
     systemctl --user status "$SERVICE_NAME" --no-pager -l 2>&1 || echo "$SERVICE_NAME is not installed."
+    echo
+    echo "--- toast daemon ---"
+    systemctl --user status "$TOAST_SERVICE_NAME" --no-pager -l 2>&1 || echo "$TOAST_SERVICE_NAME is not installed."
     echo
     echo "--- kwin script ---"
     local loaded
@@ -343,8 +417,22 @@ do_status() {
     fi
 }
 
-do_start() { systemctl --user start "$SERVICE_NAME"; echo "Started $SERVICE_NAME."; }
-do_stop()  { systemctl --user stop "$SERVICE_NAME"; echo "Stopped $SERVICE_NAME."; }
+do_start() {
+    systemctl --user start "$SERVICE_NAME"
+    echo "Started $SERVICE_NAME."
+    if [ -f "$TOAST_SERVICE_DEST" ]; then
+        systemctl --user start "$TOAST_SERVICE_NAME"
+        echo "Started $TOAST_SERVICE_NAME."
+    fi
+}
+do_stop() {
+    systemctl --user stop "$SERVICE_NAME"
+    echo "Stopped $SERVICE_NAME."
+    if [ -f "$TOAST_SERVICE_DEST" ]; then
+        systemctl --user stop "$TOAST_SERVICE_NAME"
+        echo "Stopped $TOAST_SERVICE_NAME."
+    fi
+}
 
 do_configure() {
     check_deps

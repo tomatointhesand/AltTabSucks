@@ -266,7 +266,66 @@ be approached differently than the Windows version was.
         `kglobalaccel.invokeShortcut`, confirmed via a one-off KWin script probe that
         `workspace.activeWindow` actually flipped from `discord` to `brave-browser` on the
         correct Gmail tab.
-- [ ] Toast overlay + titlebar color sampling
+- [x] **Toast overlay** (`linux/toast/`) — Linux port of `lib/toast.ahk`'s `ShowProfileToast` only
+      (`ShowSetupToast`/`ShowChoiceDialog` not ported, out of scope). KWin's scripting sandbox has
+      no popup-window primitive of its own (same category of gap the window switcher's DWM
+      preview ran into), so this is a separate persistent daemon
+      (`linux/toast/alttabsucks_toast.py`, GTK4 + `gtk4-layer-shell`) the KWin script reaches via
+      a direct `callDBus` — not routed through `dbus_bridge.py`/the HTTP server, since it's a
+      standalone process. User picked this over two lighter native options (Plasma's own OSD
+      service, a desktop notification bubble) specifically for closer visual parity with the AHK
+      version — rainbow-cycling color included, at the cost of a new system dependency
+      (`gtk4-layer-shell`, non-fatal — `check_toast_deps` skips just the toast daemon, doesn't
+      block the rest of `./installer.sh install`, if it's missing) and meaningfully more code than
+      either lighter option would have needed.
+      - **Why a persistent daemon, not a per-toast spawn** (the same `LaunchCommand` escape hatch
+        `manageAppWindows` uses to launch apps): the AHK rainbow-cycling-on-rapid-fire behavior
+        needs memory of the previous toast's color/timing, and cold-starting GTK4 per call would
+        add visible latency to what's meant to be instant feedback.
+      - **No titlebar-color sampling** — reading arbitrary screen pixels needs an
+        xdg-desktop-portal screenshot permission grant on Wayland, i.e. an interactive prompt,
+        a non-starter for something that fires silently on every hotkey press. Toasts use one
+        fixed base color (the same navy `ShowSetupToast`/`ShowChoiceDialog` already use elsewhere
+        in this project) instead — the rainbow-cycling behavior on rapid repeated presses is
+        preserved in full, since that only ever needed *a* previous color to advance from, not a
+        sampled one.
+      - **Rainbow logic split into `linux/toast/toast_colors.py`**, a zero-dependency module
+        (mirrors `hotkeys_generator.py` being separate from `alttabsucks_server.py`), so it's
+        testable without GTK4/gtk4-layer-shell/dbus-python installed. 7 tests — including one
+        that locks in the exact starting color of the rainbow sequence (verified by hand against
+        AHK's 1-indexed-array arithmetic, not assumed).
+      - **`installer.sh`**: `check_toast_deps` (non-fatal) + `install_toast_service`/
+        `uninstall_toast_service`, wired into `do_install`/`do_uninstall`/`do_status`/
+        `do_start`/`do_stop`. The tracked `linux/systemd/alttabsucks-toast.service` carries
+        `YOUR_GTK4_LAYER_SHELL_SO`/`YOUR_REPO_ROOT` placeholders — `find_gtk4_layer_shell_so`
+        resolves the actual `.so` path via `ldconfig -p` at install time (LD_PRELOAD is required
+        for a known gtk4-layer-shell/PyGObject linking quirk — confirmed empirically, silent
+        fallback to an ordinary floating window without it) rather than hardcoding an
+        Arch-specific path into the tracked unit file. Hit a real `set -o pipefail` foot-gun
+        building this: `ldconfig -p | awk '{...; exit}'` gets SIGPIPE'd by `ldconfig` once awk
+        closes its read end early, and that non-zero exit silently killed the whole
+        `./installer.sh install` run immediately after the KWin script step — fixed with
+        `{ ldconfig -p || true; } | awk ...`.
+      - **`main.js` wiring**: `activateWindow`/`activateAnyWindow` both gained an optional
+        `toastLabel` param. Label convention matches `ShowProfileToast`'s own callers exactly:
+        `manageAppWindows` toasts with `resourceClass` (no `_SwitcherExeName`-style friendly-name
+        table ported — same deferral as the window switcher itself), `cycleChromiumProfile`/
+        `focusTab` toast with `profileName`. `focusTab`'s preliminary focus-steal activation
+        deliberately stays toast-less, matching AHK (only the confirmed final activation toasts).
+      - **Verified live, extensively, not just by reading code**: direct `ShowToast` D-Bus calls
+        screenshotted on both monitors of this dev machine (`HDMI-A-1` and `DP-1` — different
+        origins, proving the per-monitor margin math, not just a lucky single-monitor default);
+        rapid-fire calls screenshotted showing a rainbow color instead of the default navy; a
+        real `kglobalaccel.invokeShortcut("vscode")` (a real hotkey, not a direct D-Bus call)
+        screenshotted showing "CODE-OSS" toasted over the actually-activated window. One
+        red herring during testing, worth recording: an `invokeShortcut("Focus Gmail")` call
+        appeared to do nothing — root cause was a stale/orphaned `kglobalaccel` action name from
+        hotkeys.json having been renamed to "Gmail" by a concurrent edit (a second Claude Code
+        session was open on this same repo) mid-testing, not a toast bug — confirmed via
+        `dbus-monitor` that `ShowToast` was in fact reaching the daemon and returning
+        successfully even on the run that produced no visible screenshot (a plain screenshot-
+        timing miss against the 500ms window, not a functional issue — confirmed separately with
+        a long-duration direct call on the same monitor).
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [ ] Linux README section (installer.sh usage still needs documenting there)

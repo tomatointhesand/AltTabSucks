@@ -1,0 +1,13 @@
+[Unit]
+Description=AltTabSucks toast overlay daemon
+After=graphical-session.target
+
+[Service]
+Type=simple
+Environment=LD_PRELOAD=YOUR_GTK4_LAYER_SHELL_SO
+ExecStart=/usr/bin/python3 YOUR_REPO_ROOT/linux/toast/alttabsucks_toast.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
