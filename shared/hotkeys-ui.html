@@ -73,7 +73,10 @@
 
   <div class="panel">
     <label for="token">Auth token</label>
-    <input type="text" id="token" placeholder="paste the token from Server/token.txt or the installer output">
+    <div class="row" style="margin-bottom: 0;">
+      <input type="text" id="token" placeholder="paste the token from Server/token.txt or the installer output">
+      <button id="reload" type="button" style="flex: 0 0 auto;">Reload</button>
+    </div>
   </div>
 
   <div id="bindings"></div>
@@ -220,12 +223,6 @@ document.getElementById("save").addEventListener("click", async () => {
 });
 
 async function load() {
-  const token = localStorage.getItem("atsToken");
-  if (token) document.getElementById("token").value = token;
-  document.getElementById("token").addEventListener("input", (e) => {
-    localStorage.setItem("atsToken", e.target.value.trim());
-  });
-
   try {
     const [profilesResult, configResult] = await Promise.all([
       apiGet("/profiles"),
@@ -239,6 +236,20 @@ async function load() {
     setStatus("Load failed (check your token, and that the server is running): " + e.message, true);
   }
 }
+
+// The token field starts empty on a fresh page load (nothing to prefill from server-side
+// state), so the very first load() below always runs with no token and fails — that's
+// expected, not a bug. What pastes the token in also has to be what triggers the retry:
+// "change" (fires on blur/Enter) covers paste-then-click-away, and the Reload button covers
+// paste-then-click-Reload. Neither call is "load once at page load and hope" like before.
+const tokenInput = document.getElementById("token");
+const stored = localStorage.getItem("atsToken");
+if (stored) tokenInput.value = stored;
+tokenInput.addEventListener("input", (e) => {
+  localStorage.setItem("atsToken", e.target.value.trim());
+});
+tokenInput.addEventListener("change", load);
+document.getElementById("reload").addEventListener("click", load);
 
 load();
 </script>
