@@ -79,6 +79,11 @@
   .field.fixed select, .field.fixed input { width: auto; }
   .field.fixed select { min-width: 160px; }
   .badge-box { padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 600; color: var(--text-dim); text-align: center; min-width: 30px; }
+  .badge-box:hover { border-color: var(--accent); color: var(--text); }
+  /* Dims the whole row (badge included) rather than exempting the badge from the dimming —
+     simpler than carving out a CSS exception, and the badge stays just as clickable at reduced
+     opacity (opacity doesn't affect pointer-events) so re-enabling is no harder to hit. */
+  .binding.disabled { opacity: 0.5; }
   .remove-btn, .dupe-btn { padding: 6px 10px; font-size: 12px; }
   /* Pinned to the card's corner instead of taking a flex slot in the row — it's chrome for
      managing the list, not part of any binding's actual data, so it shouldn't compete with
@@ -242,7 +247,7 @@ function recordKeyField(input, binding) {
 }
 
 function renderBinding(binding, index) {
-  const card = el("div", { class: "binding" });
+  const card = el("div", { class: "binding" + (binding.enabled === false ? " disabled" : "") });
 
   function field(labelText, inputEl, extraClass) {
     const wrap = el("div", { class: "field" + (extraClass ? " " + extraClass : "") });
@@ -293,7 +298,14 @@ function renderBinding(binding, index) {
   // Empty-but-present labels (" ") on the badge/handle/dupe/remove buttons keep them
   // baseline-aligned with the labeled inputs (align-items: flex-end on .binding aligns by
   // bottom edge, so every field needs the same label-height-plus-input stack, real or not).
-  const badgeBox = el("div", { class: "badge-box" }, [`#${index + 1}`]);
+  const badgeBox = el("button", {
+    type: "button", class: "badge-box",
+    title: binding.enabled === false ? "Disabled — click to enable" : "Click to disable",
+  }, [`#${index + 1}`]);
+  badgeBox.addEventListener("click", () => {
+    binding.enabled = binding.enabled === false; // false -> true, true/undefined -> false
+    renderAll();
+  });
 
   // Native HTML5 drag-and-drop, restricted to this one small handle rather than the whole
   // card (draggable="true" on the card would turn ordinary text selection inside its inputs
@@ -378,7 +390,7 @@ function renderAll() {
 }
 
 document.getElementById("add").addEventListener("click", () => {
-  bindings.push({ type: "windowCycle", title: "", key: "", resourceClass: "" });
+  bindings.push({ type: "windowCycle", title: "", key: "", resourceClass: "", enabled: true });
   renderAll();
 });
 

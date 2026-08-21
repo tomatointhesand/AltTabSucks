@@ -109,6 +109,15 @@ def generate_binding_js(binding: dict) -> str:
 
 def generate_hotkeys_js(config: dict) -> str:
     bindings = config.get("bindings", [])
+    # A binding with "enabled": false (the hotkeys-ui badge/toggle button) produces no
+    # registerShortcut call at all — it's not "registered but inert", it's simply skipped, same
+    # as if it had never been in hotkeys.json. That's deliberate: it means a disabled binding
+    # can't collide with anything (see the title-uniqueness check below, which only needs to
+    # consider bindings that actually get emitted) and can be left half-filled-in as a draft
+    # without failing validation. Missing/anything-but-exactly-false counts as enabled, matching
+    # the UI's own binding.enabled === false check.
+    active = [b for b in bindings if b.get("enabled") is not False]
+
     # registerShortcut's first argument (title) is the kglobalaccel action's unique ID within
     # this script's component — two bindings sharing a title silently collide there (confirmed
     # live: only one "discord"-named action ever existed in kglobalaccel's allShortcutInfos()
@@ -119,14 +128,14 @@ def generate_hotkeys_js(config: dict) -> str:
     # (title included) as a starting point for editing — catching it here, at generation time,
     # turns a silently-broken-in-KWin hotkey into an immediate, readable save error instead.
     seen_titles = set()
-    for binding in bindings:
+    for binding in active:
         title = (binding.get("title") or "").strip()
         if title and title in seen_titles:
             raise ValueError(f"duplicate title {title!r} — each hotkey needs a unique title")
         seen_titles.add(title)
 
     parts = [GENERATED_HEADER, ""]
-    for binding in bindings:
+    for binding in active:
         parts.append(generate_binding_js(binding))
         parts.append("")
     return "\n".join(parts)

@@ -132,6 +132,37 @@ class GenerateHotkeysJsTestCase(unittest.TestCase):
         self.assertIn('"A"', js)
         self.assertIn('"B"', js)
 
+    def test_disabled_binding_produces_no_registershortcut(self):
+        js = generate_hotkeys_js({"bindings": [
+            {"type": "windowCycle", "title": "A", "key": "Ctrl+Alt+Shift+A", "resourceClass": "x", "enabled": False},
+        ]})
+        self.assertNotIn("registerShortcut", js)
+
+    def test_disabled_binding_can_be_incomplete_without_raising(self):
+        # A disabled binding is a draft, not something that will ever run — missing fields that
+        # would otherwise raise (see GenerateBindingJsTestCase above) shouldn't block saving it.
+        js = generate_hotkeys_js({"bindings": [
+            {"type": "tabFocus", "title": "Draft", "enabled": False},
+        ]})
+        self.assertNotIn("registerShortcut", js)
+
+    def test_disabled_binding_exempt_from_duplicate_title_check(self):
+        # Only bindings that actually get emitted can collide in kglobalaccel — a disabled
+        # binding sharing a title with an enabled (or another disabled) one is not a real
+        # collision, since at most one of them ever calls registerShortcut.
+        js = generate_hotkeys_js({"bindings": [
+            {"type": "windowCycle", "title": "A", "key": "Ctrl+Alt+Shift+A", "resourceClass": "x"},
+            {"type": "windowCycle", "title": "A", "key": "Ctrl+Alt+Shift+B", "resourceClass": "y", "enabled": False},
+        ]})
+        self.assertEqual(js.count("registerShortcut"), 1)
+
+    def test_missing_or_true_enabled_is_treated_as_enabled(self):
+        js = generate_hotkeys_js({"bindings": [
+            {"type": "windowCycle", "title": "A", "key": "Ctrl+Alt+Shift+A", "resourceClass": "x"},
+            {"type": "windowCycle", "title": "B", "key": "Ctrl+Alt+Shift+B", "resourceClass": "y", "enabled": True},
+        ]})
+        self.assertEqual(js.count("registerShortcut"), 2)
+
     def test_duplicate_title_raises(self):
         # registerShortcut's title is the kglobalaccel action ID — two bindings sharing one
         # silently collide in KWin (confirmed live: only one action ever gets registered, and
