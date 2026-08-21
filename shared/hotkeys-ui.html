@@ -321,6 +321,18 @@ document.getElementById("save").addEventListener("click", async () => {
   }
 });
 
+// Ctrl+S saves instead of opening the browser's "Save Page As" dialog — works from anywhere on
+// the page (document-level, not tied to one field's focus) except while the key-sequence
+// recorder (recordKeyField) has focus, where Ctrl+S needs to mean "record Ctrl+S as this
+// binding's key" instead; that field's own keydown handler already handles it, so this just gets
+// out of the way rather than double-handling the same keypress.
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "s") return;
+  if (document.activeElement && document.activeElement.readOnly) return;
+  e.preventDefault();
+  document.getElementById("save").click();
+});
+
 async function load() {
   try {
     const [profilesResult, configResult] = await Promise.all([
