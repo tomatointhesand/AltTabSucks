@@ -67,18 +67,27 @@
      lines (still grouped under the same binding, still readable) purely via flex-wrap — no
      JS resize handling needed. This matters once you have more than a handful of hotkeys;
      the old one-card-per-binding layout took a full screen for 3-4 entries. */
-  .binding { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 6px 10px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+  .binding { position: relative; display: flex; align-items: flex-end; flex-wrap: wrap; gap: 6px 10px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
   .field { display: flex; flex-direction: column; gap: 3px; flex: 1 1 110px; min-width: 90px; }
   .field label { font-size: 10px; margin-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .field.grow { flex: 2 1 170px; }
-  .field.fixed { flex: 0 0 auto; }
+  /* .field's min-width: 90px was meant for real labeled inputs — left un-reset here, every
+     icon-only fixed field (badge, dupe, remove) was silently padded out to 90px minimum even
+     though its content is a few px wide, wasting real width and contributing to the remove
+     button wrapping onto its own line on wider rows (tabFocus: 9 fields wide). */
+  .field.fixed { flex: 0 0 auto; min-width: 0; }
   .field.fixed select, .field.fixed input { width: auto; }
   .field.fixed select { min-width: 160px; }
   .badge-box { padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 600; color: var(--text-dim); text-align: center; min-width: 30px; }
   .remove-btn, .dupe-btn { padding: 6px 10px; font-size: 12px; }
+  /* Pinned to the card's corner instead of taking a flex slot in the row — it's chrome for
+     managing the list, not part of any binding's actual data, so it shouldn't compete with
+     Title/Key/resourceClass/etc. for the row's width. */
   .drag-handle {
-    padding: 7px 6px; font-size: 13px; line-height: 1; color: var(--text-dim); text-align: center;
-    cursor: grab; user-select: none; border-radius: 6px;
+    position: absolute; top: -1px; left: -1px;
+    padding: 2px 5px; font-size: 10px; line-height: 1.4; color: var(--text-dim);
+    cursor: grab; user-select: none; border-radius: 8px 0 6px 0;
+    background: var(--panel); border: 1px solid var(--border); border-top: none; border-left: none;
   }
   .drag-handle:hover { color: var(--text); background: var(--bg); }
   .drag-handle:active { cursor: grabbing; }
@@ -334,7 +343,7 @@ function renderBinding(binding, index) {
   const removeBtn = el("button", { class: "danger remove-btn", type: "button", title: "Remove this hotkey" }, ["✕"]);
   removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
 
-  card.appendChild(field(" ", dragHandle, "fixed"));
+  card.appendChild(dragHandle); // absolutely positioned — not a flex-flow field, see its CSS
   card.appendChild(field(" ", badgeBox, "fixed"));
   card.appendChild(field("Type", typeSelect, "fixed"));
   card.appendChild(textField("Title", "title", "Cycle Browser"));
