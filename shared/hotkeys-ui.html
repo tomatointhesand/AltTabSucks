@@ -75,7 +75,7 @@
   .field.fixed select, .field.fixed input { width: auto; }
   .field.fixed select { min-width: 160px; }
   .badge-box { padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 600; color: var(--text-dim); text-align: center; min-width: 30px; }
-  .remove-btn { padding: 6px 10px; font-size: 12px; }
+  .remove-btn, .dupe-btn { padding: 6px 10px; font-size: 12px; }
   .status { font-size: 13px; margin-top: 10px; min-height: 18px; }
   .status.ok { color: var(--ok); }
   .status.err { color: var(--err); }
@@ -251,6 +251,16 @@ function renderBinding(binding, index) {
 
   function profileField() {
     const select = el("select", {}, profileOptions(binding.profileName));
+    // A <select> with no option explicitly marked selected still shows its first option
+    // selected (plain browser default rendering) — that's what was happening whenever
+    // binding.profileName was empty: "Personal" *looked* chosen, but binding.profileName was
+    // never actually set to it (no "change" event fires just from that default rendering), so
+    // save sent an empty profileName and the server correctly rejected it. Sync state to
+    // match what's on screen right away instead of waiting for a change event that may never
+    // come if the first option happens to already be the one the user wants.
+    if (!binding.profileName && select.options.length) {
+      binding.profileName = select.options[select.selectedIndex].value;
+    }
     select.addEventListener("change", () => { binding.profileName = select.value; });
     return field("Profile", select, "fixed");
   }
@@ -271,6 +281,16 @@ function renderBinding(binding, index) {
     el("option", t === binding.type ? { value: t, selected: "" } : { value: t }, [TYPE_LABELS[t]])));
   typeSelect.addEventListener("change", () => { binding.type = typeSelect.value; renderAll(); });
 
+  const dupeBtn = el("button", { class: "dupe-btn", type: "button", title: "Duplicate this hotkey" }, ["Dup"]);
+  dupeBtn.addEventListener("click", () => {
+    // Deep-clone (JSON round-trip is enough here — bindings are plain JSON-shaped objects,
+    // launchArgv/urlPatterns arrays included) and insert right after the original, so
+    // duplicating similar hotkeys (same type/resourceClass, different title/key/URL) means
+    // editing a copy instead of re-picking every field from scratch.
+    bindings.splice(index + 1, 0, JSON.parse(JSON.stringify(binding)));
+    renderAll();
+  });
+
   const removeBtn = el("button", { class: "danger remove-btn", type: "button", title: "Remove this hotkey" }, ["✕"]);
   removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
 
@@ -290,6 +310,7 @@ function renderBinding(binding, index) {
     card.appendChild(textField("Open URL (if no match)", "openUrl", "https://mail.google.com", "grow"));
   }
 
+  card.appendChild(field(" ", dupeBtn, "fixed"));
   card.appendChild(field(" ", removeBtn, "fixed"));
   return card;
 }
