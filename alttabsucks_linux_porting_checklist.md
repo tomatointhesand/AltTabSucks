@@ -307,17 +307,18 @@ be approached differently than the Windows version was.
         `GetWindowActiveTitle` for that exact windowId returned a real non-empty title, and
         `QueueSwitchTab` targeted that same windowId — the window that gets raised (by matching
         that title) is now provably the same one whose tab is being switched, not a coincidence.
-  - [x] **`focusTab` cycling ignored whether you were already on a match — two rounds, second
-        one was the actual fix** (same shape as both investigations above: round 1 verified fine
-        against the exact reported case, round 2 found what it broke). A separate bug from the
-        window-raising ones above, in the *tab selection* logic rather than window activation.
-        `_focusTabIdx[cacheKey]` only reset to 0 on `arrivedFromOutside` (you weren't in this
-        browser's resourceClass at all a moment ago); otherwise it kept advancing from wherever it
-        last left off, with no check for whether the *currently showing* tab already satisfied the
-        hotkey. Reported case: several tabs match `youtube.com` in the same window, you're already
-        looking at one of them (not because you just cycled here with this same hotkey — maybe
-        hours earlier, maybe a different route entirely), press "Focus YouTube" once, and it jumps
-        to a *different* matching tab instead of staying, purely because the stale counter wasn't 0.
+  - [x] **`focusTab` cycling ignored whether you were already on a match — three rounds, third
+        one was the actual fix** (same shape as every investigation above: each round verified
+        fine against the exact reported case, and each next round found what it broke). A
+        separate bug from the window-raising ones above, in the *tab selection* logic rather than
+        window activation. `_focusTabIdx[cacheKey]` only reset to 0 on `arrivedFromOutside` (you
+        weren't in this browser's resourceClass at all a moment ago); otherwise it kept advancing
+        from wherever it last left off, with no check for whether the *currently showing* tab
+        already satisfied the hotkey. Reported case: several tabs match `youtube.com` in the same
+        window, you're already looking at one of them (not because you just cycled here with this
+        same hotkey — maybe hours earlier, maybe a different route entirely), press "Focus
+        YouTube" once, and it jumps to a *different* matching tab instead of staying, purely
+        because the stale counter wasn't 0.
         - **Round 1**: `FindTab`'s D-Bus variant grew a third field again — the matched tab's own
           title, for a genuinely different purpose than the earlier window-raising mistake:
           main.js compared it against `workspace.activeWindow.caption` as it already is,
@@ -332,17 +333,29 @@ be approached differently than the Windows version was.
           once, since that's now what's on screen — round 1 had no way to tell "you're here
           because you just arrived" from "you're here because you pressed this same hotkey a
           moment ago and want the next one." Both look identical from a bare
-          currently-showing-a-match check. Real fix: track *which* `{windowId, tabId}` this
-          hotkey itself last switched to (`_focusTabLast`, replacing the bare-index
-          `_focusTabIdx`), not just an index. If the tab currently showing is exactly the one this
-          hotkey put there last time, that's a deliberate repeat press — advance to the next
-          match. If it's showing for any other reason (fresh arrival, stale/no prior state,
-          something else changed tabs), stay — it already satisfies the goal on its own.
-        Verified round 2 live via `dbus-monitor` with the same two-YouTube-tab scenario, three
-        presses in a row: press 1 stayed on the already-active tab (fresh state, nothing recorded
-        yet — confirms round 1's fix still holds), press 2 correctly cycled to the second tab
-        (deliberate repeat, now working again), press 3 wrapped back to the first (cycling
-        continues normally past two matches).
+          currently-showing-a-match check. Fix: track *which* `{windowId, tabId}` this hotkey
+          itself last switched to (`_focusTabLast`, replacing the bare-index `_focusTabIdx`), not
+          just an index — if the tab currently showing is exactly the one this hotkey put there
+          last time, treat it as a deliberate repeat and advance; otherwise stay. Verified live via
+          `dbus-monitor`, three presses in a row: stay (fresh) → cycle (repeat) → wrap around.
+        - **Round 3**: the user reported cycling-vs-staying regressed again — landing on the
+          correct tab could still trigger an unwanted cycle. Root cause: identity alone (`{windowId,
+          tabId}` matches the last pick) doesn't prove *this* press is a deliberate repeat — you
+          can land back on the exact tab this hotkey picked last time through some *other* route
+          entirely (cycled to that browser window with a different hotkey, switched by hand, ...),
+          arbitrarily long after the fact, and it reads identically to "still actively repeating."
+          Same mistake as round 1, one level narrower: identity-without-recency instead of
+          presence-without-ownership. Fix: `_focusTabLast` entries now carry a timestamp too
+          (`tick`), and "deliberate repeat" additionally requires that pick to be recent
+          (`FOCUS_TAB_REPEAT_WINDOW_MS`, 2000ms — mirrors the cooldown `lib/chromium.ahk`'s own
+          `FocusTab` already uses for a related purpose, `_focusTabOpenedAt`, not a new arbitrary
+          number). Same recency-window shape as the toast daemon's rainbow-cycling
+          (`toast_colors.RAINBOW_CONTINUE_WINDOW_MS`) solving the identical class of problem there.
+          Verified live via `dbus-monitor`: pressed once (landed on tab A), waited 3s (past the
+          window) with tab A still showing, pressed again — stayed on A (proving the stale pick no
+          longer reads as a repeat) — then immediately pressed a third time (<2s later) — correctly
+          cycled to tab B (proving genuine rapid repeats still work). Both requirements verified
+          holding simultaneously in one sequence, not just separately.
   - [x] **Drag-handle reordering** — a small `⋮⋮` handle pinned to each row's corner (not a flex
         field — would've stolen row width from Title/Key/etc., which is also what a `.field.fixed`
         `min-width: 90px` leak was independently doing to the badge/Dup/Remove buttons, fixed in

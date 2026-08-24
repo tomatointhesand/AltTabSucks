@@ -280,7 +280,17 @@ function waitAndActivateProfile(resourceClass, profileName, deadline) {
 //     still loading (AHK's _focusTabOpenedAt map) — would need a per-hotkey QTimer-based
 //     equivalent; not yet added.
 //   - No _ServerHasAnyTabData() fallback distinction, same caveat as cycleChromiumProfile above.
-var _focusTabLast = {}; // "profile:patternKey" -> {windowId, tabId} we ourselves last switched to
+var _focusTabLast = {}; // "profile:patternKey" -> {windowId, tabId, tick} we ourselves last switched to
+// Same identity-isn't-enough problem the toast daemon's rainbow-cycling already solved with a
+// recency window (see toast_colors.py's RAINBOW_CONTINUE_WINDOW_MS): landing on the exact tab
+// this hotkey last picked doesn't by itself prove *this* press is a deliberate repeat — you could
+// just as easily have gotten back to that same tab some *other* way (cycled to that browser
+// window with a different hotkey, switched to it by hand, ...) long after the fact, with no
+// intention of cycling. Bounding "is this our own last pick" by how recently we picked it is what
+// tells "you're still actively repeating this hotkey" apart from "you happen to be on the tab we
+// put you on a while ago" — 2s mirrors the cooldown lib/chromium.ahk's own FocusTab uses for a
+// related purpose (_focusTabOpenedAt, duplicate-tab prevention), not an arbitrary new constant.
+var FOCUS_TAB_REPEAT_WINDOW_MS = 2000;
 
 // Position of a {windowId, tabId} within a parsed FindTab result, or -1 if it's not there
 // (closed since, or nothing recorded yet).
@@ -333,26 +343,35 @@ function focusTab(resourceClass, profileName, urlPatterns, openUrl) {
             if (currentIdx !== -1) {
                 // Showing a match — but "stay" and "cycle to next" look identical from here
                 // unless we know *why* it's showing. If it's the exact tab *we* switched to on
-                // our own last invocation of this same hotkey, this is a deliberate repeat press
-                // asking for the next one — advance. Otherwise (fresh arrival some other way, or
-                // stale/no state from an unrelated earlier press) it already satisfies the
-                // hotkey's goal on its own — stay, don't disturb it. Without this distinction, an
-                // earlier fix for "landing on a match jumped away from it" ended up breaking
-                // *all* cycling instead, since after the first switch you're always "currently
-                // showing a match" — every subsequent press would stay forever with no way to
-                // ever reach a second match.
+                // our own last invocation of this same hotkey, *recently*, this is a deliberate
+                // repeat press asking for the next one — advance. Otherwise (fresh arrival some
+                // other way, or a stale/no-longer-relevant pick from an earlier press) it already
+                // satisfies the hotkey's goal on its own — stay, don't disturb it.
+                //
+                // The recency bound matters on its own, not just the identity check: without it,
+                // landing back on the exact tab this hotkey happened to pick the *last* time it
+                // ran — via some unrelated route, possibly long after, e.g. cycling to this same
+                // browser window with a different hotkey — reads identically to a genuine repeat
+                // press, and gets cycled away from instead of left alone. (An earlier version of
+                // this fix had no recency bound at all and just checked "is any match showing" —
+                // that broke cycling entirely, since after the first switch you're always
+                // "currently showing a match"; identity-without-recency is the narrower version
+                // of that same mistake.)
                 var isOwnLastPick = last && parsed[currentIdx].windowId === last.windowId
-                    && parsed[currentIdx].tabId === last.tabId;
+                    && parsed[currentIdx].tabId === last.tabId
+                    && (Date.now() - last.tick) < FOCUS_TAB_REPEAT_WINDOW_MS;
                 idx = isOwnLastPick ? (currentIdx + 1) % parsed.length : currentIdx;
             } else {
                 // Not currently on any match at all (in the browser, but on an unrelated tab) —
                 // pick up from wherever we last left off within the *current* match set, same
-                // fallback cycling as before this whole investigation started.
+                // fallback cycling as before this whole investigation started. No recency bound
+                // here: there's no "already correct" ambiguity to guard against when nothing
+                // currently showing is a match at all.
                 var lastIdx = findTabIndex(parsed, last);
                 idx = lastIdx === -1 ? 0 : (lastIdx + 1) % parsed.length;
             }
         }
-        _focusTabLast[cacheKey] = { windowId: parsed[idx].windowId, tabId: parsed[idx].tabId };
+        _focusTabLast[cacheKey] = { windowId: parsed[idx].windowId, tabId: parsed[idx].tabId, tick: Date.now() };
 
         var parts = parsed[idx];
         // Explicitly raise the *specific* window containing this tab rather than trusting
