@@ -307,18 +307,28 @@ function focusTab(resourceClass, profileName, urlPatterns, openUrl) {
         _focusTabIdx[cacheKey] = idx + 1;
 
         var parts = parseTabLine(matchLines[idx]);
-        // Explicitly raise the *specific* window containing this tab (matched by caption against
-        // its title — once QueueSwitchTab makes it active, its title becomes that window's
-        // caption, same technique cycleChromiumProfile/GetActiveTitles already use) rather than
-        // trusting chrome.windows.update({focused: true}) (triggered by the extension once it
-        // dequeues /switchtab) to do it alone — a Wayland client generally can't force itself to
-        // the front; only the compositor can, which is exactly why this is a KWin script and not
-        // just a browser extension. This used to call activateAnyWindow() — *any* window of this
+        // Explicitly raise the *specific* window containing this tab rather than trusting
+        // chrome.windows.update({focused: true}) (triggered by the extension once it dequeues
+        // /switchtab) to do it alone — a Wayland client generally can't force itself to the
+        // front; only the compositor can, which is exactly why this is a KWin script and not just
+        // a browser extension. This used to call activateAnyWindow() — *any* window of this
         // browser, not necessarily the one with the matched tab — which looked fine with a single
         // browser window open but was a real reported bug with several: it raised some other
         // window and left the actual target's tab silently switched in the background.
-        activateWindowForTab(resourceClass, parts.title, profileName);
-        bridgeCall("QueueSwitchTab", [profileName, parts.windowId, parts.tabId], function () {});
+        //
+        // Matching by *this* tab's own title (a first attempt) was also wrong, just less
+        // obviously: it only works when the matched tab already happens to be the one currently
+        // showing in its window, since that's the only case where its title is what the window's
+        // caption currently reads. Confirmed exactly this way — worked for Gmail (coincidentally
+        // already the active tab), silently fell back to "any window" for YouTube (wasn't).
+        // GetWindowActiveTitle asks for the window's *actual current* active-tab title instead —
+        // reliable regardless of which tab within it got matched — then activateWindowForTab
+        // matches window caption against that, same technique cycleChromiumProfile/
+        // GetActiveTitles already use elsewhere.
+        bridgeCall("GetWindowActiveTitle", [profileName, parts.windowId], function (activeTitle) {
+            activateWindowForTab(resourceClass, activeTitle, profileName);
+            bridgeCall("QueueSwitchTab", [profileName, parts.windowId, parts.tabId], function () {});
+        });
     });
 }
 
@@ -338,15 +348,12 @@ function findTabAcrossPatterns(profileName, patterns, i, acc, seen, done) {
     });
 }
 
-// FindTab's D-Bus result is "windowId|tabId|title" per line (see dbus_bridge.py's FindTab
-// docstring) — title last and unsplit, since a page title can itself contain "|".
+// FindTab's result is "windowId|tabId" per line.
 function parseTabLine(line) {
-    var p1 = line.indexOf("|");
-    var p2 = line.indexOf("|", p1 + 1);
+    var pipe = line.indexOf("|");
     return {
-        windowId: parseInt(line.slice(0, p1), 10),
-        tabId: parseInt(line.slice(p1 + 1, p2), 10),
-        title: line.slice(p2 + 1),
+        windowId: parseInt(line.slice(0, pipe), 10),
+        tabId: parseInt(line.slice(pipe + 1), 10),
     };
 }
 
@@ -355,11 +362,13 @@ function activateAnyWindow(resourceClass, toastLabel) {
     if (w) activateWindow(w, toastLabel);
 }
 
-// Like activateAnyWindow, but targets the *specific* window whose caption matches the given tab
+// Like activateAnyWindow, but targets the *specific* window whose caption matches the given
 // title instead of just grabbing the first one — see the comment at focusTab's call site for why
-// that distinction is a real bug fix, not a nicety. Falls back to activateAnyWindow's "any
-// window" behavior when there's no title to match (e.g. a just-opened tab with no title yet) or
-// nothing matches it, rather than activating nothing at all.
+// that distinction is a real bug fix, not a nicety, and why the title passed in needs to be the
+// target window's *currently active* tab's title (from GetWindowActiveTitle), not the matched
+// tab's own title. Falls back to activateAnyWindow's "any window" behavior when there's no title
+// to match (e.g. a just-opened window with no active tab reported yet) or nothing matches it,
+// rather than activating nothing at all.
 function activateWindowForTab(resourceClass, title, toastLabel) {
     var candidates = listBrowserWindows(resourceClass);
     var target = null;
@@ -415,11 +424,14 @@ function waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, de
     findTabAcrossPatterns(profileName, cleanPatterns, 0, [], {}, function (matchLines) {
         if (matchLines.length > 0) {
             var parts = parseTabLine(matchLines[0]);
-            // Specific window, same as focusTab's main match branch — a session-restored tab
-            // found in a freshly-launched profile can still land in the wrong window if more
-            // than one was already open for other profiles/reasons.
-            activateWindowForTab(resourceClass, parts.title, profileName);
-            bridgeCall("QueueSwitchTab", [profileName, parts.windowId, parts.tabId], function () {});
+            // Specific window, same as focusTab's main match branch (see its comment for why
+            // this needs GetWindowActiveTitle rather than the matched tab's own title) — a
+            // session-restored tab found in a freshly-launched profile can still land in the
+            // wrong window if more than one was already open for other profiles/reasons.
+            bridgeCall("GetWindowActiveTitle", [profileName, parts.windowId], function (activeTitle) {
+                activateWindowForTab(resourceClass, activeTitle, profileName);
+                bridgeCall("QueueSwitchTab", [profileName, parts.windowId, parts.tabId], function () {});
+            });
             return;
         }
         if (Date.now() < deadline) {

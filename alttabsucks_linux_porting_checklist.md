@@ -266,28 +266,47 @@ be approached differently than the Windows version was.
         `kglobalaccel.invokeShortcut`, confirmed via a one-off KWin script probe that
         `workspace.activeWindow` actually flipped from `discord` to `brave-browser` on the
         correct Gmail tab.
-  - [x] **That fix was still wrong with more than one browser window open** — `activateAnyWindow`
-        raises *any* window of the resourceClass (`listBrowserWindows(resourceClass)[0]`, first in
+  - [x] **That fix was still wrong with more than one browser window open — two rounds, second
+        one was the actual fix** (same shape as the earlier hang investigation: round 1 looked
+        right and verified fine, round 2 found the real problem). `activateAnyWindow` raises *any*
+        window of the resourceClass (`listBrowserWindows(resourceClass)[0]`, first in
         `workspace.stackingOrder`), not necessarily the one the matched tab is actually in. Fine
         by luck with a single browser window, a real reported bug with several: "Focus Gmail"
         raised some unrelated window while the Gmail tab switched silently in the background.
-        Fixed by giving `dbus_bridge.py`'s `FindTab` (the D-Bus variant only — not the `GET
-        /findtab` HTTP endpoint Windows AHK parses, no reason to touch that) a third
-        pipe-separated field carrying the tab's title (`windowId|tabId|title`, title last and
-        unsplit since a page title can itself contain `|`), and adding `activateWindowForTab()` to
-        `main.js` — matches window caption against that title, same technique
-        `cycleChromiumProfile`/`GetActiveTitles` already use, falling back to `activateAnyWindow`'s
-        old any-window behavior only when there's no title to match (freshly-opened tab, or a
-        genuinely title-less fallback path like `waitForTabOrOpen`'s post-timeout branch, which
-        legitimately has no specific tab to target). Wired into both `focusTab`'s main match branch
-        and `waitForTabOrOpen`'s tab-found branch — the two places that used to call
-        `activateAnyWindow` with an actual tab in hand.
-        Verified live and rigorously, not just plausibly: with 3 real Brave windows open (Gmail,
-        the hotkeys-ui page, a GPU dashboard), forced a *different* one active, captured via a
-        probe exactly which window the *old* logic would have picked
-        (`listBrowserWindows("brave-browser")[0]` — confirmed to be neither the active one nor
-        Gmail, i.e. definitely wrong), then invoked the real "Gmail" hotkey and confirmed
-        `workspace.activeWindow` came out as the actual Gmail window, not the old code's answer.
+        - **Round 1**: gave `dbus_bridge.py`'s `FindTab` (D-Bus variant only — not the `GET
+          /findtab` HTTP endpoint Windows AHK parses, no reason to touch that) a third field
+          carrying the *matched tab's own* title (`windowId|tabId|title`), and added
+          `activateWindowForTab()` to `main.js` to match window caption against it. Verified live
+          with 3 real Brave windows open (Gmail, hotkeys-ui, a GPU dashboard): forced a different
+          one active, captured via a probe exactly which window the *old* logic would have picked
+          (confirmed wrong), invoked "Gmail" for real, confirmed the actual Gmail window came out
+          on top. Looked like a complete fix.
+        - **Round 2**: the user reported Gmail now worked but YouTube — same function, same fix —
+          still raised the wrong window. Root cause: matching against the *matched* tab's own
+          title only works when that tab already happens to be the one currently showing in its
+          window, since that's the only case where its title is what the window's caption
+          currently reads. It coincidentally was for Gmail (already the active tab) and wasn't for
+          YouTube (a background tab in a window showing something else) — the "fix" only ever
+          worked by luck, same as the bug it replaced. Real fix: reverted `FindTab` back to plain
+          `windowId|tabId` and added `GetWindowActiveTitle(profile, windowId)` — the *window's*
+          currently active tab's title (mirrors `GetActiveTitles` but scoped to one windowId),
+          which reliably matches that window's actual current caption regardless of which tab
+          within it got matched. `focusTab`/`waitForTabOrOpen` now call this before
+          `activateWindowForTab`, adding one more chained `bridgeCall` to the sequence.
+        - **Observability note for future debugging in this environment**: partway through
+          verifying round 2, `kwin_wayland`'s `print()` output stopped reaching `journalctl`
+          entirely (system-wide, `_PID=2170` included) — not a code regression, cause undetermined
+          (journald rate-limiting from this session's cumulative probe-script volume was suspected
+          but its config is default/unset, so unconfirmed), and it didn't recover on its own
+          within the session. `dbus-monitor` filtered to the relevant service names/methods still
+          works perfectly and doesn't depend on `kwin_wayland`'s own logging at all — use that
+          first if `print()`-via-`journalctl` goes quiet again, rather than assuming the script
+          itself broke.
+        Verified round 2 live via `dbus-monitor` (not `print()`/`journalctl`, per the note above):
+        watched the real "Youtube" hotkey fire, confirmed `FindTab` matched tabs in one window,
+        `GetWindowActiveTitle` for that exact windowId returned a real non-empty title, and
+        `QueueSwitchTab` targeted that same windowId — the window that gets raised (by matching
+        that title) is now provably the same one whose tab is being switched, not a coincidence.
   - [x] **Drag-handle reordering** — a small `⋮⋮` handle pinned to each row's corner (not a flex
         field — would've stolen row width from Title/Key/etc., which is also what a `.field.fixed`
         `min-width: 90px` leak was independently doing to the badge/Dup/Remove buttons, fixed in
