@@ -61,14 +61,26 @@ class Bridge(dbus.service.Object):
 
     @dbus.service.method(INTERFACE, in_signature="ss", out_signature="s")
     def FindTab(self, profile, url_pattern):
-        # Mirrors GET /findtab: substring match, micActive -> audible -> leftmost sort.
+        # Mirrors GET /findtab (substring match, micActive -> audible -> leftmost sort) with one
+        # deliberate difference: each line also carries the tab's title (windowId|tabId|title,
+        # title last and unsplit so an embedded "|" in a page title can't be mistaken for a field
+        # separator). GET /findtab itself is untouched — Windows AHK has no use for it there.
+        #
+        # This is *not* the same title use that caused a real bug two commits ago (matching
+        # window caption against the *matched* tab's title to decide which window to raise —
+        # wrong, because the matched tab isn't necessarily the one currently showing). Here
+        # main.js compares this title against workspace.activeWindow.caption *as it already is
+        # right now*, synchronously, before anything is switched — a check of present state
+        # ("is one of the matches already what's on screen"), not a prediction of future state.
+        # It's what makes repeated focusTab presses stay put on an already-showing match instead
+        # of always advancing a stale cycle counter regardless of what's actually on screen.
         windows = self._state.store.get(str(profile), [])
         found = []
         for w in windows:
             for tab in w.get("tabs", []):
                 if str(url_pattern) in (tab.get("url") or ""):
                     found.append({
-                        "line": f"{w.get('id')}|{tab.get('id')}",
+                        "line": f"{w.get('id')}|{tab.get('id')}|{tab.get('title') or ''}",
                         "micActive": bool(tab.get("micActive")),
                         "audible": bool(tab.get("audible")),
                         "index": int(tab.get("index", 0)),

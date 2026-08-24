@@ -292,6 +292,10 @@ function focusTab(resourceClass, profileName, urlPatterns, openUrl) {
     // activates the target window itself via chrome.windows.update), kept faithful rather than
     // assuming that holds without verifying it.
     var arrivedFromOutside = !(workspace.activeWindow && workspace.activeWindow.resourceClass === resourceClass);
+    // Captured before the pre-activation step below can change workspace.activeWindow, and only
+    // meaningful when !arrivedFromOutside anyway (if we arrived from outside the browser
+    // entirely, there's no sense in which we could already be "on" one of the matches).
+    var currentCaption = (!arrivedFromOutside && workspace.activeWindow) ? workspace.activeWindow.caption : "";
     if (arrivedFromOutside) {
         var anyWindow = listBrowserWindows(resourceClass)[0];
         if (anyWindow) activateWindow(anyWindow);
@@ -302,11 +306,32 @@ function focusTab(resourceClass, profileName, urlPatterns, openUrl) {
             openOrLaunchTab(resourceClass, profileName, cleanPatterns, openUrl);
             return;
         }
-        if (arrivedFromOutside) _focusTabIdx[cacheKey] = 0;
-        var idx = (_focusTabIdx[cacheKey] || 0) % matchLines.length;
+        var parsed = matchLines.map(parseTabLine);
+        var idx;
+        if (arrivedFromOutside) {
+            idx = 0;
+        } else {
+            // Prefer staying on a match that's already the front-and-center tab right now over
+            // blindly advancing _focusTabIdx's stale counter — e.g. several tabs match "youtube.
+            // com", you're already looking at one of them (not because you just cycled here with
+            // this same hotkey), and press it again: without this check, the stale counter from
+            // whenever it was last used would jump to some *other* match instead of staying put.
+            // Only relevant here, not the arrivedFromOutside branch above — you can't already be
+            // "on" a match if you weren't even in the browser a moment ago.
+            var alreadyShowingIdx = -1;
+            for (var k = 0; k < parsed.length; k++) {
+                if (parsed[k].title && currentCaption.indexOf(parsed[k].title) !== -1) {
+                    alreadyShowingIdx = k;
+                    break;
+                }
+            }
+            idx = alreadyShowingIdx !== -1 ? alreadyShowingIdx : (_focusTabIdx[cacheKey] || 0) % matchLines.length;
+        }
+        // Advances from wherever we actually land (the already-showing match, if any — not
+        // necessarily index 0) so a deliberate repeat press still cycles forward from there.
         _focusTabIdx[cacheKey] = idx + 1;
 
-        var parts = parseTabLine(matchLines[idx]);
+        var parts = parsed[idx];
         // Explicitly raise the *specific* window containing this tab rather than trusting
         // chrome.windows.update({focused: true}) (triggered by the extension once it dequeues
         // /switchtab) to do it alone — a Wayland client generally can't force itself to the
@@ -348,12 +373,16 @@ function findTabAcrossPatterns(profileName, patterns, i, acc, seen, done) {
     });
 }
 
-// FindTab's result is "windowId|tabId" per line.
+// FindTab's result is "windowId|tabId|title" per line (see dbus_bridge.py's FindTab docstring
+// for what the title is/isn't used for) — title last and unsplit, since a page title can itself
+// contain "|".
 function parseTabLine(line) {
-    var pipe = line.indexOf("|");
+    var p1 = line.indexOf("|");
+    var p2 = line.indexOf("|", p1 + 1);
     return {
-        windowId: parseInt(line.slice(0, pipe), 10),
-        tabId: parseInt(line.slice(pipe + 1), 10),
+        windowId: parseInt(line.slice(0, p1), 10),
+        tabId: parseInt(line.slice(p1 + 1, p2), 10),
+        title: line.slice(p2 + 1),
     };
 }
 

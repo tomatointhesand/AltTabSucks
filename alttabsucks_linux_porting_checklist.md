@@ -307,6 +307,27 @@ be approached differently than the Windows version was.
         `GetWindowActiveTitle` for that exact windowId returned a real non-empty title, and
         `QueueSwitchTab` targeted that same windowId — the window that gets raised (by matching
         that title) is now provably the same one whose tab is being switched, not a coincidence.
+  - [x] **`focusTab` cycling ignored whether you were already on a match** — a separate bug from
+        the window-raising ones above, in the *tab selection* logic rather than window activation.
+        `_focusTabIdx[cacheKey]` only resets to 0 on `arrivedFromOutside` (you weren't in this
+        browser's resourceClass at all a moment ago); otherwise it keeps advancing from wherever
+        it last left off, with no check for whether the *currently showing* tab already satisfies
+        the hotkey. Reported case: several tabs match `youtube.com` in the same window, you're
+        already looking at one of them (not because you just cycled here with this same hotkey —
+        maybe hours earlier, maybe a different route entirely), press "Focus YouTube" once, and it
+        jumps to a *different* matching tab instead of staying, purely because the stale counter
+        wasn't 0. `FindTab`'s D-Bus variant grew a third field again — the matched tab's own title
+        — but for a genuinely different, correct purpose than the round-1 mistake above: main.js
+        compares it against `workspace.activeWindow.caption` as it already is, synchronously,
+        before anything is touched (a check of present state, not a prediction of future state).
+        If any match is already showing, `focusTab` stays on it and advances the counter *from*
+        that index (so a deliberate next press still cycles forward normally) instead of
+        consulting the stale counter at all. Verified live via `dbus-monitor`, and specifically
+        confirmed with a real two-tab scenario in one window (one YouTube tab active, a second
+        YouTube tab present but not showing) that pressing the hotkey *twice in a row* keeps
+        `QueueSwitchTab` targeting the same already-active tab both times — a single-press check
+        wouldn't have distinguished the fix from the bug, since sort order already happens to put
+        the active tab first on a cold press.
   - [x] **Drag-handle reordering** — a small `⋮⋮` handle pinned to each row's corner (not a flex
         field — would've stolen row width from Title/Key/etc., which is also what a `.field.fixed`
         `min-width: 90px` leak was independently doing to the badge/Dup/Remove buttons, fixed in
