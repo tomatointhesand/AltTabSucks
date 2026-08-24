@@ -61,14 +61,25 @@ class Bridge(dbus.service.Object):
 
     @dbus.service.method(INTERFACE, in_signature="ss", out_signature="s")
     def FindTab(self, profile, url_pattern):
-        # Mirrors GET /findtab: substring match, micActive -> audible -> leftmost sort.
+        # Mirrors GET /findtab (substring match, micActive -> audible -> leftmost sort) with one
+        # deliberate difference: each line also carries the tab's title (windowId|tabId|title,
+        # title last and unsplit so an embedded "|" in a page title can't be mistaken for a field
+        # separator). GET /findtab itself is untouched — Windows AHK parses that HTTP response and
+        # has no use for the title (chrome.windows.update reliably raises the right window there),
+        # so changing its format isn't safe/necessary. Here on Linux it's the fix for a real bug:
+        # main.js used to activateAnyWindow() after a match — literally *any* window of this
+        # browser, not the one the matched tab is actually in — because chrome.windows.update
+        # can't be trusted to raise the right window under Wayland the way it can on Windows. The
+        # title lets main.js's activateWindowForTab() find the *specific* window by caption match
+        # (once QueueSwitchTab makes this tab active, its title becomes that window's caption),
+        # the same technique cycleChromiumProfile/GetActiveTitles already use elsewhere.
         windows = self._state.store.get(str(profile), [])
         found = []
         for w in windows:
             for tab in w.get("tabs", []):
                 if str(url_pattern) in (tab.get("url") or ""):
                     found.append({
-                        "line": f"{w.get('id')}|{tab.get('id')}",
+                        "line": f"{w.get('id')}|{tab.get('id')}|{tab.get('title') or ''}",
                         "micActive": bool(tab.get("micActive")),
                         "audible": bool(tab.get("audible")),
                         "index": int(tab.get("index", 0)),

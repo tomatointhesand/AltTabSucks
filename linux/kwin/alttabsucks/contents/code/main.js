@@ -306,20 +306,19 @@ function focusTab(resourceClass, profileName, urlPatterns, openUrl) {
         var idx = (_focusTabIdx[cacheKey] || 0) % matchLines.length;
         _focusTabIdx[cacheKey] = idx + 1;
 
-        var parts = matchLines[idx].split("|");
-        // Explicitly raise the window here rather than trusting chrome.windows.update({focused:
-        // true}) (triggered by the extension once it dequeues /switchtab) to do it alone — a
-        // Wayland client generally can't force itself to the front; only the compositor can,
-        // which is exactly why this is a KWin script and not just a browser extension. This was
-        // the one focusTab path missing that raise (waitForTabOrOpen and openOrLaunchTab's
-        // existing-window branch both already do it) — the common case of an already-open
-        // matching tab, silently relying on the extension alone and (per report) not actually
-        // coming to the front. Same activateAnyWindow(resourceClass) simplification as those
-        // other call sites: picks *a* window of this browser, not necessarily the exact one
-        // containing the matched tab when several are open — acceptable in the common single-
-        // window case, noted rather than silently assumed correct.
-        activateAnyWindow(resourceClass, profileName);
-        bridgeCall("QueueSwitchTab", [profileName, parseInt(parts[0], 10), parseInt(parts[1], 10)], function () {});
+        var parts = parseTabLine(matchLines[idx]);
+        // Explicitly raise the *specific* window containing this tab (matched by caption against
+        // its title — once QueueSwitchTab makes it active, its title becomes that window's
+        // caption, same technique cycleChromiumProfile/GetActiveTitles already use) rather than
+        // trusting chrome.windows.update({focused: true}) (triggered by the extension once it
+        // dequeues /switchtab) to do it alone — a Wayland client generally can't force itself to
+        // the front; only the compositor can, which is exactly why this is a KWin script and not
+        // just a browser extension. This used to call activateAnyWindow() — *any* window of this
+        // browser, not necessarily the one with the matched tab — which looked fine with a single
+        // browser window open but was a real reported bug with several: it raised some other
+        // window and left the actual target's tab silently switched in the background.
+        activateWindowForTab(resourceClass, parts.title, profileName);
+        bridgeCall("QueueSwitchTab", [profileName, parts.windowId, parts.tabId], function () {});
     });
 }
 
@@ -339,9 +338,38 @@ function findTabAcrossPatterns(profileName, patterns, i, acc, seen, done) {
     });
 }
 
+// FindTab's D-Bus result is "windowId|tabId|title" per line (see dbus_bridge.py's FindTab
+// docstring) — title last and unsplit, since a page title can itself contain "|".
+function parseTabLine(line) {
+    var p1 = line.indexOf("|");
+    var p2 = line.indexOf("|", p1 + 1);
+    return {
+        windowId: parseInt(line.slice(0, p1), 10),
+        tabId: parseInt(line.slice(p1 + 1, p2), 10),
+        title: line.slice(p2 + 1),
+    };
+}
+
 function activateAnyWindow(resourceClass, toastLabel) {
     var w = listBrowserWindows(resourceClass)[0];
     if (w) activateWindow(w, toastLabel);
+}
+
+// Like activateAnyWindow, but targets the *specific* window whose caption matches the given tab
+// title instead of just grabbing the first one — see the comment at focusTab's call site for why
+// that distinction is a real bug fix, not a nicety. Falls back to activateAnyWindow's "any
+// window" behavior when there's no title to match (e.g. a just-opened tab with no title yet) or
+// nothing matches it, rather than activating nothing at all.
+function activateWindowForTab(resourceClass, title, toastLabel) {
+    var candidates = listBrowserWindows(resourceClass);
+    var target = null;
+    if (title) {
+        for (var i = 0; i < candidates.length; i++) {
+            if (candidates[i].caption.indexOf(title) !== -1) { target = candidates[i]; break; }
+        }
+    }
+    if (!target) target = candidates[0];
+    if (target) activateWindow(target, toastLabel);
 }
 
 // No matching tab in an already-open window — open openUrl in an existing window for this
@@ -386,15 +414,21 @@ function openOrLaunchTab(resourceClass, profileName, cleanPatterns, openUrl) {
 function waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, deadline) {
     findTabAcrossPatterns(profileName, cleanPatterns, 0, [], {}, function (matchLines) {
         if (matchLines.length > 0) {
-            var parts = matchLines[0].split("|");
-            activateAnyWindow(resourceClass, profileName);
-            bridgeCall("QueueSwitchTab", [profileName, parseInt(parts[0], 10), parseInt(parts[1], 10)], function () {});
+            var parts = parseTabLine(matchLines[0]);
+            // Specific window, same as focusTab's main match branch — a session-restored tab
+            // found in a freshly-launched profile can still land in the wrong window if more
+            // than one was already open for other profiles/reasons.
+            activateWindowForTab(resourceClass, parts.title, profileName);
+            bridgeCall("QueueSwitchTab", [profileName, parts.windowId, parts.tabId], function () {});
             return;
         }
         if (Date.now() < deadline) {
             afterDelay(500, function () { waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, deadline); });
             return;
         }
+        // No specific tab to target here — falling back to opening openUrl as a brand new tab,
+        // so there's no title yet to match a window by. activateAnyWindow's plain "any window"
+        // behavior is the correct fallback, not a shortcut.
         activateAnyWindow(resourceClass, profileName);
         bridgeCall("QueueSwitchOpenUrl", [profileName, openUrl], function () {});
     });
