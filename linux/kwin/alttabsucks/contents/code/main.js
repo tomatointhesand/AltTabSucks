@@ -280,7 +280,17 @@ function waitAndActivateProfile(resourceClass, profileName, deadline) {
 //     still loading (AHK's _focusTabOpenedAt map) — would need a per-hotkey QTimer-based
 //     equivalent; not yet added.
 //   - No _ServerHasAnyTabData() fallback distinction, same caveat as cycleChromiumProfile above.
-var _focusTabIdx = {}; // "profile:patternKey" -> last cycled index
+var _focusTabLast = {}; // "profile:patternKey" -> {windowId, tabId} we ourselves last switched to
+
+// Position of a {windowId, tabId} within a parsed FindTab result, or -1 if it's not there
+// (closed since, or nothing recorded yet).
+function findTabIndex(parsed, ref) {
+    if (!ref) return -1;
+    for (var i = 0; i < parsed.length; i++) {
+        if (parsed[i].windowId === ref.windowId && parsed[i].tabId === ref.tabId) return i;
+    }
+    return -1;
+}
 
 function focusTab(resourceClass, profileName, urlPatterns, openUrl) {
     if (typeof urlPatterns === "string") urlPatterns = [urlPatterns];
@@ -307,29 +317,42 @@ function focusTab(resourceClass, profileName, urlPatterns, openUrl) {
             return;
         }
         var parsed = matchLines.map(parseTabLine);
+        var last = _focusTabLast[cacheKey];
         var idx;
         if (arrivedFromOutside) {
             idx = 0;
         } else {
-            // Prefer staying on a match that's already the front-and-center tab right now over
-            // blindly advancing _focusTabIdx's stale counter — e.g. several tabs match "youtube.
-            // com", you're already looking at one of them (not because you just cycled here with
-            // this same hotkey), and press it again: without this check, the stale counter from
-            // whenever it was last used would jump to some *other* match instead of staying put.
-            // Only relevant here, not the arrivedFromOutside branch above — you can't already be
-            // "on" a match if you weren't even in the browser a moment ago.
-            var alreadyShowingIdx = -1;
+            // Which match (if any) is already the front-and-center tab right now.
+            var currentIdx = -1;
             for (var k = 0; k < parsed.length; k++) {
                 if (parsed[k].title && currentCaption.indexOf(parsed[k].title) !== -1) {
-                    alreadyShowingIdx = k;
+                    currentIdx = k;
                     break;
                 }
             }
-            idx = alreadyShowingIdx !== -1 ? alreadyShowingIdx : (_focusTabIdx[cacheKey] || 0) % matchLines.length;
+            if (currentIdx !== -1) {
+                // Showing a match — but "stay" and "cycle to next" look identical from here
+                // unless we know *why* it's showing. If it's the exact tab *we* switched to on
+                // our own last invocation of this same hotkey, this is a deliberate repeat press
+                // asking for the next one — advance. Otherwise (fresh arrival some other way, or
+                // stale/no state from an unrelated earlier press) it already satisfies the
+                // hotkey's goal on its own — stay, don't disturb it. Without this distinction, an
+                // earlier fix for "landing on a match jumped away from it" ended up breaking
+                // *all* cycling instead, since after the first switch you're always "currently
+                // showing a match" — every subsequent press would stay forever with no way to
+                // ever reach a second match.
+                var isOwnLastPick = last && parsed[currentIdx].windowId === last.windowId
+                    && parsed[currentIdx].tabId === last.tabId;
+                idx = isOwnLastPick ? (currentIdx + 1) % parsed.length : currentIdx;
+            } else {
+                // Not currently on any match at all (in the browser, but on an unrelated tab) —
+                // pick up from wherever we last left off within the *current* match set, same
+                // fallback cycling as before this whole investigation started.
+                var lastIdx = findTabIndex(parsed, last);
+                idx = lastIdx === -1 ? 0 : (lastIdx + 1) % parsed.length;
+            }
         }
-        // Advances from wherever we actually land (the already-showing match, if any — not
-        // necessarily index 0) so a deliberate repeat press still cycles forward from there.
-        _focusTabIdx[cacheKey] = idx + 1;
+        _focusTabLast[cacheKey] = { windowId: parsed[idx].windowId, tabId: parsed[idx].tabId };
 
         var parts = parsed[idx];
         // Explicitly raise the *specific* window containing this tab rather than trusting

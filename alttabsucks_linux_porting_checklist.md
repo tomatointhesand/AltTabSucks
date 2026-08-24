@@ -307,27 +307,42 @@ be approached differently than the Windows version was.
         `GetWindowActiveTitle` for that exact windowId returned a real non-empty title, and
         `QueueSwitchTab` targeted that same windowId — the window that gets raised (by matching
         that title) is now provably the same one whose tab is being switched, not a coincidence.
-  - [x] **`focusTab` cycling ignored whether you were already on a match** — a separate bug from
-        the window-raising ones above, in the *tab selection* logic rather than window activation.
-        `_focusTabIdx[cacheKey]` only resets to 0 on `arrivedFromOutside` (you weren't in this
-        browser's resourceClass at all a moment ago); otherwise it keeps advancing from wherever
-        it last left off, with no check for whether the *currently showing* tab already satisfies
-        the hotkey. Reported case: several tabs match `youtube.com` in the same window, you're
-        already looking at one of them (not because you just cycled here with this same hotkey —
-        maybe hours earlier, maybe a different route entirely), press "Focus YouTube" once, and it
-        jumps to a *different* matching tab instead of staying, purely because the stale counter
-        wasn't 0. `FindTab`'s D-Bus variant grew a third field again — the matched tab's own title
-        — but for a genuinely different, correct purpose than the round-1 mistake above: main.js
-        compares it against `workspace.activeWindow.caption` as it already is, synchronously,
-        before anything is touched (a check of present state, not a prediction of future state).
-        If any match is already showing, `focusTab` stays on it and advances the counter *from*
-        that index (so a deliberate next press still cycles forward normally) instead of
-        consulting the stale counter at all. Verified live via `dbus-monitor`, and specifically
-        confirmed with a real two-tab scenario in one window (one YouTube tab active, a second
-        YouTube tab present but not showing) that pressing the hotkey *twice in a row* keeps
-        `QueueSwitchTab` targeting the same already-active tab both times — a single-press check
-        wouldn't have distinguished the fix from the bug, since sort order already happens to put
-        the active tab first on a cold press.
+  - [x] **`focusTab` cycling ignored whether you were already on a match — two rounds, second
+        one was the actual fix** (same shape as both investigations above: round 1 verified fine
+        against the exact reported case, round 2 found what it broke). A separate bug from the
+        window-raising ones above, in the *tab selection* logic rather than window activation.
+        `_focusTabIdx[cacheKey]` only reset to 0 on `arrivedFromOutside` (you weren't in this
+        browser's resourceClass at all a moment ago); otherwise it kept advancing from wherever it
+        last left off, with no check for whether the *currently showing* tab already satisfied the
+        hotkey. Reported case: several tabs match `youtube.com` in the same window, you're already
+        looking at one of them (not because you just cycled here with this same hotkey — maybe
+        hours earlier, maybe a different route entirely), press "Focus YouTube" once, and it jumps
+        to a *different* matching tab instead of staying, purely because the stale counter wasn't 0.
+        - **Round 1**: `FindTab`'s D-Bus variant grew a third field again — the matched tab's own
+          title, for a genuinely different purpose than the earlier window-raising mistake:
+          main.js compared it against `workspace.activeWindow.caption` as it already is,
+          synchronously, before anything is touched (present state, not predicted future state).
+          If any match was already showing, `focusTab` stayed on it. Verified live via
+          `dbus-monitor` with a real two-tab scenario (one YouTube tab active, a second present but
+          not showing): pressing the hotkey *twice in a row* kept `QueueSwitchTab` targeting the
+          same already-active tab both times, fixing exactly the reported case.
+        - **Round 2**: the user reported this broke deliberate cycling entirely — with two
+          YouTube tabs open, there was now no way to reach the second one at all. Root cause:
+          "already showing a match" is true on *every* press once you've switched to any match
+          once, since that's now what's on screen — round 1 had no way to tell "you're here
+          because you just arrived" from "you're here because you pressed this same hotkey a
+          moment ago and want the next one." Both look identical from a bare
+          currently-showing-a-match check. Real fix: track *which* `{windowId, tabId}` this
+          hotkey itself last switched to (`_focusTabLast`, replacing the bare-index
+          `_focusTabIdx`), not just an index. If the tab currently showing is exactly the one this
+          hotkey put there last time, that's a deliberate repeat press — advance to the next
+          match. If it's showing for any other reason (fresh arrival, stale/no prior state,
+          something else changed tabs), stay — it already satisfies the goal on its own.
+        Verified round 2 live via `dbus-monitor` with the same two-YouTube-tab scenario, three
+        presses in a row: press 1 stayed on the already-active tab (fresh state, nothing recorded
+        yet — confirms round 1's fix still holds), press 2 correctly cycled to the second tab
+        (deliberate repeat, now working again), press 3 wrapped back to the first (cycling
+        continues normally past two matches).
   - [x] **Drag-handle reordering** — a small `⋮⋮` handle pinned to each row's corner (not a flex
         field — would've stolen row width from Title/Key/etc., which is also what a `.field.fixed`
         `min-width: 90px` leak was independently doing to the badge/Dup/Remove buttons, fixed in
