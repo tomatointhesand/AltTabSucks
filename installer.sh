@@ -345,6 +345,31 @@ build_staged_kwin_package() {
     echo "$staging"
 }
 
+# kglobalaccel keeps a global action's key sticky to whatever it was on *first-ever* registration
+# under that action name — confirmed the hard way: renaming a binding's key via the hotkeys-ui
+# page (same title, different key) silently kept the *old* key bound forever, because
+# registerShortcut()'s key argument is only honored the first time kglobalaccel sees that action
+# name; a later call under the same name is treated as "already configured, don't overwrite" (by
+# design, so a script update doesn't clobber a user's own customization made in System Settings).
+# Explicitly unregistering every AltTabSucks-owned action before each reload's fresh
+# registerShortcut calls is what makes a key *change* (not just a first-time key *set*) actually
+# take effect — scoped to the "AltTabSucks: " friendly-name prefix every generated binding uses
+# (see hotkeys_generator.py) so this never touches an unrelated kwin/Plasma shortcut. Best-effort:
+# if python3/dbus errors out here for any reason, the reload should still proceed rather than
+# abort over a cleanup step — worst case, a stale key persists, same as before this existed.
+unregister_alttabsucks_shortcuts() {
+    python3 -c "
+import dbus
+bus = dbus.SessionBus()
+kga = dbus.Interface(bus.get_object('org.kde.kglobalaccel', '/kglobalaccel'), 'org.kde.KGlobalAccel')
+comp = dbus.Interface(bus.get_object('org.kde.kglobalaccel', '/component/kwin'), 'org.kde.kglobalaccel.Component')
+for info in comp.allShortcutInfos():
+    unique, friendly = str(info[0]), str(info[1])
+    if friendly.startswith('AltTabSucks: '):
+        kga.unregister('kwin', unique)
+" 2>/dev/null || true
+}
+
 install_kwin_script() {
     ensure_hotkeys
     local staged
@@ -370,6 +395,11 @@ install_kwin_script() {
     # (only readConfig — see main.js's sandbox notes), so recency stands in for that.
     kwriteconfig6 --file kwinrc --group "Script-$KWIN_PLUGIN_ID" --key pendingReloadToast \
         "$(date +%s%3N)|KWin script reloaded successfully."
+    # Also only once kpackagetool6 has already succeeded above, same reasoning as the marker
+    # write just above — a failure earlier in this function leaves the *old* script (and its
+    # already-working shortcuts) untouched rather than unregistering hotkeys with no new
+    # registration ready to replace them.
+    unregister_alttabsucks_shortcuts
     qdbus6 org.kde.KWin /KWin reconfigure
     echo "KWin script installed and enabled: $KWIN_PLUGIN_ID"
 }

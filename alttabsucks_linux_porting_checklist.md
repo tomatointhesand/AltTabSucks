@@ -328,6 +328,49 @@ be approached differently than the Windows version was.
         "Reload Hotkeys ✓ KWin script reloaded successfully." Net effect now: both success and
         failure show a toast for `reload-hotkeys` specifically, matching every other `runCommand`
         binding.
+      - **Then the user reported the physical `Ctrl+Alt+Shift+'` press itself still did nothing —
+        a hardware limitation, not a bug, root-caused with a same-session diagnostic technique**:
+        a temporary `runCommand` binding whose `argv` appended a timestamp to a plain file (`date
+        +%s%N >> /tmp/....log`) rather than relying on `print()`/`journalctl` (already established
+        unreliable earlier this session) or `org.freedesktop.Notifications` (also tried, also
+        didn't render reliably in screenshots here). Confirmed the file never got a line no matter
+        how many times the real key was pressed — the callback was never reached at all, upstream
+        of everything this feature built. Ruled out a `kglobalaccel` conflict (scanned every
+        component for the same key code — clean) and a dead-key/IME layout issue (plain `us`
+        layout, no intl variant). Root cause found with four simultaneous diagnostic bindings
+        (same file-log technique, four different key combinations, one round of physical
+        keypresses): every combination holding **Shift together with the apostrophe key** failed
+        (`Ctrl+Alt+Shift+'`, and even `Ctrl+Alt+Shift+"` — registered for the actual shifted
+        keysym Shift+`'` produces, which ruled out a keysym-translation theory), while the one
+        combination *without* Shift (`Ctrl+Alt+'`) fired every time — classic keyboard matrix
+        ghosting: that specific key *pair* can't be sensed together on this keyboard, regardless
+        of what else is held (`Alt+Shift+'`, only 3 keys, failed too) — not a total-key-count
+        limit, since other real `Ctrl+Alt+Shift+<letter>` hotkeys work fine. Not fixable in
+        software; user chose to rebind "Reload Hotkeys" to the proven-working `Ctrl+Alt+'`.
+      - **Rebinding surfaced a second, systemic bug**: changing a binding's `key` (same `title`)
+        and redeploying didn't actually change what's bound — `kglobalaccel` keeps a global
+        action's key sticky to whatever it was on *first-ever* registration under that action
+        name; a later `registerShortcut` call with a different key, same name, is silently treated
+        as "already configured, don't overwrite" (by design — a script update shouldn't clobber a
+        user's own System Settings customization). Found because rebinding "Reload Hotkeys" didn't
+        take effect until manually run through `qdbus6 .../KGlobalAccel.unregister kwin "Reload
+        Hotkeys"` first — and then found *again*, independently, as the actual root cause of a
+        separate user report ("Hotkey config" — `Ctrl+Alt+Shift+H` for the hotkeys-ui tab — not
+        responding to `H`): its registered key had been silently stuck on `Ctrl+Alt+Shift+?` from
+        an earlier version of that same binding, ever since its key was last changed via the UI.
+        Fixed systemically, not just for these two bindings: `installer.sh` gained
+        `unregister_alttabsucks_shortcuts` (queries `allShortcutInfos` for the `kwin` component,
+        unregisters every action whose friendly name starts with `"AltTabSucks: "` — the exact
+        prefix `hotkeys_generator.py` uses, so this never touches an unrelated Plasma/kwin
+        shortcut), called from `install_kwin_script` right before the `reconfigure` that triggers
+        fresh `registerShortcut` calls — and, like the reload-toast marker, only *after*
+        `kpackagetool6` has already succeeded, so a failure earlier in the function leaves the
+        *old* script and its already-working shortcuts untouched rather than unregistering
+        hotkeys with nothing new ready to replace them. Verified live: changed "Kate"'s key from
+        `N` to `K` through the real `POST /hotkeys-config` save path (not a manual unregister) and
+        confirmed the new key was live immediately; changed it back, confirmed that round-tripped
+        too. Every future key change made through the hotkeys-ui page now just works, no manual
+        `unregister` step required.
   - [x] **`focusTab` wasn't raising the target window** — the common "tab already open in an
         existing window" path queued `QueueSwitchTab` with no `activateWindow`/`activateAnyWindow`
         call, unlike the other two `focusTab` paths (`waitForTabOrOpen`, `openOrLaunchTab`'s
