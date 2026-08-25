@@ -160,6 +160,34 @@ function showToast(label, w) {
         label, "", w.x, w.y, w.width, w.height, 500, function () {});
 }
 
+// runCommand bindings (hotkeys_generator.py) call this instead of the LaunchCommand escape
+// hatch manageAppWindows' launchArgv uses — that one is fire-and-forget, right for GUI apps that
+// never exit and whose output nobody's waiting to read. A runCommand binding is the opposite
+// case: usually a short CLI-style command (installer.sh reload-hotkeys is the motivating one)
+// where the entire point of pressing the hotkey is finding out whether it actually worked.
+// RunCommandWithOutput (dbus_bridge.py) waits for it and hands back "exitCode\noutput" as one
+// string — parsed here rather than relying on a multi-value D-Bus return, which nothing in this
+// codebase has exercised yet (see that method's own docstring for why).
+function runCommandWithToast(title, argv) {
+    bridgeCall("RunCommandWithOutput", [argv], function (resultStr) {
+        var nl = resultStr.indexOf("\n");
+        var exitCode = parseInt(resultStr.slice(0, nl), 10);
+        var output = resultStr.slice(nl + 1);
+        showCommandResultToast(title, exitCode === 0, output);
+    });
+}
+
+// Not tied to any particular window the way showToast's other callers are (manageAppWindows/
+// cycleChromiumProfile/focusTab all act on a specific app or browser window) — a runCommand
+// binding is generic "run this on this key", so this just positions over whatever's currently
+// focused rather than anything the command itself touched.
+function showCommandResultToast(title, ok, output) {
+    var w = workspace.activeWindow;
+    if (!w) return;
+    callDBus(TOAST_BUS_NAME, TOAST_OBJECT_PATH, TOAST_INTERFACE, "ShowCommandResult",
+        title, ok ? 1 : 0, output, w.x, w.y, w.width, w.height, 0, function () {});
+}
+
 // --- Browser window helpers ---------------------------------------------------------------
 // Unlike findAppWindows (used by manageAppWindows above), profile-cycling/tab-focus need to
 // match windows by *caption* against tab titles from the server, not just resourceClass —

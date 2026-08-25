@@ -48,16 +48,18 @@ registerShortcut("Focus Calendar or Mail", "AltTabSucks: Focus Calendar or Mail"
     });
 
 // --- run an arbitrary command -------------------------------------------------------------------
-// bridgeCall("LaunchCommand", [argv], callback) — spawns argv[0] directly (no shell, so no
-// quoting/injection concerns), detached. This is the generic escape hatch manageAppWindows'
-// optional launchArgv also uses; nothing app-specific about it. YOUR_REPO_ROOT is substituted by
-// installer.sh's ensure_hotkeys() with this clone's actual absolute path — every other
-// placeholder here needs your own input, this one doesn't.
+// runCommandWithToast(title, argv) — runs argv[0] directly (no shell, so no quoting/injection
+// concerns), waits for it to finish, and shows a toast with its exit status and any output.
+// (For a GUI app that never exits and whose output nobody's waiting to read, use
+// manageAppWindows' optional launchArgv instead — that one's the fire-and-forget escape hatch.)
+// YOUR_REPO_ROOT is substituted by installer.sh's ensure_hotkeys() with this clone's actual
+// absolute path — every other placeholder here needs your own input, this one doesn't.
 //
 // Reload — the Linux equivalent of AltTabSucks.ahk's own built-in `^!+'::Reload`. Rebuilds and
 // force-reloads the deployed KWin script from main.js+hotkeys.js, picking up any hotkeys.json/
-// hotkeys.js edits without a manual terminal step.
+// hotkeys.js edits without a manual terminal step — and the toast is what actually lets you see
+// it worked, rather than wondering.
 registerShortcut("Reload Hotkeys", "AltTabSucks: Reload Hotkeys",
     "Ctrl+Alt+Shift+'", function () {
-        bridgeCall("LaunchCommand", [["YOUR_REPO_ROOT/installer.sh", "reload-hotkeys"]], function () {});
+        runCommandWithToast("Reload Hotkeys", ["YOUR_REPO_ROOT/installer.sh", "reload-hotkeys"]);
     });

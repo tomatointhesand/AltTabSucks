@@ -48,7 +48,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
-from gi.repository import Gdk, Gtk, Gtk4LayerShell, GLib  # noqa: E402
+from gi.repository import Gdk, Gtk, Gtk4LayerShell, GLib, Pango  # noqa: E402
 
 import dbus  # noqa: E402
 import dbus.mainloop.glib  # noqa: E402
@@ -57,6 +57,10 @@ import dbus.service  # noqa: E402
 BUS_NAME = "com.github.tomatointhesand.AltTabSucksToast"
 OBJECT_PATH = "/com/github/tomatointhesand/AltTabSucksToast"
 INTERFACE = "com.github.tomatointhesand.AltTabSucksToast"
+
+# Command results have to be read, not just glanced at like a profile/window toast — 500ms
+# (DEFAULT_DURATION_MS) would be gone before anyone could react to it.
+COMMAND_RESULT_DEFAULT_DURATION_MS = 4000
 
 
 class ToastWindow:
@@ -76,9 +80,27 @@ class ToastWindow:
         Gtk4LayerShell.set_anchor(self.win, Gtk4LayerShell.Edge.LEFT, True)
         Gtk4LayerShell.set_namespace(self.win, "alttabsucks-toast")
 
-        self.label = Gtk.Label()
-        self.label.set_name("toast-label")
-        self.win.set_child(self.label)
+        # One box holding both labels rather than two separate windows — show()/show_command_
+        # result() just toggle which widgets are populated/visible, keeping this the single
+        # persistent surface the module docstring explains the whole daemon exists for.
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.win.set_child(self.box)
+
+        self.title_label = Gtk.Label()
+        self.title_label.set_name("toast-title")
+        self.box.append(self.title_label)
+
+        # Only populated/shown by show_command_result() — a plain profile/window toast never
+        # touches this. Left-aligned, wrapped, real casing (not uppercased) and monospace, since
+        # unlike the title this text needs to actually be *read*, not just glanced at.
+        self.output_label = Gtk.Label()
+        self.output_label.set_name("toast-output")
+        self.output_label.set_wrap(True)
+        self.output_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)  # force-break long unbroken runs (paths, flags)
+        self.output_label.set_xalign(0)
+        self.output_label.set_max_width_chars(64)
+        self.output_label.set_visible(False)
+        self.box.append(self.output_label)
 
         self._css = Gtk.CssProvider()
         Gtk.StyleContext.add_provider_for_display(
@@ -87,16 +109,52 @@ class ToastWindow:
         self._hide_source_id = None
 
     def show(self, text, bg_hex, win_x, win_y, win_w, win_h, duration_ms):
-        self.label.set_text(text.upper())
+        self.output_label.set_visible(False)
+        self.title_label.set_text(text.upper())
         self._css.load_from_data((
             "window { background-color: %s; border-radius: 14px; }\n"
-            "#toast-label {\n"
+            "#toast-title {\n"
             "  color: white; font-weight: 800; font-size: 24px; font-family: monospace;\n"
             "  text-shadow: 2px 3px 0 %s;\n"
             "  padding: 20px 32px;\n"
             "}\n" % (bg_hex, SHADOW_COLOR)
         ).encode("utf-8"))
+        # measure() doesn't include a label's own CSS padding (confirmed empirically) — 32px/20px
+        # here match the padding declared just above.
+        self._position_and_show(win_x, win_y, win_w, win_h, duration_ms, pad_w=64, pad_h=40)
 
+    def show_command_result(self, title, ok, output, win_x, win_y, win_w, win_h, duration_ms):
+        # Deliberately its own color scheme, not next_color()'s rainbow — a command either
+        # succeeded or it didn't, and green/red says that at a glance the way no ROYGBIV position
+        # would. Not run through next_color() at all: rapid-fire color cycling is a "you're
+        # flipping through windows/tabs fast" signal, meaningless for a one-off command result.
+        bg = "#123822" if ok else "#3a1515"
+        accent = "#4cd97b" if ok else "#ff5b5b"
+        self.title_label.set_text(title + ("  ✓" if ok else "  ✗"))
+        output = output.strip()
+        if output:
+            self.output_label.set_text(output)
+            self.output_label.set_visible(True)
+        else:
+            self.output_label.set_visible(False)
+        self._css.load_from_data((
+            "window { background-color: %s; border-radius: 14px; border: 1px solid %s; }\n"
+            "#toast-title {\n"
+            "  color: white; font-weight: 800; font-size: 18px; font-family: monospace;\n"
+            "  padding: 16px 24px 4px 24px;\n"
+            "}\n"
+            "#toast-output {\n"
+            "  color: #cfd6e4; font-weight: 400; font-size: 12px; font-family: monospace;\n"
+            "  padding: 4px 24px 16px 24px;\n"
+            "}\n" % (bg, accent)
+        ).encode("utf-8"))
+        # Combined vertical CSS padding of both labels (16+4 title, 4+16 output) when output is
+        # visible; a bit generous when it's hidden (a hidden child contributes nothing, so the
+        # true pad is just the title's own 16+4=20 then) — a few px off just nudges the toast
+        # slightly off dead-center, not a real problem, so this doesn't bother branching on it.
+        self._position_and_show(win_x, win_y, win_w, win_h, duration_ms, pad_w=48, pad_h=40)
+
+    def _position_and_show(self, win_x, win_y, win_w, win_h, duration_ms, pad_w, pad_h):
         monitor = self._find_monitor(win_x, win_y)
         if monitor is not None:
             Gtk4LayerShell.set_monitor(self.win, monitor)
@@ -106,10 +164,10 @@ class ToastWindow:
             mon_x = mon_y = 0
 
         self.win.set_visible(True)  # needed before measure() has a display to lay out against
-        _, natural_w, _, _ = self.label.measure(Gtk.Orientation.HORIZONTAL, -1)
-        _, natural_h, _, _ = self.label.measure(Gtk.Orientation.VERTICAL, -1)
-        est_w = natural_w + 64  # + the CSS padding above (32px * 2)
-        est_h = natural_h + 40  # + the CSS padding above (20px * 2)
+        _, natural_w, _, _ = self.box.measure(Gtk.Orientation.HORIZONTAL, -1)
+        _, natural_h, _, _ = self.box.measure(Gtk.Orientation.VERTICAL, -1)
+        est_w = natural_w + pad_w
+        est_h = natural_h + pad_h
 
         Gtk4LayerShell.set_margin(
             self.win, Gtk4LayerShell.Edge.LEFT, max(0, win_x - mon_x + (win_w - est_w) // 2)
@@ -157,6 +215,20 @@ class ToastService(dbus.service.Object):
         self._toast.show(
             str(label), color, int(win_x), int(win_y), int(win_w), int(win_h),
             int(duration_ms) or DEFAULT_DURATION_MS,
+        )
+
+    @dbus.service.method(INTERFACE, in_signature="sisiiiii")
+    def ShowCommandResult(self, title, ok, output, win_x, win_y, win_w, win_h, duration_ms):
+        # For runCommand hotkey bindings (main.js's runCommandWithToast) — deliberately a
+        # different shape from ShowToast: this has something to actually *read* (a command's
+        # output), not just glance at, so it defaults to a much longer duration
+        # (COMMAND_RESULT_DEFAULT_DURATION_MS) unless the caller asks for something else.
+        # ok is an int (0/1), not a D-Bus boolean — every other bridge argument in this codebase
+        # is a string/int/array, never a bool; sticking to what's already proven to marshal
+        # correctly through callDBus rather than being the first thing to assume a bool does too.
+        self._toast.show_command_result(
+            str(title), bool(int(ok)), str(output), int(win_x), int(win_y), int(win_w), int(win_h),
+            int(duration_ms) or COMMAND_RESULT_DEFAULT_DURATION_MS,
         )
 
 

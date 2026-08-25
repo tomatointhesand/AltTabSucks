@@ -156,6 +156,46 @@ class Bridge(dbus.service.Object):
         except OSError as e:
             print(f"AltTabSucks D-Bus bridge: LaunchCommand{list(argv)} failed: {e}")
 
+    @dbus.service.method(INTERFACE, in_signature="as", out_signature="s")
+    def RunCommandWithOutput(self, argv):
+        # For runCommand hotkey bindings specifically — deliberately not LaunchCommand's
+        # detached/output-discarding style, which is right for the GUI apps manageAppWindows
+        # launches (never exit, nobody's waiting to read anything from them) but wrong here: a
+        # runCommand binding's whole point is a short CLI-style command (installer.sh
+        # reload-hotkeys is the motivating case) where the user needs to know whether it actually
+        # worked. "I can't tell if the reload hotkeys command is actually working" was the literal
+        # report this exists to fix — main.js's runCommandWithToast() shows the result (and any
+        # output) in a toast once this returns.
+        #
+        # Synchronous, blocking the GLib mainloop thread (shared with every other bridge call —
+        # FindTab, QueueSwitchTab, ...) for however long the command takes, capped by the 15s
+        # timeout below. Not the original design: an earlier version used dbus-python's
+        # async_callbacks to reply later from a worker thread instead, specifically to avoid this
+        # block. That reply demonstrably reached the D-Bus wire correctly (confirmed independently
+        # over dbus-monitor and via a direct qdbus6 call), but KWin's callDBus never delivered it
+        # to the waiting JS callback — confirmed by a debug marker as the very first statement of
+        # the callback never firing, across multiple real hotkey presses. Root cause inside KWin's
+        # own callDBus implementation, not this file; not going to debug that further when a
+        # runCommand press is rare enough (manual, not polled) that a plain synchronous reply — the
+        # same pattern every other bridge method already uses successfully — is a non-issue in
+        # practice (observed total round trip ~34ms for installer.sh reload-hotkeys).
+        #
+        # Return value is "exitCode\noutput" (exit code on its own first line, everything after
+        # the first newline is stdout+stderr) rather than two separate out-args — nothing else in
+        # this codebase has exercised callDBus with a multi-value D-Bus return yet, so this sticks
+        # to the already-proven single-string-parsed-by-the-caller pattern (see parseTabLine in
+        # main.js) rather than being the first thing to assume that works.
+        try:
+            result = subprocess.run(
+                [str(a) for a in argv], capture_output=True, text=True, timeout=15,
+            )
+            output = ((result.stdout or "") + (result.stderr or "")).strip()
+            return f"{result.returncode}\n{output[:4000]}"
+        except subprocess.TimeoutExpired:
+            return "-1\n(timed out after 15s)"
+        except OSError as e:
+            return f"-1\n{e}"
+
     @dbus.service.method(INTERFACE, in_signature="s", out_signature="b")
     def LaunchChromiumProfile(self, profile):
         # Mirrors RunChromiumProfile/the launch branches of CycleChromiumProfile & FocusTab:

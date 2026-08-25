@@ -254,6 +254,58 @@ be approached differently than the Windows version was.
         (title is the action's unique ID) — root-caused a real "Focus Gmail doesn't work" report
         to exactly this (cloned via the UI's "Dup" button, never renamed from "discord"); 
         `generate_hotkeys_js` now rejects duplicate titles at save time. 3 new tests.
+  - [x] **`runCommand` now waits for its command and shows a toast with the result, including
+        output** — the user's literal complaint motivating this: "I can't tell if the reload
+        hotkeys command is actually working" (`LaunchCommand`'s detached fire-and-forget spawn,
+        right for GUI apps that never exit, gives zero feedback for a CLI-style command). New
+        `dbus_bridge.py` method `RunCommandWithOutput(argv) -> "exitCode\noutput"` (one
+        newline-joined string, not two D-Bus out-args or a boolean in-arg — see below for why
+        avoiding untested marshaling patterns mattered here specifically); `main.js`'s
+        `runCommandWithToast(title, argv)` is what `runCommand` bindings now call instead of
+        `bridgeCall("LaunchCommand", ...)` directly. `hotkeys.template.js`'s "Reload Hotkeys"
+        example updated to match, so hand-editors get this too.
+      - **Toast daemon grew a second rendering mode**, `show_command_result`/`ShowCommandResult`
+        — green/red background+border by exit status (not `next_color()`'s rainbow, which is a
+        "rapid window/tab switching" signal, meaningless for a one-off command result), a title
+        line plus a left-aligned monospace output block (unlike the profile/window toast's single
+        uppercased line, this has to actually be *read*), 4s default duration instead of 500ms.
+        One persistent `Gtk.Box` with two labels shared between both modes, not two separate
+        surfaces — same "stay warm" reasoning as the daemon's core design.
+      - **Two real bugs found building this, both resolved by not trusting an unproven pattern
+        and switching to one already proven in this codebase**:
+        1. First attempt used `dbus-python`'s `async_callbacks` (reply sent later, from a
+           background thread) so a slow command wouldn't block the GLib mainloop other bridge
+           calls (`FindTab`, `QueueSwitchTab`, ...) share. The reply demonstrably reached the
+           D-Bus wire correctly (confirmed independently over `dbus-monitor` and a direct `qdbus6`
+           call) — but KWin's `callDBus` never delivered it to the waiting JS callback, confirmed
+           by a debug marker as the callback's first statement never firing across multiple real
+           presses. Root cause sits inside KWin's own `callDBus`, not this codebase; not pursued
+           further given a `runCommand` press is rare/manual, not polled — switched to a plain
+           synchronous reply (every other bridge method's pattern) and it worked immediately.
+           Observed round trip for `installer.sh reload-hotkeys`: ~34ms, imperceptible to block on.
+        2. `ok` is passed as an int (0/1), not a D-Bus boolean — every other bridge argument in
+           this codebase is a string/int/array, never a bool; this stuck to what's already proven
+           to marshal correctly rather than being the first thing to assume a bool argument does
+           too (the multi-value-D-Bus-return question got the same treatment — encoded as one
+           string instead, see above).
+      - **A real, structural, honestly-documented limitation, not a bug**: `installer.sh
+        reload-hotkeys` is self-referential — the very script waiting for `RunCommandWithOutput`'s
+        reply is what `install_kwin_script`'s `unloadScript` call tears down partway through that
+        same command's execution, on **success**. The old JS context is gone before it can ever
+        show its own confirmation toast, sync or async, no matter what — confirmed by testing a
+        harmless non-reloading command (`echo`) through the exact same real, persistently-
+        installed script, which showed its toast correctly every time. Verified the asymmetry that
+        makes this tolerable rather than a full regression: since `installer.sh` runs under
+        `set -e`, a *failing* `reload-hotkeys` (tested with a real temporary binding pointed at an
+        invalid `installer.sh` subcommand, deployed and invoked through the real script — not an
+        ad-hoc probe, which turned out to be an unreliable way to test this specific timing
+        question) never reaches `unloadScript` at all, so its context survives and its failure
+        toast — full error output included — displays correctly. Net effect: a successful reload
+        is silent (same as before this feature), a failing one is now clearly reported (new). A
+        marker-based fix is possible (write a timestamped value via `kwriteconfig6` just before
+        the reload, have the *new* script instance check for one recent enough on its own startup
+        via `readConfig`) but not built — deliberately scoped out as a follow-up rather than
+        adding more untested surface to this same change.
   - [x] **`focusTab` wasn't raising the target window** — the common "tab already open in an
         existing window" path queued `QueueSwitchTab` with no `activateWindow`/`activateAnyWindow`
         call, unlike the other two `focusTab` paths (`waitForTabOrOpen`, `openOrLaunchTab`'s

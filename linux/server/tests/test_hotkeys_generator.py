@@ -50,7 +50,7 @@ class GenerateBindingJsTestCase(unittest.TestCase):
             "argv": ["/home/dab/git/alttabsucks/installer.sh", "reload-hotkeys"],
         })
         self.assertIn(
-            'bridgeCall("LaunchCommand", [["/home/dab/git/alttabsucks/installer.sh", "reload-hotkeys"]], function () {});',
+            'runCommandWithToast("Reload Hotkeys", ["/home/dab/git/alttabsucks/installer.sh", "reload-hotkeys"]);',
             js,
         )
 
@@ -63,7 +63,7 @@ class GenerateBindingJsTestCase(unittest.TestCase):
         js = generate_binding_js({
             "type": "runCommand", "title": "X", "key": "Ctrl+Alt+Shift+B", "argv": ["dolphin"],
         })
-        self.assertIn('bridgeCall("LaunchCommand", [["dolphin"]], function () {});', js)
+        self.assertIn('runCommandWithToast("X", ["dolphin"]);', js)
 
     def test_strings_with_quotes_and_backslashes_escape_safely(self):
         # Also proves generated output is at least well-formed enough that a naive brace/paren

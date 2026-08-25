@@ -8,11 +8,14 @@ Binding "type" maps to one main.js function each:
   windowCycle / windowToggle -> manageAppWindows(resourceClass, mode, launchArgv)
   profileCycle                -> cycleChromiumProfile(resourceClass, profileName)
   tabFocus                    -> focusTab(resourceClass, profileName, urlPatterns, openUrl)
-  runCommand                  -> bridgeCall("LaunchCommand", [argv], ...) — spawns argv[0]
-                                  directly (no shell), same escape hatch manageAppWindows uses
-                                  for its optional launchArgv. Generic "run this command on this
-                                  key" binding, not tied to any window/tab/profile — this is what
-                                  a "Reload Hotkeys" binding is made of (argv pointing at this
+  runCommand                  -> runCommandWithToast(title, argv) — waits for argv[0] to finish
+                                  (no shell) and shows a toast with its exit status and any
+                                  output, rather than LaunchCommand's fire-and-forget spawn
+                                  (right for the GUI apps manageAppWindows launches, wrong here:
+                                  a runCommand binding's whole point is knowing whether a short
+                                  CLI-style command actually worked). Generic "run this command on
+                                  this key" binding, not tied to any window/tab/profile — this is
+                                  what a "Reload Hotkeys" binding is made of (argv pointing at this
                                   clone's installer.sh), rather than that being a special case
                                   hardcoded into main.js/dbus_bridge.py.
 
@@ -100,7 +103,7 @@ def generate_binding_js(binding: dict) -> str:
         argv = binding.get("argv") or []
         if not argv:
             raise ValueError(f"binding {title!r} missing argv")
-        call = f'bridgeCall("LaunchCommand", [{_js_array_of_strings(argv)}], function () {{}});'
+        call = f'runCommandWithToast({_js_string(title)}, {_js_array_of_strings(argv)});'
     else:
         raise ValueError(f"binding {title!r} has unknown type: {kind!r}")
 
