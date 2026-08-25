@@ -553,6 +553,36 @@ be approached differently than the Windows version was.
         successfully even on the run that produced no visible screenshot (a plain screenshot-
         timing miss against the 500ms window, not a functional issue — confirmed separately with
         a long-duration direct call on the same monitor).
+- [x] **`FindTab` treated `music.youtube.com` as a match for a `youtube.com` pattern** — reported
+      directly: "the matching logic is ignoring the 'music.' prefix and treating music.youtube.com
+      the same as youtube.com. it shouldn't be." Root cause: plain `pattern in url` substring
+      containment, which is also exactly what `GET /findtab` and `Server/AltTabSucksServer.ps1`
+      (`-like "*$safePattern*"`) still do — confirmed by reading the PS1 handler directly, so this
+      is a pre-existing behavior shared with Windows, not a Linux-porting regression. Scoped the
+      fix to `dbus_bridge.py`'s D-Bus-only `FindTab` (no Windows counterpart to keep parity with,
+      unlike `GET /findtab`, which Windows AHK has no use for on Linux either but is left alone on
+      principle — same reasoning already applied to this method's `windowId|tabId|title` format
+      above); `GET /findtab` and the PS1 server are both untouched.
+      - New module-level `url_matches_pattern(url, pattern)`, pulled out as a pure function
+        (mirrors `toast_colors.py`/`hotkeys_generator.py` being separate from their D-Bus/GTK-
+        dependent callers) specifically so it's unit-testable without a live session bus — the
+        `Bridge` class itself needs a real `bus_name` to construct, so it isn't tested directly.
+        Matches at the *start* of the scheme-stripped URL, tolerating a `www.` prefix on the URL
+        side only (the one subdomain variation common enough to treat as "the same site" without
+        listing it explicitly — every other subdomain is a deliberately different match, same
+        philosophy as `urlPatterns` already letting callers OR multiple exact variants together,
+        e.g. `["calendar.google.com", "mail.google.com"]`), and requires a boundary right after
+        the pattern (end of string, or one of `/:?#`) so `youtube.com` doesn't also match an
+        unrelated `youtube.company.com` — a second, narrower instance of the same class of bug,
+        not separately reported but caught for free by anchoring the match properly instead of
+        patching just the one reported case.
+      - 13 new tests covering the reported case, the `www.` tolerance, the trailing-boundary
+        case, and a path-scoped pattern (`google.com/maps`, from the real `hotkeys.js`) still
+        matching correctly. Verified live against the running `alttabsucks-server.service`: posted
+        two real tabs (`youtube.com/watch...` and `music.youtube.com/watch...`) into a scratch
+        profile via `POST /tabs`, called the real `FindTab` D-Bus method directly — pattern
+        `youtube.com` returned only the plain-YouTube tab, pattern `music.youtube.com` returned
+        only the Music tab, then cleaned up via `DELETE /tabs`.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [ ] Linux README section (installer.sh usage still needs documenting there)

@@ -24,6 +24,7 @@ round-trip). See the concurrency note above QueueSwitchTab/QueueSwitchOpenUrl be
 doesn't need a lock despite the two loops touching the same dicts from different threads.
 """
 
+import re
 import subprocess
 import threading
 
@@ -35,6 +36,35 @@ from gi.repository import GLib
 BUS_NAME = "com.github.tomatointhesand.AltTabSucks"
 OBJECT_PATH = "/com/github/tomatointhesand/AltTabSucks"
 INTERFACE = "com.github.tomatointhesand.AltTabSucks"
+
+
+def _strip_scheme_and_www(s):
+    s = re.sub(r"^https?://", "", s or "")
+    s = re.sub(r"^www\.", "", s)
+    return s
+
+
+def url_matches_pattern(url, pattern):
+    """Domain-boundary-aware match used by FindTab below — deliberately stricter than the plain
+    substring/wildcard containment GET /findtab and the Windows PS1 server still use (both left
+    untouched: this is Linux-only D-Bus glue with no Windows counterpart to keep parity with, see
+    the module docstring). Plain `pattern in url` treats "youtube.com" as present inside
+    "https://music.youtube.com/watch", wrongly grouping YouTube Music tabs into a plain-YouTube
+    binding (and vice versa, since main.js's cleanPatterns lets a binding target
+    "music.youtube.com" specifically — see hotkeys.js).
+
+    Instead this matches at the *start* of the (scheme-stripped) URL, tolerating a "www." prefix
+    on the URL side only (the one subdomain variation common enough to treat as "the same site"
+    without the user having to list it explicitly — every other subdomain, "music.", "mail.",
+    etc., is a deliberately different match, consistent with how urlPatterns already lets callers
+    OR multiple exact variants together, e.g. ["calendar.google.com", "mail.google.com"]). It also
+    requires a boundary right after the pattern — end of string, or one of "/:?#" — so
+    "youtube.com" doesn't also match an unrelated "youtube.company.com"."""
+    u = _strip_scheme_and_www(url)
+    p = _strip_scheme_and_www(str(pattern))
+    if not u.startswith(p):
+        return False
+    return len(u) == len(p) or u[len(p)] in "/:?#"
 
 
 def _spawn_detached(argv):
@@ -61,8 +91,8 @@ class Bridge(dbus.service.Object):
 
     @dbus.service.method(INTERFACE, in_signature="ss", out_signature="s")
     def FindTab(self, profile, url_pattern):
-        # Mirrors GET /findtab (substring match, micActive -> audible -> leftmost sort) with one
-        # deliberate difference: each line also carries the tab's title (windowId|tabId|title,
+        # Mirrors GET /findtab (micActive -> audible -> leftmost sort) with two deliberate
+        # differences. First: each line also carries the tab's title (windowId|tabId|title,
         # title last and unsplit so an embedded "|" in a page title can't be mistaken for a field
         # separator). GET /findtab itself is untouched — Windows AHK has no use for it there.
         #
@@ -74,11 +104,16 @@ class Bridge(dbus.service.Object):
         # ("is one of the matches already what's on screen"), not a prediction of future state.
         # It's what makes repeated focusTab presses stay put on an already-showing match instead
         # of always advancing a stale cycle counter regardless of what's actually on screen.
+        #
+        # Second: matching goes through url_matches_pattern (domain-boundary-aware) instead of
+        # plain substring containment — see its docstring for why (music.youtube.com vs
+        # youtube.com). GET /findtab and the Windows PS1 server both still do plain substring
+        # matching; left that way deliberately, see url_matches_pattern's docstring.
         windows = self._state.store.get(str(profile), [])
         found = []
         for w in windows:
             for tab in w.get("tabs", []):
-                if str(url_pattern) in (tab.get("url") or ""):
+                if url_matches_pattern(tab.get("url"), url_pattern):
                     found.append({
                         "line": f"{w.get('id')}|{tab.get('id')}|{tab.get('title') or ''}",
                         "micActive": bool(tab.get("micActive")),
