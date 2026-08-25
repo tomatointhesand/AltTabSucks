@@ -545,6 +545,34 @@ function waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, de
     });
 }
 
+// --- one-shot startup: pick up a pending reload confirmation ---------------------------------
+// See installer.sh's install_kwin_script for the other half of this. A "Reload Hotkeys"
+// runCommand binding's confirmation toast can't ride on its own RunCommandWithOutput reply — the
+// command it runs (installer.sh reload-hotkeys) unloads *this exact script* on success, partway
+// through, destroying the JS context waiting for that reply before it could ever show anything
+// (confirmed empirically: a harmless non-reloading command shows its toast fine every time, this
+// one never can, sync or async — the reload always wins the race). Workaround: installer.sh
+// writes a timestamped marker into this script's own kwinrc config section just before
+// triggering the reload; the *new* instance (this code, run once at the top level on every
+// script load) checks for one recent enough to be from *that* reload, not some unrelated earlier
+// one. No writeConfig in this sandbox to explicitly clear the marker after showing it (only
+// readConfig — see the sandbox notes above) — recency does that job instead.
+(function () {
+    var raw = readConfig("pendingReloadToast", "");
+    if (!raw) return;
+    var pipe = raw.indexOf("|");
+    if (pipe === -1) return;
+    var tick = parseInt(raw.slice(0, pipe), 10);
+    var message = raw.slice(pipe + 1);
+    if (isNaN(tick) || Date.now() - tick > 10000) return; // stale — not from a reload just now
+    // Small delay rather than showing immediately at script-load time — gives KWin's own
+    // post-reload window/workspace churn a moment to settle before reading workspace.activeWindow
+    // to position the toast against.
+    afterDelay(300, function () {
+        showCommandResultToast("Reload Hotkeys", true, message);
+    });
+})();
+
 // --- your hotkeys go in hotkeys.js, not here --------------------------------------------------
 // This file has no registerShortcut calls of its own — it's the library half only. KWin's
 // scripting sandbox can't read a sibling file at runtime (no file-read primitive, confirmed

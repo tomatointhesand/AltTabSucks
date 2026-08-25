@@ -358,6 +358,18 @@ install_kwin_script() {
     fi
     rm -rf "$staged"
     kwriteconfig6 --file kwinrc --group Plugins --key "${KWIN_PLUGIN_ID}Enabled" true
+    # Written just before reconfigure (the call that actually triggers the new script instance
+    # loading), not after this whole function returns. This is what a "Reload Hotkeys" runCommand
+    # binding's confirmation toast actually rides on: that binding triggers this exact function
+    # from *inside* the script being reloaded, and unloadScript above tears down that JS context
+    # — on success — before it could ever see a reply to its own RunCommandWithOutput call
+    # (confirmed empirically; see the porting checklist). The *new* instance picks up the baton on
+    # its own startup instead (see main.js's own comment for the other half), checking for a
+    # marker recent enough to be from *this* reload rather than some unrelated earlier one — no
+    # writeConfig available in the KWin scripting sandbox to explicitly clear it after showing it
+    # (only readConfig — see main.js's sandbox notes), so recency stands in for that.
+    kwriteconfig6 --file kwinrc --group "Script-$KWIN_PLUGIN_ID" --key pendingReloadToast \
+        "$(date +%s%3N)|KWin script reloaded successfully."
     qdbus6 org.kde.KWin /KWin reconfigure
     echo "KWin script installed and enabled: $KWIN_PLUGIN_ID"
 }

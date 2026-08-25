@@ -300,12 +300,34 @@ be approached differently than the Windows version was.
         invalid `installer.sh` subcommand, deployed and invoked through the real script — not an
         ad-hoc probe, which turned out to be an unreliable way to test this specific timing
         question) never reaches `unloadScript` at all, so its context survives and its failure
-        toast — full error output included — displays correctly. Net effect: a successful reload
-        is silent (same as before this feature), a failing one is now clearly reported (new). A
-        marker-based fix is possible (write a timestamped value via `kwriteconfig6` just before
-        the reload, have the *new* script instance check for one recent enough on its own startup
-        via `readConfig`) but not built — deliberately scoped out as a follow-up rather than
-        adding more untested surface to this same change.
+        toast — full error output included — displays correctly. Net effect at the time: a
+        successful reload was silent (same as before this feature), a failing one was clearly
+        reported (new).
+      - **Follow-up (same session, next turn) — the marker-based fix, built and verified**:
+        `install_kwin_script` now writes `"<epoch_ms>|<message>"` via `kwriteconfig6 --file
+        kwinrc --group Script-alttabsucks --key pendingReloadToast` right before the `reconfigure`
+        call that actually triggers the new script instance loading (not after
+        `install_kwin_script` returns — a race against exactly when KWin finishes the reload,
+        avoided by writing it before the trigger rather than after the effect). `main.js` gained a
+        one-shot top-level check (runs once per script load, not inside any `registerShortcut`):
+        `readConfig("pendingReloadToast", "")`, and if the timestamp is under 10s old, shows the
+        same `showCommandResultToast` after a 300ms `afterDelay` (letting KWin's post-reload
+        window/workspace churn settle before reading `workspace.activeWindow` to position
+        against). No `writeConfig` in the sandbox to explicitly clear the marker after showing it
+        (only `readConfig` — see the sandbox notes) — the recency check does that job instead, and
+        doubles as the guard against a stale marker replaying on some unrelated future reload
+        (e.g. a plain Plasma restart hours later still finds the old value sitting in `kwinrc`,
+        correctly ages it out).
+        First had to verify empirically that `readConfig` actually reads from the config group a
+        real, KPackage-installed script's `kwriteconfig6`-written value ends up in — an ad-hoc
+        `loadScript` probe (the tool used for nearly every other live check in this file) does
+        *not* share that config context, silently returning the default for a key that
+        genuinely exists once written from a properly installed script's own perspective.
+        Verified live twice: once via a plain manual `./installer.sh reload-hotkeys` from a
+        terminal, once via the actual `kglobalaccel`-invoked "Reload Hotkeys" hotkey — both showed
+        "Reload Hotkeys ✓ KWin script reloaded successfully." Net effect now: both success and
+        failure show a toast for `reload-hotkeys` specifically, matching every other `runCommand`
+        binding.
   - [x] **`focusTab` wasn't raising the target window** — the common "tab already open in an
         existing window" path queued `QueueSwitchTab` with no `activateWindow`/`activateAnyWindow`
         call, unlike the other two `focusTab` paths (`waitForTabOrOpen`, `openOrLaunchTab`'s
