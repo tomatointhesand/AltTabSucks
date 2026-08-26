@@ -545,6 +545,72 @@ function waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, de
     });
 }
 
+// --- Split/merge (Ctrl+Alt+Shift+X / +Z on Windows: lib/chromium.ahk's SplitFocusedTab /
+// MergeFocusedWindow) --------------------------------------------------------------------------
+// Both require resourceClass+profileName explicitly (unlike AHK, which auto-detects the profile
+// from the active window's title via _DetectProfileFromWindow) — matches every other browser-
+// related binding type here (profileCycle, tabFocus), and QueueSplitTab/QueueMergeTabs need a
+// profile to key the switch queue by regardless. Both no-op if the active window isn't this
+// browser at all, same as AHK's WinActive(winFilter) early-return.
+
+// splitTab(profile) tells the extension to detach the active tab into its own new window
+// (chrome.windows.create({tabId})); this side then finds that new window and puts it and the
+// original window side by side. AHK does the "side by side" part by simulating Win+Right/Win+Left
+// (Windows' own Snap, the only scriptable way to place a window there without doing the geometry
+// math by hand) — KWin exposes window.frameGeometry directly, so this sets both windows'
+// geometry explicitly instead of simulating anything, and doesn't need AHK's WinMove-before-
+// Win+Left workaround for "snap state" carrying over from a previous snap.
+//
+// frameGeometry takes a plain {x, y, width, height} object, not Qt.rect(...) — confirmed live
+// (a KDE Plasma 6 discuss.kde.org example used Qt.rect, but this sandbox has no global `Qt` at
+// all: typeof Qt === "undefined" here, so that call would throw). Also confirmed live that
+// mutating the *returned* object's properties (w.frameGeometry.x = ...) is a silent no-op — it
+// hands back a detached snapshot, not a live-bound reference — so this always assigns a whole
+// new object to w.frameGeometry rather than touching one of its properties.
+function splitFocusedTab(resourceClass, profileName) {
+    var origWindow = workspace.activeWindow;
+    if (!origWindow || origWindow.resourceClass !== resourceClass) return;
+
+    var existingWindows = listBrowserWindows(resourceClass);
+    bridgeCall("QueueSplitTab", [profileName], function () {
+        afterDelay(100, function () { waitAndSnapSplit(resourceClass, origWindow, existingWindows, Date.now() + 3000); });
+    });
+}
+
+// Polls (mirrors the 100ms/3s tuning of every other bridgeCall-then-poll loop above) for a
+// browser window that wasn't in the pre-split snapshot — the one the extension just detached the
+// tab into. A freshly created window can take a moment to get a caption (listBrowserWindows
+// requires one), so this can't just check "one more window than before" on the first poll.
+function waitAndSnapSplit(resourceClass, origWindow, existingWindows, deadline) {
+    var current = listBrowserWindows(resourceClass);
+    var newWindow = null;
+    for (var i = 0; i < current.length; i++) {
+        if (existingWindows.indexOf(current[i]) === -1) { newWindow = current[i]; break; }
+    }
+    if (!newWindow) {
+        if (Date.now() < deadline) {
+            afterDelay(100, function () { waitAndSnapSplit(resourceClass, origWindow, existingWindows, deadline); });
+        }
+        return;
+    }
+    if (!windowStillExists(origWindow)) return; // vanished mid-split — nothing sane to snap
+
+    var area = workspace.clientArea(KWin.MaximizeArea, origWindow);
+    var halfW = Math.floor(area.width / 2);
+    origWindow.frameGeometry = { x: area.x, y: area.y, width: halfW, height: area.height };
+    newWindow.frameGeometry = { x: area.x + halfW, y: area.y, width: area.width - halfW, height: area.height };
+    workspace.activeWindow = newWindow; // AHK ends the same way: WinActivate(newHwnd)
+}
+
+// mergeTabs(profile) moves every tab from the focused window into the profile's other window,
+// then the extension activates and maximizes that target window itself (chrome.windows.update)
+// — no window-hunting/snapping needed on this side at all, unlike split.
+function mergeFocusedWindow(resourceClass, profileName) {
+    var active = workspace.activeWindow;
+    if (!active || active.resourceClass !== resourceClass) return;
+    bridgeCall("QueueMergeTabs", [profileName], function () {});
+}
+
 // --- one-shot startup: pick up a pending reload confirmation ---------------------------------
 // See installer.sh's install_kwin_script for the other half of this. A "Reload Hotkeys"
 // runCommand binding's confirmation toast can't ride on its own RunCommandWithOutput reply — the

@@ -175,6 +175,21 @@ class Bridge(dbus.service.Object):
         # Mirrors POST /switchtab's {openUrl} variant.
         self._state.switch_queue[str(profile)] = {"openUrl": str(url)}
 
+    @dbus.service.method(INTERFACE, in_signature="s")
+    def QueueSplitTab(self, profile):
+        # Mirrors POST /switchtab's {splitTab} variant (lib/chromium.ahk's SplitFocusedTab) — the
+        # extension dequeues this exactly like any other switch_queue entry and detaches the
+        # active tab into its own new window (chrome.windows.create({tabId})); main.js's
+        # splitFocusedTab then finds that new window and places it beside the original.
+        self._state.switch_queue[str(profile)] = {"splitTab": True}
+
+    @dbus.service.method(INTERFACE, in_signature="s")
+    def QueueMergeTabs(self, profile):
+        # Mirrors POST /switchtab's {mergeTabs} variant (lib/chromium.ahk's MergeFocusedWindow) —
+        # the extension moves every tab from the currently-focused window into the profile's
+        # other window and activates/maximizes it; nothing further needed on this side.
+        self._state.switch_queue[str(profile)] = {"mergeTabs": True}
+
     # ---- process spawning ---------------------------------------------------------------
     # The one thing the KWin sandbox categorically cannot do itself (see module docstring) —
     # this is the "launch when nothing's open" escape hatch for manageAppWindows,

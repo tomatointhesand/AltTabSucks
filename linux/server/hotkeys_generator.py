@@ -18,6 +18,16 @@ Binding "type" maps to one main.js function each:
                                   what a "Reload Hotkeys" binding is made of (argv pointing at this
                                   clone's installer.sh), rather than that being a special case
                                   hardcoded into main.js/dbus_bridge.py.
+  splitTab                    -> splitFocusedTab(resourceClass, profileName) — detaches the
+                                  active tab of the focused window into its own new window, then
+                                  places the two side by side. Port of lib/chromium.ahk's
+                                  SplitFocusedTab; unlike AHK, profile isn't auto-detected from
+                                  the active window's title, it's an explicit field here, same as
+                                  every other browser-related binding type.
+  mergeTabs                   -> mergeFocusedWindow(resourceClass, profileName) — moves every tab
+                                  from the focused window into the profile's other window. Port
+                                  of lib/chromium.ahk's MergeFocusedWindow, same profileName note
+                                  as splitTab above.
 
 Once hotkeys.json has been saved via the UI, it — not hand-edited hotkeys.js — is the source of
 truth: every save regenerates hotkeys.js from scratch, so direct edits to hotkeys.js won't
@@ -104,6 +114,14 @@ def generate_binding_js(binding: dict) -> str:
         if not argv:
             raise ValueError(f"binding {title!r} missing argv")
         call = f'runCommandWithToast({_js_string(title)}, {_js_array_of_strings(argv)});'
+    elif kind in ("splitTab", "mergeTabs"):
+        if not resource_class:
+            raise ValueError(f"binding {title!r} missing resourceClass")
+        profile = (binding.get("profileName") or "").strip()
+        if not profile:
+            raise ValueError(f"binding {title!r} missing profileName")
+        fn = "splitFocusedTab" if kind == "splitTab" else "mergeFocusedWindow"
+        call = f"{fn}({_js_string(resource_class)}, {_js_string(profile)});"
     else:
         raise ValueError(f"binding {title!r} has unknown type: {kind!r}")
 

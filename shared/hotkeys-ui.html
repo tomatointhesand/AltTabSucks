@@ -131,6 +131,8 @@ const TYPE_LABELS = {
   windowToggle: "Toggle app windows",
   profileCycle: "Cycle browser profile",
   tabFocus: "Focus browser tab",
+  splitTab: "Split browser tab into new window",
+  mergeTabs: "Merge browser windows",
   runCommand: "Run command",
 };
 
@@ -368,7 +370,7 @@ function renderBinding(binding, index) {
 
   if (binding.type === "windowCycle" || binding.type === "windowToggle") {
     card.appendChild(listField("Launch command (optional — spawned if no window open)", "launchArgv", "e.g. dolphin", "grow"));
-  } else if (binding.type === "profileCycle") {
+  } else if (binding.type === "profileCycle" || binding.type === "splitTab" || binding.type === "mergeTabs") {
     card.appendChild(profileField());
   } else if (binding.type === "tabFocus") {
     card.appendChild(profileField());

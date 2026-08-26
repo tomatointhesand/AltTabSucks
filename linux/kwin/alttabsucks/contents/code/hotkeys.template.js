@@ -47,6 +47,19 @@ registerShortcut("Focus Calendar or Mail", "AltTabSucks: Focus Calendar or Mail"
             ["calendar.google.com", "mail.google.com"], "https://calendar.google.com");
     });
 
+// --- split/merge browser windows -----------------------------------------------------------
+// splitFocusedTab(resourceClass, profileName) detaches the active tab of the focused window
+// into its own new window and places the two side by side. mergeFocusedWindow(resourceClass,
+// profileName) moves every tab from the focused window into the profile's other window. Both
+// no-op unless the currently focused window is this browser/profile's. Port of
+// lib/chromium.ahk's SplitFocusedTab/MergeFocusedWindow (bound there to Alt+X/Alt+Z).
+
+registerShortcut("Split Tab", "AltTabSucks: Split Tab",
+    "Alt+X", function () { splitFocusedTab("YOUR_BROWSER_RESOURCE_CLASS", "YOUR_BROWSER_PROFILE"); });
+
+registerShortcut("Merge Windows", "AltTabSucks: Merge Windows",
+    "Alt+Z", function () { mergeFocusedWindow("YOUR_BROWSER_RESOURCE_CLASS", "YOUR_BROWSER_PROFILE"); });
+
 // --- run an arbitrary command -------------------------------------------------------------------
 // runCommandWithToast(title, argv) — runs argv[0] directly (no shell, so no quoting/injection
 // concerns), waits for it to finish, and shows a toast with its exit status and any output.

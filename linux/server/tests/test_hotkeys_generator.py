@@ -33,6 +33,32 @@ class GenerateBindingJsTestCase(unittest.TestCase):
         })
         self.assertIn('cycleChromiumProfile("brave-browser", "Work");', js)
 
+    def test_split_tab(self):
+        js = generate_binding_js({
+            "type": "splitTab", "title": "Split Tab", "key": "Alt+X",
+            "resourceClass": "brave-browser", "profileName": "Personal",
+        })
+        self.assertIn('splitFocusedTab("brave-browser", "Personal");', js)
+
+    def test_merge_tabs(self):
+        js = generate_binding_js({
+            "type": "mergeTabs", "title": "Merge Windows", "key": "Alt+Z",
+            "resourceClass": "brave-browser", "profileName": "Personal",
+        })
+        self.assertIn('mergeFocusedWindow("brave-browser", "Personal");', js)
+
+    def test_split_tab_missing_profile_name_raises(self):
+        with self.assertRaises(ValueError):
+            generate_binding_js({
+                "type": "splitTab", "title": "X", "key": "Alt+X", "resourceClass": "x",
+            })
+
+    def test_merge_tabs_missing_resource_class_raises(self):
+        with self.assertRaises(ValueError):
+            generate_binding_js({
+                "type": "mergeTabs", "title": "X", "key": "Alt+Z", "profileName": "Personal",
+            })
+
     def test_tab_focus_multiple_patterns(self):
         js = generate_binding_js({
             "type": "tabFocus", "title": "Focus Gmail", "key": "Ctrl+Alt+Shift+G",

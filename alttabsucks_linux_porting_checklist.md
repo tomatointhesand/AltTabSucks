@@ -583,6 +583,68 @@ be approached differently than the Windows version was.
         profile via `POST /tabs`, called the real `FindTab` D-Bus method directly — pattern
         `youtube.com` returned only the plain-YouTube tab, pattern `music.youtube.com` returned
         only the Music tab, then cleaned up via `DELETE /tabs`.
+- [x] **Split/merge browser windows** — port of `lib/chromium.ahk`'s `SplitFocusedTab`/
+      `MergeFocusedWindow` (`Alt+X`/`Alt+Z` on Windows). Two new binding types, `splitTab`/
+      `mergeTabs`, mapping to new `main.js` functions `splitFocusedTab(resourceClass,
+      profileName)`/`mergeFocusedWindow(resourceClass, profileName)` — unlike AHK, which
+      auto-detects the profile from the active window's title via `_DetectProfileFromWindow`,
+      both take `resourceClass`+`profileName` explicitly, matching every other browser-related
+      binding type here (`profileCycle`, `tabFocus`) rather than porting a whole extra
+      detection subsystem for these two. Both no-op if the active window isn't the configured
+      browser, same as AHK's `WinActive(winFilter)` early-return.
+      - **New `dbus_bridge.py` methods** `QueueSplitTab(profile)`/`QueueMergeTabs(profile)` —
+        mirror `POST /switchtab`'s `{splitTab}`/`{mergeTabs}` variants, writing straight into
+        `switch_queue` like `QueueSwitchTab`/`QueueSwitchOpenUrl` already do. No changes needed
+        anywhere else server-side: `GET /switchtab`'s dequeue and the extension's
+        `background.js` handling of `cmd.splitTab`/`cmd.mergeTabs` are both already generic
+        (shared with Windows/PS1, browser-side code, OS-independent) — confirmed live via a
+        direct `QueueSplitTab` D-Bus call that the extension really does detach the active tab
+        into a new window via `chrome.windows.create`, and a direct `QueueMergeTabs` call that
+        it really does move every tab back into the other window.
+      - **`splitFocusedTab` snapshots existing browser windows, queues the split, then polls
+        (100ms/3s, same tuning as every other bridgeCall-then-poll loop here) for a window not
+        in that snapshot** — the one the extension just detached the tab into — then places it
+        and the original window side by side.
+      - **A real, KWin-specific bug found and fixed via live testing, not just code reading**:
+        the first implementation followed a Plasma 6 discuss.kde.org example verbatim,
+        `window.frameGeometry = Qt.rect(x, y, w, h)`. Deployed and invoked for real through
+        `kglobalaccel` — nothing happened, no new window ever got positioned, no exception
+        visible anywhere. Root-caused with a `loadScript` probe that printed `typeof Qt` via a
+        toast (this sandbox's established substitute for `journalctl`/`print()`, both already
+        unreliable earlier this session): **`Qt` is `undefined` in this KWin scripting
+        environment** (`typeof KWin === "function"` but `typeof Qt === "undefined"`) — the
+        example's `Qt.rect(...)` call was throwing a `ReferenceError` on every invocation,
+        silently, before ever reaching `waitAndSnapSplit`'s geometry-setting lines. A second
+        probe found mutating the *returned* `frameGeometry` object's own properties
+        (`w.frameGeometry.x = ...`, also from a real community example) is a silent no-op too —
+        it hands back a detached snapshot, not a live-bound reference; reading the property back
+        immediately confirmed the value never changed. **What actually works**: assigning a
+        whole plain JS object literal to `frameGeometry` — `w.frameGeometry = { x, y, width,
+        height }` — confirmed live against a real window (`kate`, then a real `brave-browser`
+        window) with a before/after geometry printout. One more wrinkle found the same way:
+        reading `frameGeometry` back *synchronously in the same script tick* right after
+        assigning it can still show the old value (the compositor commit isn't necessarily
+        immediate) — confirmed by re-checking the same window's geometry from a *separate*,
+        later probe and finding the assignment had in fact taken effect — so a same-tick
+        read-back isn't a reliable way to verify this API; a separate later query is.
+      - **Verified live end to end** against the real bridge/extension (see the testing note
+        below for why the real hotkey path itself wasn't the right tool for this one): a direct
+        `QueueSplitTab` call → extension created a real second Brave window → a probe running
+        the exact same plain-object `frameGeometry` code `waitAndSnapSplit` uses resized both
+        windows → a later query confirmed the committed geometry. A direct `QueueMergeTabs` call
+        afterward → back to one window. Cleaned up afterward with `setMaximize(true, true)` (a
+        genuine `Window` method, confirmed working) to restore a sane size, since the exact
+        pre-test geometry wasn't recorded up front.
+      - **Testing note for future live verification of this feature**: driving this through the
+        real hotkey (`kglobalaccel.invokeShortcut`, this project's usual most-faithful live test)
+        turned out to be a poor fit specifically for `splitTab`/`mergeTabs`, because both
+        functions gate on `workspace.activeWindow.resourceClass` — correct, deliberate behavior
+        (mirrors AHK's `WinActive` early-return), but it means the test also depends on nothing
+        *else* stealing focus between "activate the browser window" and "invoke the shortcut",
+        which a fullscreen/exclusive app running at the same time can do. Calling
+        `QueueSplitTab`/`QueueMergeTabs` directly (bypassing the resourceClass gate entirely)
+        isolated the bridge/extension/geometry logic from that timing concern and is the more
+        reliable way to test this specific pair of functions live in the future.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [ ] Linux README section (installer.sh usage still needs documenting there)
