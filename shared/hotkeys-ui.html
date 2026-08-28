@@ -462,7 +462,7 @@ function renderGroup(type, groupBindings) {
 
   const titleRow = el("div", { class: "group-title" });
   titleRow.appendChild(el("span", {}, [TYPE_LABELS[type]]));
-  const addBtn = el("button", { type: "button", class: "group-add-btn", title: `Add another "${TYPE_LABELS[type]}" hotkey` }, ["+ Add"]);
+  const addBtn = el("button", { type: "button", class: "group-add-btn", title: `Add a "${TYPE_LABELS[type]}" hotkey` }, ["+ Add"]);
   addBtn.addEventListener("click", () => { bindings.push(newBindingOfType(type)); renderAll(); });
   titleRow.appendChild(addBtn);
   section.appendChild(titleRow);
@@ -476,12 +476,16 @@ function renderAll() {
   const container = document.getElementById("bindings");
   container.innerHTML = "";
   // Fixed type order (TYPE_LABELS', not `bindings`') so groups don't reshuffle position just
-  // because of what order bindings happen to be saved in — only a type with at least one
-  // binding gets a section at all, so an unused type costs zero vertical space, not just a
-  // collapsed header.
+  // because of what order bindings happen to be saved in. Every type gets a section
+  // unconditionally, even with zero bindings — the previous "skip an empty type's section
+  // entirely" behavior saved a little vertical space but was a real dead end once the Type
+  // <select> was removed (see the group's own +Add above): deleting a section's last binding
+  // took its whole section, +Add button included, with it, leaving no way back to that type
+  // short of hand-editing hotkeys.json. Reported live: deleting the sole "Run command" binding
+  // made the entire Run Command section vanish.
   Object.keys(TYPE_LABELS).forEach((type) => {
     const groupBindings = bindings.filter((b) => b.type === type);
-    if (groupBindings.length > 0) container.appendChild(renderGroup(type, groupBindings));
+    container.appendChild(renderGroup(type, groupBindings));
   });
 }
 

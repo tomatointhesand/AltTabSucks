@@ -734,6 +734,28 @@ be approached differently than the Windows version was.
         row (the same both-sides-together discipline as the `Dup` removal above, for the same
         alignment reason). Verified live: no "Type" column or header anywhere, remaining columns
         still line up.
+      - **Real regression the Type-column removal introduced, caught by the user within
+        minutes of live use**: `renderAll` only ever created a section for a type with at least
+        one binding (deliberate at the time — an unused type cost zero vertical space). Once the
+        Type `<select>` was gone, that became a dead end instead of just a minor space
+        optimization: deleting a section's *last* binding took the whole section with it —
+        title, header, and its `+ Add` button included — and with no per-row way to retype an
+        existing binding into that type anymore either, there was no way back to it at all short
+        of hand-editing `hotkeys.json`. Reported live: deleting the sole "Reload Hotkeys"
+        `runCommand` binding made the entire Run Command section vanish, taking the binding
+        itself with it (already saved by the time it was reported).
+        - Fix: `renderAll` now iterates all of `TYPE_LABELS` unconditionally — every type gets
+          its title/header/`+ Add` always, whether or not it currently has any bindings.
+        - The lost "Reload Hotkeys" binding itself was restored too (recovered from this exact
+          conversation's own earlier tool output, not guessed) — `installer.sh`'s own
+          `reload-hotkeys` hotkey is load-bearing for this whole feature area, not just any
+          binding, and simply making its *section* reappear wouldn't have given it back.
+          Restored through the real `POST /hotkeys-config` save path (not a direct file write),
+          then confirmed live via `kglobalaccel`'s own shortcut list that "Reload Hotkeys" is a
+          real registered action again, not just present in `hotkeys.json`.
+        - Verified live end to end: emptied the real Run Command group (server-side, via the
+          same save path) and confirmed its section — header and `+ Add` included — still
+          rendered with zero rows, in a fresh browser load.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [ ] Linux README section (installer.sh usage still needs documenting there)
