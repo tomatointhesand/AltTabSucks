@@ -222,10 +222,35 @@ be approached differently than the Windows version was.
         same `hotkeys.json` shape) — scoped as a separate step requiring explicit go-ahead, since
         it touches working Windows code rather than adding something new. `hotkeys_generator.py`
         would need a PowerShell/AHK-generating counterpart alongside the existing JS one.
-  - [ ] **Not built**: live resourceClass/running-window discovery inside the UI (you still type
-        `resourceClass` by hand, same as `hotkeys.template.js` always required) — would need a
-        reverse-direction channel (server asking the *KWin script* for live window data; today
-        everything flows KWin-script-to-server only). Noted as a possible enhancement, not started.
+  - [x] **Live resourceClass typeahead, built** (follow-up to the note above) — every
+        resourceClass field is now a native `<input list="resourceClassList">` +
+        `<datalist>`, offering whatever's actually running right now instead of requiring it
+        typed from memory. The "reverse-direction channel" problem noted above turned out not
+        to need solving at all: rather than the server asking the KWin script on demand (which
+        the sandbox has no way to answer — it can only call *out* via `callDBus`, never be
+        called *into*), `main.js` gained a self-rescheduling `pushRunningResourceClasses()`
+        (10s interval, same `normalWindow`/`!transient` filter `findAppWindows` already uses)
+        that *pushes* the current deduped, sorted set — the same shape the browser extension's
+        own `POST /tabs` already uses for tab state, not a new pattern.
+        - New `dbus_bridge.py` method `PushRunningResourceClasses(list)`, storing into a new
+          `AppState.running_resource_classes` field; new `GET /running-resource-classes` for
+          the page to fetch. The dedupe/sort itself is `normalize_resource_classes`, pulled out
+          as a pure function (same reasoning as `url_matches_pattern`) so it's unit-testable
+          without a live session bus — 5 new tests, plus 2 more for the HTTP endpoint.
+        - `hotkeys-ui.html`: fetching this is a separate, best-effort try/catch from the main
+          profiles/`hotkeys-config` load — a missing/empty list (e.g. right after a fresh
+          install, before the first 10s push has landed) degrades to an empty `<datalist>`
+          rather than failing the whole page load the way a real auth/config problem should.
+          The three duplicated resourceClass column definitions across `TYPE_COLUMNS` were
+          pulled into one `resourceClassColumn()` so all of them stay wired to the same
+          `<datalist>`. Native `<datalist>` over a hand-rolled dropdown deliberately — it's
+          exactly what the element is for, and every browser already implements the
+          type-to-filter/keyboard-nav behavior correctly for free.
+        - Verified live end to end (not just unit tests): restarted the bridge server and
+          redeployed the KWin script, waited for a real push cycle, and confirmed
+          `GET /running-resource-classes` returned the actual live set of open windows'
+          resourceClasses (`brave-browser`, `discord`, `code-oss`, ...) with no manual seeding
+          — main.js's periodic push was reaching the server correctly on its own.
   - [x] **`Ctrl+Alt+Shift+'` reloads hotkeys** — the Linux equivalent of `AltTabSucks.ahk`'s
         built-in `^!+'::Reload`, but *not* hardcoded as a framework special case the way it first
         shipped (a `main.js` `registerShortcut` + a dedicated `dbus_bridge.py` `ReloadHotkeys`

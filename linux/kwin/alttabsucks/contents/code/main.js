@@ -611,6 +611,32 @@ function mergeFocusedWindow(resourceClass, profileName) {
     bridgeCall("QueueMergeTabs", [profileName], function () {});
 }
 
+// --- periodic push: keep hotkeys-ui.html's resourceClass typeahead fresh -----------------------
+// The bridge server has no way to ask this script for live window data on demand — everything
+// else in dbus_bridge.py flows this-script-calls-server (the sandbox can call *out* via callDBus,
+// never be called *into*), so a live "what's running right now" typeahead needs this script to
+// push instead of the server pulling. Same shape as the browser extension's own POST /tabs.
+// 10s is plenty fresh for a human picking a resourceClass while editing a hotkey, and cheap
+// enough (one enumeration + one D-Bus call) to just run forever rather than being tied to window
+// add/remove events.
+function pushRunningResourceClasses() {
+    var order = workspace.stackingOrder;
+    var seen = {};
+    var classes = [];
+    for (var i = 0; i < order.length; i++) {
+        var w = order[i];
+        // Same normalWindow/!transient filter as findAppWindows above — only real top-level app
+        // windows are worth offering, not panels/docks/dialogs.
+        if (!w.normalWindow || w.transient || !w.resourceClass) continue;
+        if (seen[w.resourceClass]) continue;
+        seen[w.resourceClass] = true;
+        classes.push(w.resourceClass);
+    }
+    bridgeCall("PushRunningResourceClasses", [classes], function () {});
+    afterDelay(10000, pushRunningResourceClasses);
+}
+pushRunningResourceClasses();
+
 // --- one-shot startup: pick up a pending reload confirmation ---------------------------------
 // See installer.sh's install_kwin_script for the other half of this. A "Reload Hotkeys"
 // runCommand binding's confirmation toast can't ride on its own RunCommandWithOutput reply — the

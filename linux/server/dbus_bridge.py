@@ -67,6 +67,12 @@ def url_matches_pattern(url, pattern):
     return len(u) == len(p) or u[len(p)] in "/:?#"
 
 
+def normalize_resource_classes(resource_classes):
+    """Dedupe + sort + drop empties — pulled out as a pure function (mirrors url_matches_pattern
+    above) purely so it's unit-testable without a live session bus, same reasoning as that one."""
+    return sorted(set(str(r) for r in resource_classes if r))
+
+
 def _spawn_detached(argv):
     """Popen + a background reaper thread. Without ever calling wait()/poll() on a Popen, the
     child becomes a zombie once it exits (its intermediate launcher process, if any, exits well
@@ -157,6 +163,17 @@ class Bridge(dbus.service.Object):
     def GetProfiles(self):
         # Mirrors GET /profiles.
         return list(self._state.profile_list)
+
+    @dbus.service.method(INTERFACE, in_signature="as")
+    def PushRunningResourceClasses(self, resource_classes):
+        # The one place in this file the data flows *into* the server from something other than
+        # a queued command — main.js calls this periodically (see its own comment) with the
+        # distinct resourceClass values currently open, purely so hotkeys-ui.html's resourceClass
+        # field can offer a live typeahead instead of requiring it typed from memory. There's no
+        # reverse channel for the server to ask the KWin script on demand (the sandbox can't be
+        # called *into*, only call out — see the module docstring), so this mirrors the browser
+        # extension's own POST /tabs push model instead of inventing a new shape.
+        self._state.running_resource_classes = normalize_resource_classes(resource_classes)
 
     # Concurrency note: these two are plain single-key dict writes on switch_queue, individually
     # atomic under the GIL. The only read-modify-write sequence on switch_queue is GET

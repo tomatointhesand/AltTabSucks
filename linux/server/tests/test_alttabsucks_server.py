@@ -168,6 +168,21 @@ class ServerTestCase(unittest.TestCase):
                                      extra_headers={"Content-Type": "application/json"})
         self.assertEqual(status, 400)
 
+    # ---- /running-resource-classes -------------------------------------
+    # No POST route — this is set only via dbus_bridge's PushRunningResourceClasses (the KWin
+    # script calling in), never over HTTP, so these set state directly rather than POSTing.
+
+    def test_running_resource_classes_defaults_empty(self):
+        status, _, body = self.request("GET", "/running-resource-classes")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), [])
+
+    def test_running_resource_classes_reflects_pushed_state(self):
+        self.state.running_resource_classes = ["brave-browser", "kate"]
+        status, _, body = self.request("GET", "/running-resource-classes")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), ["brave-browser", "kate"])
+
     # ---- /tabs -------------------------------------------------------
 
     def _seed_default_profile(self):

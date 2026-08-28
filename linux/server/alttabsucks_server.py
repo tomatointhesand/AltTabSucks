@@ -83,6 +83,13 @@ class AppState:
         self.profile_list: list[str] = []         # display names — self-discovered at startup on
                                                     # Linux (see _load_chromium_config); pushed via
                                                     # POST /profiles on Windows (AHK) or Firefox
+        self.running_resource_classes: list[str] = []  # distinct resourceClass values currently
+                                                    # open, per main.js's periodic PushRunningResourceClasses
+                                                    # — feeds hotkeys-ui.html's resourceClass <datalist>.
+                                                    # Everything else in this file flows KWin-script-
+                                                    # to-server, never the other way (the sandbox has
+                                                    # no way to be called *into* on demand) — same
+                                                    # push shape as the browser extension's POST /tabs.
         self.chromium_profile_dirs: dict[str, str] = {}  # display name -> profile dir name
         self.chromium_exe: str = ""            # from config.py; e.g. "brave" (see dbus_bridge's
                                                  # LaunchChromiumProfile — not always the same as
@@ -247,6 +254,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
 
             if path == "/profiles":
                 self._end_json(200, state.profile_list)
+            elif path == "/running-resource-classes":
+                self._end_json(200, state.running_resource_classes)
             elif path == "/tabs":
                 self._end_json(200, state.store)
             elif path == "/activetitles":

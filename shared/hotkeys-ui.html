@@ -146,6 +146,9 @@
   </div>
 
   <div id="bindings"></div>
+  <!-- Populated by renderResourceClassDatalist() from GET /running-resource-classes — every
+       resourceClass <input> points at this one shared list via textInput's list= attribute. -->
+  <datalist id="resourceClassList"></datalist>
 
   <div class="toolbar">
     <button id="add">+ Add hotkey</button>
@@ -166,6 +169,7 @@ const TYPE_LABELS = {
 };
 
 let profiles = [];
+let runningResourceClasses = [];
 let bindings = [];
 let draggedIndex = null; // set by a drag-handle's dragstart, read by another binding's drop
 
@@ -209,6 +213,16 @@ function profileOptions(selected) {
     opts.unshift(el("option", { value: selected, selected: "" }, [selected + " (not in discovered list)"]));
   }
   return opts;
+}
+
+// A <datalist> is a suggestion list, not a constraint the way <select> is — unlike
+// profileOptions above there's no "not in discovered list" fallback option needed here, an
+// existing resourceClass value that isn't currently running (the app just isn't open right now)
+// stays exactly as typed either way.
+function renderResourceClassDatalist() {
+  const list = document.getElementById("resourceClassList");
+  list.innerHTML = "";
+  runningResourceClasses.forEach(rc => list.appendChild(el("option", { value: rc })));
 }
 
 // Qt key-sequence names for keys whose KeyboardEvent.key doesn't already match (registerShortcut
@@ -286,11 +300,24 @@ function field(labelText, inputEl, extraClass) {
   return wrap;
 }
 
-function textInput(binding, key, placeholder) {
-  const input = el("input", { type: "text", placeholder: placeholder || "" });
+function textInput(binding, key, placeholder, listId) {
+  const attrs = { type: "text", placeholder: placeholder || "" };
+  if (listId) attrs.list = listId; // wires up a <datalist> for a native typeahead — see resourceClassColumn()
+  const input = el("input", attrs);
   input.value = binding[key] || "";
   input.addEventListener("input", () => { binding[key] = input.value; });
   return input;
+}
+
+// Shared by every TYPE_COLUMNS entry that has a resourceClass field, instead of repeating the
+// same textInput(...) call per type — the "list" attribute points at the <datalist> load()
+// populates from GET /running-resource-classes (main.js pushes that list periodically; see its
+// own comment for why the push happens that direction, not a pull from here). Native <datalist>
+// rather than a hand-rolled dropdown: this is exactly what it's for, and every browser already
+// implements the typing/filtering/keyboard-nav behavior correctly for free.
+function resourceClassColumn() {
+  return { label: "resourceClass", extraClass: "grow",
+    build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...", "resourceClassList") };
 }
 
 function listInput(binding, key, placeholder) {
@@ -333,19 +360,19 @@ const TYPE_COLUMNS = {
   windowCycle: [
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
-    { label: "resourceClass", extraClass: "grow", build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...") },
+    resourceClassColumn(),
     { label: "Launch command (optional — spawned if no window open)", extraClass: "grow", build: (b) => listInput(b, "launchArgv", "e.g. dolphin") },
   ],
   profileCycle: [
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
-    { label: "resourceClass", extraClass: "grow", build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...") },
+    resourceClassColumn(),
     { label: "Profile", extraClass: "fixed select-col", build: (b) => profileSelect(b) },
   ],
   tabFocus: [
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
-    { label: "resourceClass", extraClass: "grow", build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...") },
+    resourceClassColumn(),
     { label: "Profile", extraClass: "fixed select-col", build: (b) => profileSelect(b) },
     { label: "URL pattern(s)", extraClass: "grow", build: (b) => listInput(b, "urlPatterns", "mail.google.com") },
     { label: "Open URL (if no match)", extraClass: "grow", build: (b) => textInput(b, "openUrl", "https://mail.google.com") },
@@ -537,7 +564,18 @@ async function load() {
     setStatus(`Loaded ${bindings.length} hotkey(s), ${profiles.length} known profile(s).`, false);
   } catch (e) {
     setStatus("Load failed (check your token, and that the server is running): " + e.message, true);
+    return;
   }
+  // Separate, best-effort fetch: main.js only pushes this every 10s (see its own comment), so a
+  // very-first load right after install could still race an empty list — that's fine, it just
+  // means the datalist stays empty until the next push, not a reason to fail the whole page load
+  // the way a missing token/hotkeys.json genuinely should above.
+  try {
+    runningResourceClasses = await apiGet("/running-resource-classes");
+  } catch (e) {
+    runningResourceClasses = [];
+  }
+  renderResourceClassDatalist();
 }
 
 // The token field starts empty on a fresh page load (nothing to prefill from server-side
