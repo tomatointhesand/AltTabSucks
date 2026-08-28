@@ -62,39 +62,56 @@
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   button.danger:hover { border-color: var(--err); color: var(--err); }
+  /* One section per binding type (see TYPE_COLUMNS/renderGroup) — a single header row of column
+     labels shared by every binding of that type, instead of every single row repeating its own
+     label-above-input for every field. That repetition was the biggest cost in the old layout:
+     each field was a label line plus an input line, for every row, every time — with more than
+     a handful of hotkeys of the same type it dwarfed the actual data on screen. */
+  .group { margin-bottom: 20px; }
+  .group-title {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-dim); padding: 0 4px 6px; margin-bottom: 4px; border-bottom: 1px solid var(--border);
+  }
+  .group-add-btn { font-size: 11px; font-weight: 600; padding: 3px 9px; text-transform: none; letter-spacing: normal; }
+  .group-header { display: flex; gap: 6px 10px; flex-wrap: wrap; padding: 0 4px; margin-bottom: 2px; }
+  .group-header label { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
   /* Each binding is one flex-wrapping row rather than a stacked card: on a wide window a
      whole hotkey fits on a single line, and as the window narrows fields wrap onto extra
      lines (still grouped under the same binding, still readable) purely via flex-wrap — no
-     JS resize handling needed. This matters once you have more than a handful of hotkeys;
-     the old one-card-per-binding layout took a full screen for 3-4 entries. */
-  .binding { position: relative; display: flex; align-items: flex-end; flex-wrap: wrap; gap: 6px 10px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+     JS resize handling needed. Rows are bare inputs now (no per-row labels — see the group
+     header above), so they're one line tall instead of two. */
+  .binding { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 5px 4px; border-bottom: 1px solid var(--border); }
+  .group .binding:last-child { border-bottom: none; }
   .field { display: flex; flex-direction: column; gap: 3px; flex: 1 1 110px; min-width: 90px; }
   .field label { font-size: 10px; margin-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .field.grow { flex: 2 1 170px; }
   /* .field's min-width: 90px was meant for real labeled inputs — left un-reset here, every
-     icon-only fixed field (badge, dupe, remove) was silently padded out to 90px minimum even
-     though its content is a few px wide, wasting real width and contributing to the remove
-     button wrapping onto its own line on wider rows (tabFocus: 9 fields wide). */
+     icon-only fixed field (dupe, remove) was silently padded out to 90px minimum even though
+     its content is a few px wide, wasting real width and contributing to the remove button
+     wrapping onto its own line on wider rows (tabFocus: 9 fields wide). */
   .field.fixed { flex: 0 0 auto; min-width: 0; }
   .field.fixed select, .field.fixed input { width: auto; }
   .field.fixed select { min-width: 160px; }
-  .badge-box { padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 600; color: var(--text-dim); text-align: center; min-width: 30px; }
+  /* Fixed pixel widths (not content-sized, unlike .field.fixed above) so a group-header
+     placeholder cell lines up with its data-row counterpart even though the data-row one's
+     actual content (drag handle glyph / badge text / type <select>) doesn't have a natural
+     width of its own to match against — renderGroupHeader and renderBindingRow both build
+     these three cells first, in this same order, specifically so they line up. */
+  .spacer-handle { flex: 0 0 20px; }
+  .spacer-badge { flex: 0 0 34px; }
+  .spacer-type { flex: 0 0 160px; }
+  .badge-box { padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 600; color: var(--text-dim); text-align: center; }
   .badge-box:hover { border-color: var(--accent); color: var(--text); }
   /* Dims the whole row (badge included) rather than exempting the badge from the dimming —
      simpler than carving out a CSS exception, and the badge stays just as clickable at reduced
      opacity (opacity doesn't affect pointer-events) so re-enabling is no harder to hit. */
   .binding.disabled { opacity: 0.5; }
   .remove-btn, .dupe-btn { padding: 6px 10px; font-size: 12px; }
-  /* Pinned to the card's corner instead of taking a flex slot in the row — it's chrome for
-     managing the list, not part of any binding's actual data, so it shouldn't compete with
-     Title/Key/resourceClass/etc. for the row's width. */
-  .drag-handle {
-    position: absolute; top: -1px; left: -1px;
-    padding: 2px 5px; font-size: 10px; line-height: 1.4; color: var(--text-dim);
-    cursor: grab; user-select: none; border-radius: 8px 0 6px 0;
-    background: var(--panel); border: 1px solid var(--border); border-top: none; border-left: none;
-  }
-  .drag-handle:hover { color: var(--text); background: var(--bg); }
+  /* No longer pinned to a card corner (there's no card now, just a bottom-border divider row)
+     — it's an ordinary leading cell in the row's own flex flow, same as the badge next to it. */
+  .drag-handle { font-size: 11px; line-height: 1; color: var(--text-dim); cursor: grab; user-select: none; text-align: center; }
+  .drag-handle:hover { color: var(--text); }
   .drag-handle:active { cursor: grabbing; }
   .binding.dragging { opacity: 0.4; }
   .status { font-size: 13px; margin-top: 10px; min-height: 18px; }
@@ -248,89 +265,138 @@ function recordKeyField(input, binding) {
   input.addEventListener("blur", () => { input.value = binding.key || ""; });
 }
 
-function renderBinding(binding, index) {
-  const card = el("div", { class: "binding" + (binding.enabled === false ? " disabled" : "") });
+function field(labelText, inputEl, extraClass) {
+  const wrap = el("div", { class: "field" + (extraClass ? " " + extraClass : "") });
+  // labelText is null for a data-row cell (its label lives once in the group header instead —
+  // see renderGroupHeader) and inputEl is null for a header cell (labels only, no input to show).
+  if (labelText != null) wrap.appendChild(el("label", {}, [labelText]));
+  if (inputEl != null) wrap.appendChild(inputEl);
+  return wrap;
+}
 
-  function field(labelText, inputEl, extraClass) {
-    const wrap = el("div", { class: "field" + (extraClass ? " " + extraClass : "") });
-    wrap.appendChild(el("label", {}, [labelText]));
-    wrap.appendChild(inputEl);
-    return wrap;
+function textInput(binding, key, placeholder) {
+  const input = el("input", { type: "text", placeholder: placeholder || "" });
+  input.value = binding[key] || "";
+  input.addEventListener("input", () => { binding[key] = input.value; });
+  return input;
+}
+
+function listInput(binding, key, placeholder) {
+  const input = el("input", { type: "text", placeholder: placeholder || "one per line, or comma-separated" });
+  input.value = (binding[key] || []).join(", ");
+  input.addEventListener("input", () => {
+    binding[key] = input.value.split(",").map(s => s.trim()).filter(Boolean);
+  });
+  return input;
+}
+
+function profileSelect(binding) {
+  const select = el("select", {}, profileOptions(binding.profileName));
+  // A <select> with no option explicitly marked selected still shows its first option
+  // selected (plain browser default rendering) — that's what was happening whenever
+  // binding.profileName was empty: "Personal" *looked* chosen, but binding.profileName was
+  // never actually set to it (no "change" event fires just from that default rendering), so
+  // save sent an empty profileName and the server correctly rejected it. Sync state to
+  // match what's on screen right away instead of waiting for a change event that may never
+  // come if the first option happens to already be the one the user wants.
+  if (!binding.profileName && select.options.length) {
+    binding.profileName = select.options[select.selectedIndex].value;
   }
+  select.addEventListener("change", () => { binding.profileName = select.value; });
+  return select;
+}
 
-  function textField(labelText, key, placeholder, extraClass) {
-    const input = el("input", { type: "text", placeholder: placeholder || "" });
-    input.value = binding[key] || "";
-    input.addEventListener("input", () => { binding[key] = input.value; });
-    return field(labelText, input, extraClass);
-  }
+function keyInput(binding) {
+  const input = el("input", { type: "text" });
+  input.value = binding.key || "";
+  recordKeyField(input, binding);
+  return input;
+}
 
-  function listField(labelText, key, placeholder, extraClass) {
-    const input = el("input", { type: "text", placeholder: placeholder || "one per line, or comma-separated" });
-    input.value = (binding[key] || []).join(", ");
-    input.addEventListener("input", () => {
-      binding[key] = input.value.split(",").map(s => s.trim()).filter(Boolean);
-    });
-    return field(labelText, input, extraClass);
-  }
+// Column spec per binding type — one entry per data field that type actually uses, in display
+// order. The single source of truth for both the group header (labels only, built once per
+// type) and every data row of that type (inputs only, no per-row label) — see field() above.
+// Getting a type's header and its rows out of sync isn't possible since both read this same list.
+const TYPE_COLUMNS = {
+  windowCycle: [
+    { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
+    { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
+    { label: "resourceClass", extraClass: "grow", build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...") },
+    { label: "Launch command (optional — spawned if no window open)", extraClass: "grow", build: (b) => listInput(b, "launchArgv", "e.g. dolphin") },
+  ],
+  profileCycle: [
+    { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
+    { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
+    { label: "resourceClass", extraClass: "grow", build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...") },
+    { label: "Profile", extraClass: "fixed", build: (b) => profileSelect(b) },
+  ],
+  tabFocus: [
+    { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
+    { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
+    { label: "resourceClass", extraClass: "grow", build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...") },
+    { label: "Profile", extraClass: "fixed", build: (b) => profileSelect(b) },
+    { label: "URL pattern(s)", extraClass: "grow", build: (b) => listInput(b, "urlPatterns", "mail.google.com") },
+    { label: "Open URL (if no match)", extraClass: "grow", build: (b) => textInput(b, "openUrl", "https://mail.google.com") },
+  ],
+  runCommand: [
+    { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
+    { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
+    { label: "Command (argv, no shell — one arg per line/comma)", extraClass: "grow", build: (b) => listInput(b, "argv", "/path/to/installer.sh, reload-hotkeys") },
+  ],
+};
+// windowToggle behaves exactly like windowCycle field-wise, and splitTab/mergeTabs share
+// profileCycle's exact fields (Title/Key/resourceClass/Profile, no window/launch/URL fields of
+// their own) — reusing the spec rather than repeating it keeps them impossible to drift apart.
+TYPE_COLUMNS.windowToggle = TYPE_COLUMNS.windowCycle;
+TYPE_COLUMNS.splitTab = TYPE_COLUMNS.profileCycle;
+TYPE_COLUMNS.mergeTabs = TYPE_COLUMNS.profileCycle;
 
-  function profileField() {
-    const select = el("select", {}, profileOptions(binding.profileName));
-    // A <select> with no option explicitly marked selected still shows its first option
-    // selected (plain browser default rendering) — that's what was happening whenever
-    // binding.profileName was empty: "Personal" *looked* chosen, but binding.profileName was
-    // never actually set to it (no "change" event fires just from that default rendering), so
-    // save sent an empty profileName and the server correctly rejected it. Sync state to
-    // match what's on screen right away instead of waiting for a change event that may never
-    // come if the first option happens to already be the one the user wants.
-    if (!binding.profileName && select.options.length) {
-      binding.profileName = select.options[select.selectedIndex].value;
-    }
-    select.addEventListener("change", () => { binding.profileName = select.value; });
-    return field("Profile", select, "fixed");
-  }
+function newBindingOfType(type) {
+  const b = { type, title: "", key: "", enabled: true };
+  // runCommand has no window/tab/profile to match against — matches the field-list special
+  // case below, which hides resourceClass entirely for it rather than showing it unused.
+  if (type !== "runCommand") b.resourceClass = "";
+  return b;
+}
 
-  function keyField() {
-    const input = el("input", { type: "text" });
-    input.value = binding.key || "";
-    recordKeyField(input, binding);
-    return field("Key sequence", input);
-  }
+function renderBindingRow(binding, localIndex) {
+  const index = bindings.indexOf(binding); // real position in `bindings` — what save/drag/dupe/remove all key off
+  const row = el("div", { class: "binding" + (binding.enabled === false ? " disabled" : "") });
 
-  // Empty-but-present labels (" ") on the badge/handle/dupe/remove buttons keep them
-  // baseline-aligned with the labeled inputs (align-items: flex-end on .binding aligns by
-  // bottom edge, so every field needs the same label-height-plus-input stack, real or not).
   const badgeBox = el("button", {
     type: "button", class: "badge-box",
     title: binding.enabled === false ? "Disabled — click to enable" : "Click to disable",
-  }, [`#${index + 1}`]);
+  }, [`#${localIndex + 1}`]);
   badgeBox.addEventListener("click", () => {
     binding.enabled = binding.enabled === false; // false -> true, true/undefined -> false
     renderAll();
   });
 
-  // Native HTML5 drag-and-drop, restricted to this one small handle rather than the whole
-  // card (draggable="true" on the card would turn ordinary text selection inside its inputs
-  // into an accidental drag). dragover/drop still listen on the *card* below, not the
-  // handle — the user drops wherever the mouse ends up, not necessarily on another handle.
-  const dragHandle = el("div", { class: "drag-handle", draggable: "true", title: "Drag to reorder" }, ["⋮⋮"]);
+  // Native HTML5 drag-and-drop, restricted to this one small handle rather than the whole row
+  // (draggable="true" on the row would turn ordinary text selection inside its inputs into an
+  // accidental drag). dragover/drop still listen on the *row* below, not the handle — the user
+  // drops wherever the mouse ends up, not necessarily on another handle. Reordering only makes
+  // sense within the same type group — dragging a binding onto a different type's row wouldn't
+  // change its type (that's what the Type <select> is for), so it would just silently do
+  // nothing visible; guarded out here instead of leaving that dead end for the user to find.
+  const dragHandle = el("div", { class: "drag-handle spacer-handle", draggable: "true", title: "Drag to reorder within this group" }, ["⋮⋮"]);
   dragHandle.addEventListener("dragstart", (e) => {
     draggedIndex = index;
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", String(index)); // Firefox requires setData to actually start a drag
-    card.classList.add("dragging");
+    row.classList.add("dragging");
   });
   dragHandle.addEventListener("dragend", () => {
     draggedIndex = null;
-    card.classList.remove("dragging");
+    row.classList.remove("dragging");
   });
-  card.addEventListener("dragover", (e) => {
-    if (draggedIndex === null) return;
+  row.addEventListener("dragover", (e) => {
+    if (draggedIndex === null || bindings[draggedIndex].type !== binding.type) return;
     e.preventDefault(); // required for drop to fire at all
     e.dataTransfer.dropEffect = "move";
   });
-  card.addEventListener("drop", (e) => {
-    if (draggedIndex === null) return;
+  row.addEventListener("drop", (e) => {
+    if (draggedIndex === null || bindings[draggedIndex].type !== binding.type) return;
     e.preventDefault(); // even for a same-row no-op drop below — otherwise the browser's
                          // default handling of the dragstart's text/plain payload can kick in
     if (draggedIndex === index) return;
@@ -357,42 +423,68 @@ function renderBinding(binding, index) {
   const removeBtn = el("button", { class: "danger remove-btn", type: "button", title: "Remove this hotkey" }, ["✕"]);
   removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
 
-  card.appendChild(dragHandle); // absolutely positioned — not a flex-flow field, see its CSS
-  card.appendChild(field(" ", badgeBox, "fixed"));
-  card.appendChild(field("Type", typeSelect, "fixed"));
-  card.appendChild(textField("Title", "title", "Cycle Browser"));
-  card.appendChild(keyField());
-  // runCommand has no window/tab/profile to match against, so resourceClass is irrelevant
-  // to it — hidden rather than shown-but-unused/silently-ignored.
-  if (binding.type !== "runCommand") {
-    card.appendChild(textField("resourceClass", "resourceClass", "brave-browser, org.kde.dolphin, ...", "grow"));
-  }
+  row.appendChild(dragHandle);
+  // spacer-badge/spacer-type go on the *wrapper* here, not the button/select themselves — a
+  // fixed-width flex class means something different depending on which flex container it's
+  // in (main-axis is horizontal in .binding/.group-header, but vertical inside .field's own
+  // column layout), so putting it on the select directly set its *height* to 160px instead of
+  // its width, confirmed live as a real visible bug before this fix.
+  row.appendChild(field(null, badgeBox, "fixed spacer-badge"));
+  row.appendChild(field(null, typeSelect, "fixed spacer-type"));
+  (TYPE_COLUMNS[binding.type] || []).forEach((col) => {
+    row.appendChild(field(null, col.build(binding), col.extraClass));
+  });
+  row.appendChild(field(null, dupeBtn, "fixed"));
+  row.appendChild(field(null, removeBtn, "fixed"));
+  return row;
+}
 
-  if (binding.type === "windowCycle" || binding.type === "windowToggle") {
-    card.appendChild(listField("Launch command (optional — spawned if no window open)", "launchArgv", "e.g. dolphin", "grow"));
-  } else if (binding.type === "profileCycle" || binding.type === "splitTab" || binding.type === "mergeTabs") {
-    card.appendChild(profileField());
-  } else if (binding.type === "tabFocus") {
-    card.appendChild(profileField());
-    card.appendChild(listField("URL pattern(s)", "urlPatterns", "mail.google.com", "grow"));
-    card.appendChild(textField("Open URL (if no match)", "openUrl", "https://mail.google.com", "grow"));
-  } else if (binding.type === "runCommand") {
-    card.appendChild(listField("Command (argv, no shell — one arg per line/comma)", "argv", "/path/to/installer.sh, reload-hotkeys", "grow"));
-  }
+// One header row per type, shared by every binding of that type below it — see the .group-header
+// CSS comment. Builds the same leading placeholder cells (handle/badge/type) a data row builds,
+// then one labeled cell per TYPE_COLUMNS entry, so the two line up despite one being real
+// controls and the other being empty/labeled placeholders (spacer-handle/spacer-badge/
+// spacer-type give both the same fixed width regardless of content).
+function renderGroupHeader(type) {
+  const header = el("div", { class: "group-header" });
+  header.appendChild(el("div", { class: "spacer-handle" }));
+  header.appendChild(field(null, null, "fixed spacer-badge"));
+  header.appendChild(field("Type", null, "fixed spacer-type"));
+  (TYPE_COLUMNS[type] || []).forEach((col) => {
+    header.appendChild(field(col.label, null, col.extraClass));
+  });
+  return header;
+}
 
-  card.appendChild(field(" ", dupeBtn, "fixed"));
-  card.appendChild(field(" ", removeBtn, "fixed"));
-  return card;
+function renderGroup(type, groupBindings) {
+  const section = el("div", { class: "group" });
+
+  const titleRow = el("div", { class: "group-title" });
+  titleRow.appendChild(el("span", {}, [TYPE_LABELS[type]]));
+  const addBtn = el("button", { type: "button", class: "group-add-btn", title: `Add another "${TYPE_LABELS[type]}" hotkey` }, ["+ Add"]);
+  addBtn.addEventListener("click", () => { bindings.push(newBindingOfType(type)); renderAll(); });
+  titleRow.appendChild(addBtn);
+  section.appendChild(titleRow);
+
+  section.appendChild(renderGroupHeader(type));
+  groupBindings.forEach((b, i) => section.appendChild(renderBindingRow(b, i)));
+  return section;
 }
 
 function renderAll() {
   const container = document.getElementById("bindings");
   container.innerHTML = "";
-  bindings.forEach((b, i) => container.appendChild(renderBinding(b, i)));
+  // Fixed type order (TYPE_LABELS', not `bindings`') so groups don't reshuffle position just
+  // because of what order bindings happen to be saved in — only a type with at least one
+  // binding gets a section at all, so an unused type costs zero vertical space, not just a
+  // collapsed header.
+  Object.keys(TYPE_LABELS).forEach((type) => {
+    const groupBindings = bindings.filter((b) => b.type === type);
+    if (groupBindings.length > 0) container.appendChild(renderGroup(type, groupBindings));
+  });
 }
 
 document.getElementById("add").addEventListener("click", () => {
-  bindings.push({ type: "windowCycle", title: "", key: "", resourceClass: "", enabled: true });
+  bindings.push(newBindingOfType("windowCycle"));
   renderAll();
 });
 

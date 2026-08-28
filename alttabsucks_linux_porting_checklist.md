@@ -645,6 +645,46 @@ be approached differently than the Windows version was.
         `QueueSplitTab`/`QueueMergeTabs` directly (bypassing the resourceClass gate entirely)
         isolated the bridge/extension/geometry logic from that timing concern and is the more
         reliable way to test this specific pair of functions live in the future.
+- [x] **hotkeys-ui grouped by binding type, one shared header row per group** — the user's
+      complaint directly: every row repeated its own label-above-input for every field, so a
+      page with a dozen `tabFocus` bindings (a real one — see below) was mostly whitespace, not
+      data. Bindings are now grouped by `type` (fixed `TYPE_LABELS` order, not array order, so
+      groups don't reshuffle just because of save order), each group getting one bold caption
+      line plus one header row of column labels; every row under it is bare inputs only, one
+      line tall instead of two.
+      - **New `TYPE_COLUMNS` table**: one entry per binding type, listing exactly the fields
+        that type uses (label + a `build(binding)` function returning the bare input/select) —
+        the single source of truth for both `renderGroupHeader` (labels only) and
+        `renderBindingRow` (inputs only), so a type's header and its own rows can't drift out of
+        sync. `windowToggle`/`splitTab`/`mergeTabs` reuse `windowCycle`'s/`profileCycle`'s spec
+        outright rather than repeating it, since their field lists are identical.
+      - **Per-group "+ Add"** alongside the existing global "+ Add hotkey" — a natural fit once
+        bindings are grouped (want one more of the same type you're already looking at), and
+        also the only way to add the *first* binding of a type with none yet, since an unused
+        type renders no section at all (zero bindings = zero vertical cost, not a collapsed
+        header).
+      - **Drag-and-drop reordering scoped to within a group** — dragging a binding onto a
+        different type's row is now a no-op (guarded in `dragover`/`drop`) rather than silently
+        doing nothing *visible*: array position alone no longer determines on-screen position
+        once display order is grouped by type, so a cross-group drop would have moved the
+        binding in the underlying array with no observable effect at all.
+      - **A real, live-caught alignment bug, not just a visual nitpick**: the header/row column
+        alignment trick relies on `spacer-handle`/`spacer-badge`/`spacer-type` CSS classes
+        giving both a header's placeholder cell and a row's real control the same fixed width
+        regardless of content. First attempt put `spacer-type` directly on the row's `<select>`
+        element — which sits inside a `.field` div (`flex-direction: column`), where
+        `flex: 0 0 160px` sets *height*, not width, since the main axis there is vertical, not
+        horizontal like `.binding`/`.group-header`. Screenshotted live: every row rendered with
+        a ~160px-tall dropdown and everything else vertically centered in the resulting gap.
+        Fixed by moving the class onto the row's *wrapping* `.field` div instead (a direct,
+        row-direction flex child of `.binding`) — matching how the header already did it,
+        rather than putting the class on the leaf control.
+      - **Verified live** against the real running server/extension, not a static mockup: opened
+        the real `/hotkeys-ui` page in a fresh browser window (the existing tab's DOM was stale
+        — no cache-busting way to force a hard reload without dev tools, so a disposable
+        `--new-window` instance was used instead, closed again afterward) and confirmed against
+        the *actual* `hotkeys.json` — 15 real bindings including a 10-entry `tabFocus` group —
+        that every group renders compact, single-line rows with correctly aligned columns.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [ ] Linux README section (installer.sh usage still needs documenting there)
