@@ -108,7 +108,7 @@
      which rule came later in the file — confirmed live as a real bug (the header's "Type"
      placeholder rendered at its bare label's content width, not 160px, before this fix). */
   .field.spacer-badge { flex: 0 0 34px; }
-  .field.select-col { flex: 0 0 160px; } /* the leading Type <select>, and any per-type Profile column */
+  .field.select-col { flex: 0 0 160px; } /* any per-type Profile column (a <select>, like Type used to be) */
   .field.spacer-remove { flex: 0 0 34px; }
   /* Not wrapped in .field at all (see the drag handle's own render calls), so no .field.fixed
      to out-specify — a bare selector is fine here. */
@@ -388,9 +388,10 @@ function renderBindingRow(binding, localIndex) {
   // (draggable="true" on the row would turn ordinary text selection inside its inputs into an
   // accidental drag). dragover/drop still listen on the *row* below, not the handle — the user
   // drops wherever the mouse ends up, not necessarily on another handle. Reordering only makes
-  // sense within the same type group — dragging a binding onto a different type's row wouldn't
-  // change its type (that's what the Type <select> is for), so it would just silently do
-  // nothing visible; guarded out here instead of leaving that dead end for the user to find.
+  // sense within the same type group — a binding's type isn't changeable in place at all (see
+  // the group's own +Add for creating one of a different type), so dragging onto a different
+  // type's row would just silently do nothing visible; guarded out here instead of leaving that
+  // dead end for the user to find.
   const dragHandle = el("div", { class: "drag-handle spacer-handle", draggable: "true", title: "Drag to reorder within this group" }, ["⋮⋮"]);
   dragHandle.addEventListener("dragstart", (e) => {
     draggedIndex = index;
@@ -418,21 +419,17 @@ function renderBindingRow(binding, localIndex) {
     renderAll();
   });
 
-  const typeSelect = el("select", {}, Object.keys(TYPE_LABELS).map(t =>
-    el("option", t === binding.type ? { value: t, selected: "" } : { value: t }, [TYPE_LABELS[t]])));
-  typeSelect.addEventListener("change", () => { binding.type = typeSelect.value; renderAll(); });
-
   const removeBtn = el("button", { class: "danger remove-btn", type: "button", title: "Remove this hotkey" }, ["✕"]);
   removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
 
   row.appendChild(dragHandle);
-  // spacer-badge/select-col go on the *wrapper* here, not the button/select themselves — a
-  // fixed-width flex class means something different depending on which flex container it's
-  // in (main-axis is horizontal in .binding/.group-header, but vertical inside .field's own
-  // column layout), so putting it on the select directly set its *height* to 160px instead of
-  // its width, confirmed live as a real visible bug before this fix.
+  // spacer-badge goes on the *wrapper* here, not the button itself — a fixed-width flex class
+  // means something different depending on which flex container it's in (main-axis is
+  // horizontal in .binding/.group-header, but vertical inside .field's own column layout), so
+  // putting a width class straight on a leaf control instead of its wrapper can silently set
+  // its *height* instead — confirmed live as a real bug (originally hit via the Type <select>
+  // this row used to have) before this fix.
   row.appendChild(field(null, badgeBox, "fixed spacer-badge"));
-  row.appendChild(field(null, typeSelect, "fixed select-col"));
   (TYPE_COLUMNS[binding.type] || []).forEach((col) => {
     row.appendChild(field(null, col.build(binding), col.extraClass));
   });
@@ -441,10 +438,10 @@ function renderBindingRow(binding, localIndex) {
 }
 
 // One header row per type, shared by every binding of that type below it — see the .group-header
-// CSS comment. Builds the same leading placeholder cells (handle/badge/type) a data row builds,
-// then one labeled cell per TYPE_COLUMNS entry, then the same trailing placeholder cell a data
-// row's ✕ button takes up — needed for more than just visual completeness: flexbox splits a
-// row's *leftover* width (after every item's own basis) among the "grow" columns (resourceClass,
+// CSS comment. Builds the same leading placeholder cell (handle/badge) a data row builds, then
+// one labeled cell per TYPE_COLUMNS entry, then the same trailing placeholder cell a data row's
+// ✕ button takes up — needed for more than just visual completeness: flexbox splits a row's
+// *leftover* width (after every item's own basis) among the "grow" columns (resourceClass,
 // urlPatterns, ...) proportionally, so leaving the header short of the row's trailing button
 // width would hand the header's grow columns more leftover space than the row's own get,
 // throwing off exactly the columns most worth keeping aligned. Confirmed live: before this,
@@ -453,7 +450,6 @@ function renderGroupHeader(type) {
   const header = el("div", { class: "group-header" });
   header.appendChild(el("div", { class: "spacer-handle" }));
   header.appendChild(field(null, null, "fixed spacer-badge"));
-  header.appendChild(field("Type", null, "fixed select-col"));
   (TYPE_COLUMNS[type] || []).forEach((col) => {
     header.appendChild(field(col.label, null, col.extraClass));
   });

@@ -722,6 +722,18 @@ be approached differently than the Windows version was.
         again) that removing one placeholder cell from *both* sides together didn't reopen the
         same leftover-space misalignment the trailing-cell bug above was about — it doesn't,
         since header and row still match cell-for-cell either way.
+      - **Type column removed too**, on the same reasoning applied one column further: with
+        bindings grouped by type, a per-row Type `<select>` shows the *same* value on every row
+        in a section — pure display redundancy, the group's own title already says it once. The
+        real question wasn't the redundant display, though, it was the `<select>`'s other job:
+        reassigning an existing binding to a different type in place (jumping it to that other
+        group, Title/Key/resourceClass/etc. carried over rather than retyped) — asked the user
+        given removing the column removes that capability too, confirmed removing it was fine
+        (recreating under the target group's own `+ Add` is an acceptable replacement). Removed
+        the `<select>`, its change handler, and its leading placeholder cell from both header and
+        row (the same both-sides-together discipline as the `Dup` removal above, for the same
+        alignment reason). Verified live: no "Type" column or header anywhere, remaining columns
+        still line up.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [ ] Linux README section (installer.sh usage still needs documenting there)
