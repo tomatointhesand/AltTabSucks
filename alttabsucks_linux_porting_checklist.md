@@ -685,6 +685,33 @@ be approached differently than the Windows version was.
         `--new-window` instance was used instead, closed again afterward) and confirmed against
         the *actual* `hotkeys.json` — 15 real bindings including a 10-entry `tabFocus` group —
         that every group renders compact, single-line rows with correctly aligned columns.
+      - **User caught two more real misalignments the first round of live testing missed**
+        ("the head rows' spacings aren't synced with the field widths") — both genuine flexbox
+        mechanics bugs, not rendering flukes, each confirmed with a before/after screenshot of
+        the same real page:
+        1. The header row was missing trailing placeholder cells for the row's Dup/✕ buttons.
+           Flexbox splits a row's *leftover* width (container width minus every item's own
+           basis) among the `grow` columns proportionally — a header short by the row's ~80px of
+           trailing button width hands its own `grow` columns (resourceClass, urlPatterns, ...)
+           more leftover space than the row's actually get, so every `grow` column sat visibly
+           wider in the header than the input below it. Fixed by giving `renderGroupHeader` the
+           same trailing `spacer-dupe`/`spacer-remove` placeholder cells `renderBindingRow`'s
+           real buttons get.
+        2. `spacer-badge`/`spacer-type` (now `select-col`) were single-class selectors, but every
+           real usage combines them with `.field.fixed` — a *two*-class selector, and therefore
+           higher CSS specificity regardless of which rule comes later in the file. `.field.fixed`
+           `{ flex: 0 0 auto }` was silently winning over the intended fixed pixel width every
+           time, so e.g. the header's "Type" placeholder sized to its bare label's content width,
+           not the row's real 160px `<select>`. Same root defect as the `Qt.rect` /
+           `frameGeometry` snapshot-vs-reference lessons from the split/merge work above: trust
+           what actually renders, not what the rule *looks* like it should do. Fixed by rewriting
+           these as `.field.spacer-X` compound selectors, matching `.field.fixed`'s own
+           specificity so declaration order (they come after it) decides the tie correctly.
+           `spacer-handle` didn't need this — the drag handle is never wrapped in `.field`, so
+           there's no competing `.field.fixed` rule to lose to.
+        Re-verified the same way as the first round (a fresh disposable window against the real
+        `hotkeys.json`): every header label now sits directly above its column's actual input
+        across all four populated groups, `grow` columns included.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [ ] Linux README section (installer.sh usage still needs documenting there)

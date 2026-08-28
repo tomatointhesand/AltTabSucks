@@ -92,15 +92,28 @@
      wrapping onto its own line on wider rows (tabFocus: 9 fields wide). */
   .field.fixed { flex: 0 0 auto; min-width: 0; }
   .field.fixed select, .field.fixed input { width: auto; }
-  .field.fixed select { min-width: 160px; }
-  /* Fixed pixel widths (not content-sized, unlike .field.fixed above) so a group-header
-     placeholder cell lines up with its data-row counterpart even though the data-row one's
-     actual content (drag handle glyph / badge text / type <select>) doesn't have a natural
-     width of its own to match against — renderGroupHeader and renderBindingRow both build
-     these three cells first, in this same order, specifically so they line up. */
+  /* Fixed pixel widths (not content-sized, unlike plain .field.fixed above) so a group-header
+     placeholder/label cell lines up with its data-row counterpart even though the data-row
+     one's actual content (drag handle glyph / badge text / a <select>'s own rendered width)
+     doesn't have a natural width of its own to match against. Previously this relied on a
+     descendant selector (.field.fixed select { min-width: 160px }) instead of a shared class —
+     that broke the header specifically, since a header cell holding just a <label> has no
+     <select> for the descendant selector to ever match, so it never got the width the row's
+     <select> did. Every column below is given the *same* class on *both* sides (see
+     renderGroupHeader/renderBindingRow/TYPE_COLUMNS) specifically so this can't happen again.
+     Written as .field.spacer-X (two classes, matching .field.fixed's own specificity) rather
+     than a bare .spacer-X — every real usage is already "field fixed spacer-X" together (see
+     field()'s callers), so a bare .spacer-X has the *same* specificity as plain .field but
+     *less* than .field.fixed, and .field.fixed's flex: 0 0 auto silently won regardless of
+     which rule came later in the file — confirmed live as a real bug (the header's "Type"
+     placeholder rendered at its bare label's content width, not 160px, before this fix). */
+  .field.spacer-badge { flex: 0 0 34px; }
+  .field.select-col { flex: 0 0 160px; } /* the leading Type <select>, and any per-type Profile column */
+  .field.spacer-dupe { flex: 0 0 48px; }
+  .field.spacer-remove { flex: 0 0 34px; }
+  /* Not wrapped in .field at all (see the drag handle's own render calls), so no .field.fixed
+     to out-specify — a bare selector is fine here. */
   .spacer-handle { flex: 0 0 20px; }
-  .spacer-badge { flex: 0 0 34px; }
-  .spacer-type { flex: 0 0 160px; }
   .badge-box { padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 600; color: var(--text-dim); text-align: center; }
   .badge-box:hover { border-color: var(--accent); color: var(--text); }
   /* Dims the whole row (badge included) rather than exempting the badge from the dimming —
@@ -328,13 +341,13 @@ const TYPE_COLUMNS = {
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
     { label: "resourceClass", extraClass: "grow", build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...") },
-    { label: "Profile", extraClass: "fixed", build: (b) => profileSelect(b) },
+    { label: "Profile", extraClass: "fixed select-col", build: (b) => profileSelect(b) },
   ],
   tabFocus: [
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
     { label: "resourceClass", extraClass: "grow", build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...") },
-    { label: "Profile", extraClass: "fixed", build: (b) => profileSelect(b) },
+    { label: "Profile", extraClass: "fixed select-col", build: (b) => profileSelect(b) },
     { label: "URL pattern(s)", extraClass: "grow", build: (b) => listInput(b, "urlPatterns", "mail.google.com") },
     { label: "Open URL (if no match)", extraClass: "grow", build: (b) => textInput(b, "openUrl", "https://mail.google.com") },
   ],
@@ -424,34 +437,40 @@ function renderBindingRow(binding, localIndex) {
   removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
 
   row.appendChild(dragHandle);
-  // spacer-badge/spacer-type go on the *wrapper* here, not the button/select themselves — a
+  // spacer-badge/select-col go on the *wrapper* here, not the button/select themselves — a
   // fixed-width flex class means something different depending on which flex container it's
   // in (main-axis is horizontal in .binding/.group-header, but vertical inside .field's own
   // column layout), so putting it on the select directly set its *height* to 160px instead of
   // its width, confirmed live as a real visible bug before this fix.
   row.appendChild(field(null, badgeBox, "fixed spacer-badge"));
-  row.appendChild(field(null, typeSelect, "fixed spacer-type"));
+  row.appendChild(field(null, typeSelect, "fixed select-col"));
   (TYPE_COLUMNS[binding.type] || []).forEach((col) => {
     row.appendChild(field(null, col.build(binding), col.extraClass));
   });
-  row.appendChild(field(null, dupeBtn, "fixed"));
-  row.appendChild(field(null, removeBtn, "fixed"));
+  row.appendChild(field(null, dupeBtn, "fixed spacer-dupe"));
+  row.appendChild(field(null, removeBtn, "fixed spacer-remove"));
   return row;
 }
 
 // One header row per type, shared by every binding of that type below it — see the .group-header
 // CSS comment. Builds the same leading placeholder cells (handle/badge/type) a data row builds,
-// then one labeled cell per TYPE_COLUMNS entry, so the two line up despite one being real
-// controls and the other being empty/labeled placeholders (spacer-handle/spacer-badge/
-// spacer-type give both the same fixed width regardless of content).
+// then one labeled cell per TYPE_COLUMNS entry, then the same trailing placeholder cells a data
+// row's Dup/✕ buttons take up — needed for more than just visual completeness: flexbox splits a
+// row's *leftover* width (after every item's own basis) among the "grow" columns (resourceClass,
+// urlPatterns, ...) proportionally, so leaving the header short of the row's trailing ~80px of
+// button width would hand the header's grow columns more leftover space than the row's own get,
+// throwing off exactly the columns most worth keeping aligned. Confirmed live: before this,
+// every grow column in the header sat visibly wider than its input below it.
 function renderGroupHeader(type) {
   const header = el("div", { class: "group-header" });
   header.appendChild(el("div", { class: "spacer-handle" }));
   header.appendChild(field(null, null, "fixed spacer-badge"));
-  header.appendChild(field("Type", null, "fixed spacer-type"));
+  header.appendChild(field("Type", null, "fixed select-col"));
   (TYPE_COLUMNS[type] || []).forEach((col) => {
     header.appendChild(field(col.label, null, col.extraClass));
   });
+  header.appendChild(field(null, null, "fixed spacer-dupe"));
+  header.appendChild(field(null, null, "fixed spacer-remove"));
   return header;
 }
 
