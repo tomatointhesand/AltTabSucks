@@ -86,10 +86,10 @@
   .field { display: flex; flex-direction: column; gap: 3px; flex: 1 1 110px; min-width: 90px; }
   .field label { font-size: 10px; margin-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .field.grow { flex: 2 1 170px; }
-  /* .field's min-width: 90px was meant for real labeled inputs — left un-reset here, every
-     icon-only fixed field (dupe, remove) was silently padded out to 90px minimum even though
-     its content is a few px wide, wasting real width and contributing to the remove button
-     wrapping onto its own line on wider rows (tabFocus: 9 fields wide). */
+  /* .field's min-width: 90px was meant for real labeled inputs — left un-reset here, the
+     icon-only fixed remove field was silently padded out to 90px minimum even though its
+     content is a few px wide, wasting real width and contributing to it wrapping onto its own
+     line on wider rows (tabFocus: 9 fields wide). */
   .field.fixed { flex: 0 0 auto; min-width: 0; }
   .field.fixed select, .field.fixed input { width: auto; }
   /* Fixed pixel widths (not content-sized, unlike plain .field.fixed above) so a group-header
@@ -109,7 +109,6 @@
      placeholder rendered at its bare label's content width, not 160px, before this fix). */
   .field.spacer-badge { flex: 0 0 34px; }
   .field.select-col { flex: 0 0 160px; } /* the leading Type <select>, and any per-type Profile column */
-  .field.spacer-dupe { flex: 0 0 48px; }
   .field.spacer-remove { flex: 0 0 34px; }
   /* Not wrapped in .field at all (see the drag handle's own render calls), so no .field.fixed
      to out-specify — a bare selector is fine here. */
@@ -120,7 +119,7 @@
      simpler than carving out a CSS exception, and the badge stays just as clickable at reduced
      opacity (opacity doesn't affect pointer-events) so re-enabling is no harder to hit. */
   .binding.disabled { opacity: 0.5; }
-  .remove-btn, .dupe-btn { padding: 6px 10px; font-size: 12px; }
+  .remove-btn { padding: 6px 10px; font-size: 12px; }
   /* No longer pinned to a card corner (there's no card now, just a bottom-border divider row)
      — it's an ordinary leading cell in the row's own flex flow, same as the badge next to it. */
   .drag-handle { font-size: 11px; line-height: 1; color: var(--text-dim); cursor: grab; user-select: none; text-align: center; }
@@ -373,7 +372,7 @@ function newBindingOfType(type) {
 }
 
 function renderBindingRow(binding, localIndex) {
-  const index = bindings.indexOf(binding); // real position in `bindings` — what save/drag/dupe/remove all key off
+  const index = bindings.indexOf(binding); // real position in `bindings` — what save/drag/remove all key off
   const row = el("div", { class: "binding" + (binding.enabled === false ? " disabled" : "") });
 
   const badgeBox = el("button", {
@@ -423,16 +422,6 @@ function renderBindingRow(binding, localIndex) {
     el("option", t === binding.type ? { value: t, selected: "" } : { value: t }, [TYPE_LABELS[t]])));
   typeSelect.addEventListener("change", () => { binding.type = typeSelect.value; renderAll(); });
 
-  const dupeBtn = el("button", { class: "dupe-btn", type: "button", title: "Duplicate this hotkey" }, ["Dup"]);
-  dupeBtn.addEventListener("click", () => {
-    // Deep-clone (JSON round-trip is enough here — bindings are plain JSON-shaped objects,
-    // launchArgv/urlPatterns arrays included) and insert right after the original, so
-    // duplicating similar hotkeys (same type/resourceClass, different title/key/URL) means
-    // editing a copy instead of re-picking every field from scratch.
-    bindings.splice(index + 1, 0, JSON.parse(JSON.stringify(binding)));
-    renderAll();
-  });
-
   const removeBtn = el("button", { class: "danger remove-btn", type: "button", title: "Remove this hotkey" }, ["✕"]);
   removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
 
@@ -447,18 +436,17 @@ function renderBindingRow(binding, localIndex) {
   (TYPE_COLUMNS[binding.type] || []).forEach((col) => {
     row.appendChild(field(null, col.build(binding), col.extraClass));
   });
-  row.appendChild(field(null, dupeBtn, "fixed spacer-dupe"));
   row.appendChild(field(null, removeBtn, "fixed spacer-remove"));
   return row;
 }
 
 // One header row per type, shared by every binding of that type below it — see the .group-header
 // CSS comment. Builds the same leading placeholder cells (handle/badge/type) a data row builds,
-// then one labeled cell per TYPE_COLUMNS entry, then the same trailing placeholder cells a data
-// row's Dup/✕ buttons take up — needed for more than just visual completeness: flexbox splits a
+// then one labeled cell per TYPE_COLUMNS entry, then the same trailing placeholder cell a data
+// row's ✕ button takes up — needed for more than just visual completeness: flexbox splits a
 // row's *leftover* width (after every item's own basis) among the "grow" columns (resourceClass,
-// urlPatterns, ...) proportionally, so leaving the header short of the row's trailing ~80px of
-// button width would hand the header's grow columns more leftover space than the row's own get,
+// urlPatterns, ...) proportionally, so leaving the header short of the row's trailing button
+// width would hand the header's grow columns more leftover space than the row's own get,
 // throwing off exactly the columns most worth keeping aligned. Confirmed live: before this,
 // every grow column in the header sat visibly wider than its input below it.
 function renderGroupHeader(type) {
@@ -469,7 +457,6 @@ function renderGroupHeader(type) {
   (TYPE_COLUMNS[type] || []).forEach((col) => {
     header.appendChild(field(col.label, null, col.extraClass));
   });
-  header.appendChild(field(null, null, "fixed spacer-dupe"));
   header.appendChild(field(null, null, "fixed spacer-remove"));
   return header;
 }

@@ -712,6 +712,16 @@ be approached differently than the Windows version was.
         Re-verified the same way as the first round (a fresh disposable window against the real
         `hotkeys.json`): every header label now sits directly above its column's actual input
         across all four populated groups, `grow` columns included.
+      - **`Dup` button removed** once the per-group `+ Add` button above made it redundant —
+        the last real reason to duplicate an existing binding (start from a similar one instead
+        of an empty row) is covered by `newBindingOfType`'s per-group `+ Add` just as well for
+        same-type hotkeys, and cross-type duplication was never really what `Dup` was for
+        anyway. Removed the button, its click handler, its trailing header/row placeholder cell
+        (`spacer-dupe` — the row is one item shorter now, not just missing a label), and the
+        no-longer-true "save/drag/dupe/remove" comment. Verified live (fresh disposable window
+        again) that removing one placeholder cell from *both* sides together didn't reopen the
+        same leftover-space misalignment the trailing-cell bug above was about — it doesn't,
+        since header and row still match cell-for-cell either way.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [ ] Linux README section (installer.sh usage still needs documenting there)
