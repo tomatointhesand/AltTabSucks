@@ -223,34 +223,54 @@ be approached differently than the Windows version was.
         it touches working Windows code rather than adding something new. `hotkeys_generator.py`
         would need a PowerShell/AHK-generating counterpart alongside the existing JS one.
   - [x] **Live resourceClass typeahead, built** (follow-up to the note above) — every
-        resourceClass field is now a native `<input list="resourceClassList">` +
-        `<datalist>`, offering whatever's actually running right now instead of requiring it
-        typed from memory. The "reverse-direction channel" problem noted above turned out not
-        to need solving at all: rather than the server asking the KWin script on demand (which
-        the sandbox has no way to answer — it can only call *out* via `callDBus`, never be
-        called *into*), `main.js` gained a self-rescheduling `pushRunningResourceClasses()`
-        (10s interval, same `normalWindow`/`!transient` filter `findAppWindows` already uses)
-        that *pushes* the current deduped, sorted set — the same shape the browser extension's
-        own `POST /tabs` already uses for tab state, not a new pattern.
+        resourceClass field now suggests whatever's actually running right now instead of
+        requiring it typed from memory. The "reverse-direction channel" problem noted above
+        turned out not to need solving at all: rather than the server asking the KWin script on
+        demand (which the sandbox has no way to answer — it can only call *out* via `callDBus`,
+        never be called *into*), `main.js` gained a self-rescheduling
+        `pushRunningResourceClasses()` (10s interval, same `normalWindow`/`!transient` filter
+        `findAppWindows` already uses) that *pushes* the current deduped, sorted set — the same
+        shape the browser extension's own `POST /tabs` already uses for tab state, not a new
+        pattern.
         - New `dbus_bridge.py` method `PushRunningResourceClasses(list)`, storing into a new
           `AppState.running_resource_classes` field; new `GET /running-resource-classes` for
           the page to fetch. The dedupe/sort itself is `normalize_resource_classes`, pulled out
           as a pure function (same reasoning as `url_matches_pattern`) so it's unit-testable
-          without a live session bus — 5 new tests, plus 2 more for the HTTP endpoint.
-        - `hotkeys-ui.html`: fetching this is a separate, best-effort try/catch from the main
-          profiles/`hotkeys-config` load — a missing/empty list (e.g. right after a fresh
-          install, before the first 10s push has landed) degrades to an empty `<datalist>`
-          rather than failing the whole page load the way a real auth/config problem should.
-          The three duplicated resourceClass column definitions across `TYPE_COLUMNS` were
-          pulled into one `resourceClassColumn()` so all of them stay wired to the same
-          `<datalist>`. Native `<datalist>` over a hand-rolled dropdown deliberately — it's
-          exactly what the element is for, and every browser already implements the
-          type-to-filter/keyboard-nav behavior correctly for free.
-        - Verified live end to end (not just unit tests): restarted the bridge server and
+          without a live session bus — 5 new tests, plus 2 more for the HTTP endpoint. This half
+          verified live end to end from the very first attempt: restarted the bridge server and
           redeployed the KWin script, waited for a real push cycle, and confirmed
           `GET /running-resource-classes` returned the actual live set of open windows'
-          resourceClasses (`brave-browser`, `discord`, `code-oss`, ...) with no manual seeding
-          — main.js's periodic push was reaching the server correctly on its own.
+          resourceClasses (`brave-browser`, `discord`, `code-oss`, ...) with no manual seeding —
+          main.js's periodic push was reaching the server correctly on its own.
+        - **First client-side attempt — native `<input list=...>` + `<datalist>` — looked
+          completely correct and wasn't**: the user reported an empty dropdown that never
+          populated while typing. Every server-side check came back clean (fresh live data over
+          `curl`, the KWin script genuinely loaded and pushing), which pointed at the client —
+          but the client looked right too on inspection. Settled it with a headless DOM replay
+          (`jsdom`, no browser available to attach devtools to in this environment): fed the
+          *exact bytes* `curl` fetched from the real running server into a real DOM + script
+          execution environment, and the `<datalist>` populated with real `<option>`s, no thrown
+          error, first try. The bug wasn't in this codebase at all — it's a confirmed Chromium/
+          Wayland issue (native popup-style widgets, `<datalist>` suggestions and `<select>`
+          dropdowns alike, silently failing to paint on this platform combination). Nothing
+          fixable from HTML/JS; the whole approach had to go.
+        - **Fix: a hand-rolled typeahead, not a native popup at all** — one shared floating
+          suggestion box (`showSuggestionsFor`/`selectSuggestion`/`handleSuggestionKeydown`),
+          plain `position: fixed` page content positioned from the focused input's own
+          `getBoundingClientRect()`, filtered from `runningResourceClasses` on every keystroke.
+          Selecting a suggestion (click or Enter) dispatches a synthetic `input` event rather
+          than duplicating the `binding[key] = ...` write, so there's exactly one place that
+          commits a value from this field either way. Since this renders as ordinary DOM nodes
+          instead of a compositor-level popup surface, the Chromium/Wayland bug simply doesn't
+          apply to it.
+        - Re-verified the same way as the root-cause hunt: a headless DOM replay of the real
+          served page, this time driving real interaction (focus, typing "disc", a mousedown on
+          the resulting "discord" suggestion) rather than just checking static structure —
+          confirmed the box populated with the correct filtered match and the click correctly
+          committed the value and closed the box. (Simulating the initial focus-triggered
+          "show everything" state came back empty under `jsdom` specifically — a known `jsdom`
+          synthetic-focus-event limitation, not something touching real browser behavior; typing
+          and selecting, the parts that actually matter, worked correctly both times.)
   - [x] **`Ctrl+Alt+Shift+'` reloads hotkeys** — the Linux equivalent of `AltTabSucks.ahk`'s
         built-in `^!+'::Reload`, but *not* hardcoded as a framework special case the way it first
         shipped (a `main.js` `registerShortcut` + a dedicated `dbus_bridge.py` `ReloadHotkeys`

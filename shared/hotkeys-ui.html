@@ -130,6 +130,17 @@
   .status.ok { color: var(--ok); }
   .status.err { color: var(--err); }
   .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+  /* The resourceClass typeahead's suggestion box — plain page content (position: fixed,
+     positioned in JS from the input's own getBoundingClientRect), not a native popup surface
+     like <datalist>/<select>, specifically because those silently fail to paint at all on this
+     platform (confirmed Chromium/Wayland bug — see showSuggestionsFor's comment). */
+  .suggestions {
+    position: fixed; z-index: 1000; display: none;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    max-height: 220px; overflow-y: auto; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  .suggestion-item { padding: 6px 9px; font-size: 13px; cursor: pointer; }
+  .suggestion-item:hover, .suggestion-item.active { background: var(--accent); color: #fff; }
 </style>
 </head>
 <body>
@@ -146,9 +157,8 @@
   </div>
 
   <div id="bindings"></div>
-  <!-- Populated by renderResourceClassDatalist() from GET /running-resource-classes — every
-       resourceClass <input> points at this one shared list via textInput's list= attribute. -->
-  <datalist id="resourceClassList"></datalist>
+  <!-- The resourceClass typeahead's suggestion box (see showSuggestionsFor) is created and
+       appended to <body> on first use — nothing static needed here. -->
 
   <div class="toolbar">
     <button id="add">+ Add hotkey</button>
@@ -215,14 +225,83 @@ function profileOptions(selected) {
   return opts;
 }
 
-// A <datalist> is a suggestion list, not a constraint the way <select> is — unlike
-// profileOptions above there's no "not in discovered list" fallback option needed here, an
-// existing resourceClass value that isn't currently running (the app just isn't open right now)
-// stays exactly as typed either way.
-function renderResourceClassDatalist() {
-  const list = document.getElementById("resourceClassList");
-  list.innerHTML = "";
-  runningResourceClasses.forEach(rc => list.appendChild(el("option", { value: rc })));
+// Hand-rolled typeahead dropdown — NOT a native <input list=...>/<datalist> pair, which was the
+// first thing tried here and looked completely correct end to end (server data verified fresh
+// live, and a headless DOM replay of the exact bytes the browser receives populated the
+// <datalist> with real <option>s and never threw) but still showed nothing on screen. Root
+// cause: a confirmed Chromium/Wayland bug where native popup-style widgets (datalist suggestions,
+// <select> dropdowns) silently fail to paint at all on this platform combination — nothing this
+// page's own HTML/JS could fix, so a suggestion list rendered as plain page content (an ordinary
+// positioned <div>, not a native popup surface) sidesteps it entirely.
+//
+// One shared floating box, repositioned/repopulated for whichever resourceClass input currently
+// has focus, rather than one per row — mirrors why the toast daemon is one persistent surface
+// instead of one per call.
+let suggestionsBox = null;
+let suggestionsForInput = null; // the <input> the box is currently showing matches for, or null
+
+function hideSuggestions() {
+  if (suggestionsBox) suggestionsBox.style.display = "none";
+  suggestionsForInput = null;
+}
+
+// Commits a chosen value the same way a real keystroke would — dispatching a synthetic "input"
+// event re-runs textInput's own listener (binding[key] = input.value) rather than duplicating
+// that assignment here, so there's exactly one place that ever writes to the binding from this
+// field.
+function selectSuggestion(input, value) {
+  input.value = value;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  hideSuggestions();
+  input.focus();
+}
+
+function showSuggestionsFor(input) {
+  const q = input.value.trim().toLowerCase();
+  const matches = runningResourceClasses.filter(rc => !q || rc.toLowerCase().includes(q));
+  if (matches.length === 0) { hideSuggestions(); return; }
+  if (!suggestionsBox) {
+    suggestionsBox = el("div", { class: "suggestions" });
+    document.body.appendChild(suggestionsBox);
+  }
+  suggestionsBox.innerHTML = "";
+  matches.forEach((rc, i) => {
+    const item = el("div", { class: "suggestion-item" + (i === 0 ? " active" : "") }, [rc]);
+    // mousedown, not click: fires (and with preventDefault, keeps focus on the input) before a
+    // click would, so there's no blur-vs-click ordering race to work around.
+    item.addEventListener("mousedown", (e) => { e.preventDefault(); selectSuggestion(input, rc); });
+    suggestionsBox.appendChild(item);
+  });
+  const rect = input.getBoundingClientRect();
+  suggestionsBox.style.left = rect.left + "px";
+  suggestionsBox.style.top = rect.bottom + "px";
+  suggestionsBox.style.width = rect.width + "px";
+  suggestionsBox.style.display = "block";
+  suggestionsForInput = input;
+}
+
+// Arrow-key/Enter navigation, wired from textInput below onto just the resourceClass fields.
+// Kept separate from showSuggestionsFor's own mousedown handling since keyboard and mouse
+// selection don't share a natural event to hook — this just moves which item has .active and
+// lets Enter commit whichever one that is.
+function handleSuggestionKeydown(e, input) {
+  if (e.key === "Escape") { hideSuggestions(); return; }
+  if (!suggestionsBox || suggestionsBox.style.display === "none" || suggestionsForInput !== input) return;
+  const items = Array.from(suggestionsBox.children);
+  if (items.length === 0) return;
+  const idx = items.findIndex(i => i.classList.contains("active"));
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    items[idx]?.classList.remove("active");
+    items[(idx + 1) % items.length].classList.add("active");
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    items[idx]?.classList.remove("active");
+    items[(idx - 1 + items.length) % items.length].classList.add("active");
+  } else if (e.key === "Enter" && idx !== -1) {
+    e.preventDefault();
+    selectSuggestion(input, items[idx].textContent);
+  }
 }
 
 // Qt key-sequence names for keys whose KeyboardEvent.key doesn't already match (registerShortcut
@@ -300,24 +379,35 @@ function field(labelText, inputEl, extraClass) {
   return wrap;
 }
 
-function textInput(binding, key, placeholder, listId) {
+function textInput(binding, key, placeholder, suggest) {
   const attrs = { type: "text", placeholder: placeholder || "" };
-  if (listId) attrs.list = listId; // wires up a <datalist> for a native typeahead — see resourceClassColumn()
+  if (suggest) attrs.autocomplete = "off"; // this field has its own typeahead — don't layer the browser's on top
   const input = el("input", attrs);
   input.value = binding[key] || "";
-  input.addEventListener("input", () => { binding[key] = input.value; });
+  input.addEventListener("input", () => {
+    binding[key] = input.value;
+    if (suggest) showSuggestionsFor(input);
+  });
+  if (suggest) {
+    input.addEventListener("focus", () => showSuggestionsFor(input));
+    // A short delay, not an immediate hide: a suggestion click is a mousedown+mouseup pair that
+    // straddles this blur, and hiding synchronously would tear the box down mid-click before
+    // its own mousedown handler (which runs first and calls preventDefault, per
+    // showSuggestionsFor) ever got a chance to matter — kept anyway as a defensive margin.
+    input.addEventListener("blur", () => { setTimeout(hideSuggestions, 150); });
+    input.addEventListener("keydown", (e) => handleSuggestionKeydown(e, input));
+  }
   return input;
 }
 
 // Shared by every TYPE_COLUMNS entry that has a resourceClass field, instead of repeating the
-// same textInput(...) call per type — the "list" attribute points at the <datalist> load()
-// populates from GET /running-resource-classes (main.js pushes that list periodically; see its
-// own comment for why the push happens that direction, not a pull from here). Native <datalist>
-// rather than a hand-rolled dropdown: this is exactly what it's for, and every browser already
-// implements the typing/filtering/keyboard-nav behavior correctly for free.
+// same textInput(...) call per type — the trailing `true` turns on the typeahead dropdown (see
+// showSuggestionsFor above), sourced from runningResourceClasses (populated in load() from GET
+// /running-resource-classes; main.js pushes that list periodically — see its own comment for
+// why the push happens that direction, not a pull from here).
 function resourceClassColumn() {
   return { label: "resourceClass", extraClass: "grow",
-    build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...", "resourceClassList") };
+    build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...", true) };
 }
 
 function listInput(binding, key, placeholder) {
@@ -568,14 +658,15 @@ async function load() {
   }
   // Separate, best-effort fetch: main.js only pushes this every 10s (see its own comment), so a
   // very-first load right after install could still race an empty list — that's fine, it just
-  // means the datalist stays empty until the next push, not a reason to fail the whole page load
-  // the way a missing token/hotkeys.json genuinely should above.
+  // means the typeahead has nothing to suggest until the next push, not a reason to fail the
+  // whole page load the way a missing token/hotkeys.json genuinely should above. No re-render
+  // needed here (unlike profiles/bindings above) — showSuggestionsFor reads this array live,
+  // on demand, whenever a resourceClass field is actually focused.
   try {
     runningResourceClasses = await apiGet("/running-resource-classes");
   } catch (e) {
     runningResourceClasses = [];
   }
-  renderResourceClassDatalist();
 }
 
 // The token field starts empty on a fresh page load (nothing to prefill from server-side
