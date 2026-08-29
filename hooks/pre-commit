@@ -6,12 +6,33 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+LINUX_CODE_DIR="$REPO_ROOT/linux/kwin/alttabsucks/contents/code"
 
-if [ -f "$REPO_ROOT/lib/app-hotkeys.ahk" ] || [ -f "$REPO_ROOT/lib/config.ahk" ]; then
-    echo "[pre-commit] Regenerating sanitized templates..."
+if [ -f "$REPO_ROOT/lib/app-hotkeys.ahk" ] || [ -f "$REPO_ROOT/lib/config.ahk" ] \
+   || [ -f "$LINUX_CODE_DIR/hotkeys.js" ] || [ -f "$LINUX_CODE_DIR/hotkeys.json" ]; then
+    echo "[pre-commit] Regenerating templates..."
     bash "$REPO_ROOT/dev-scripts/make-template.sh"
-    git add "$REPO_ROOT/lib/app-hotkeys.template.ahk" "$REPO_ROOT/lib/config.template.ahk"
+    git add "$REPO_ROOT/lib/app-hotkeys.template.ahk" "$REPO_ROOT/lib/config.template.ahk" \
+            "$LINUX_CODE_DIR/hotkeys.template.js" "$LINUX_CODE_DIR/hotkeys.template.json"
 fi
+
+# hotkeys.template.js/hotkeys.template.json are unsanitized (see .gitignore's own comment on
+# why) — nothing redacts a credential accidentally pasted into a binding's argv/urlPatterns/etc.
+# the way the AHK sensitive-section sanitizer does below, so this scans the whole staged diff
+# instead of just a marked-off section. Same "block the commit" response as the AHK check, no
+# concept of a sensitive section to scope down to here since the whole file ships unsanitized.
+for template in "$LINUX_CODE_DIR/hotkeys.template.js" "$LINUX_CODE_DIR/hotkeys.template.json"; do
+    if [ -f "$template" ]; then
+        staged_added_lines="$(git diff --cached -- "$template" | grep '^+[^+]' | cut -c2- || true)"
+        if [ -n "$staged_added_lines" ] && printf '%s\n' "$staged_added_lines" \
+                | grep -Eiq '\b(password|passwd|api[_-]?key|secret|token|auth)\b[[:space:]]*[:=]'; then
+            echo "[pre-commit] Blocked: potential hardcoded credential detected in $(basename "$template")."
+            echo "[pre-commit] hotkeys.js/hotkeys.json are copied into their templates unsanitized —"
+            echo "[pre-commit] nothing resembling a credential should ever go in a binding."
+            exit 1
+        fi
+    fi
+done
 
 if [ -f "$REPO_ROOT/lib/app-hotkeys.ahk" ]; then
     staged_sensitive_lines="$(git diff --cached -- "$REPO_ROOT/lib/app-hotkeys.ahk" | awk '

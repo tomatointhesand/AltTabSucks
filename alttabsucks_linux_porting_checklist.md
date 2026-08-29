@@ -878,6 +878,73 @@ be approached differently than the Windows version was.
       built for these two the way `make-template.sh` exists for the AHK side, since that wasn't
       the ask and `hotkeys.template.js` already exists separately (hand-maintained, per its own
       long-standing follow-up note above) for anyone who wants placeholder examples instead.
+      - **Superseded one turn later** by a better-reasoned version of the same goal — see
+        directly below. Tracking `hotkeys.js`/`hotkeys.json` *directly* turned out to have a real
+        downside the first version didn't account for: once a file is tracked, anyone else who
+        clones this repo and starts personalizing that *same* tracked file risks exactly the
+        merge conflicts / silently-clobbered-local-edits problems gitignoring it was always
+        meant to avoid in the first place. Left as history here rather than rewritten away, same
+        as every other "round 2 found the real problem" entry in this file.
+- [x] **`hotkeys.js`/`hotkeys.json` gitignored again — mirrored unsanitized into their templates
+      instead** — reconciles the previous entry's goal ("a `git pull` should bring the real,
+      working config along") with not repeating `lib/app-hotkeys.ahk`'s own reason for staying
+      gitignored on Windows (multiple people editing the *same tracked file* is a merge-conflict
+      /clobbered-local-edits problem waiting to happen) by borrowing the AHK side's actual
+      *mechanism* — a pre-commit hook mirroring a gitignored real file into a tracked template —
+      while explicitly dropping the *sanitization* that mechanism also does there, since privacy
+      was never the concern here (confirmed with the user last turn already).
+      - `hotkeys.js`/`hotkeys.json` re-added to `.gitignore`, un-tracked (`git rm --cached`, kept
+        on disk). `dev-scripts/make-template.sh` gained a new section: `hotkeys.js`/`hotkeys.json`
+        → `hotkeys.template.js`/`hotkeys.template.json`, plain `cp`/`cat` (no sed sanitizer at
+        all, unlike every other section in this script) — `hotkeys.template.js` gets a short
+        prepended banner explaining what it is and that it's unsanitized (comments are valid
+        JS; skipped for `hotkeys.template.json`, which has to stay parseable JSON with no
+        comments allowed).
+      - `hooks/pre-commit`'s trigger condition extended to fire when either Linux hotkeys file
+        exists, not just the two AHK ones, and to `git add` the two new template outputs
+        alongside the existing AHK ones.
+      - **A real bug this exposed, not introduced but newly reachable**: `make-template.sh`'s
+        AHK-generating section had *no* existence guard on `app-hotkeys.ahk` at all (unlike its
+        own neighboring `config.ahk` section, which already checks) — it only ever got away with
+        that because the pre-commit hook's trigger condition used to be AHK-files-only, so the
+        script itself never ran anywhere lacking one. Extending that trigger to include the
+        Linux files meant a pure-Linux dev box (this one — no `lib/app-hotkeys.ahk` on disk at
+        all) would now hit that section on *every* commit and crash outright. Found by literally
+        running the updated script here, not by inspection — fixed with the same
+        `if [ -f ... ]` guard `config.ahk`'s section already had.
+      - **A new secret-leak guard, not asked for explicitly but a direct consequence of removing
+        sanitization**: the AHK side's existing pre-commit check blocks a commit if a
+        credential-shaped pattern shows up in `app-hotkeys.ahk`'s marked-off sensitive section.
+        There's no equivalent "sensitive section" concept for `hotkeys.js`/`hotkeys.json` — the
+        *whole* file ships unsanitized now — so this scans each template's entire staged diff
+        instead of a scoped-down section, blocking on the same category of credential-shaped
+        keyword (`password`/`token`/`secret`/`api_key`/...) immediately followed by `:`/`=`.
+        Verified both ways: a synthetic `api_key: sk-...` line in a throwaway git repo's staged
+        diff correctly matched and would block; the real current `hotkeys.template.js`/
+        `hotkeys.template.json` content (checked earlier this session — ordinary URLs and
+        resourceClasses, nothing credential-shaped) does not.
+      - `installer.sh`'s `ensure_hotkeys()` message updated to stop assuming the template still
+        contains `YOUR_BROWSER_RESOURCE_CLASS`-style placeholders (it usually won't now) —
+        checks with `grep` first rather than branching on `CHOSEN_RESOURCE_CLASS` alone, so the
+        printed message stays accurate for either kind of template a given checkout might have.
+      - Verified live end to end: ran `dev-scripts/make-template.sh` directly and confirmed both
+        new template files were written unsanitized with the expected banner; temporarily moved
+        the real `hotkeys.js` aside and re-ran `ensure_hotkeys()`'s exact new logic in isolation,
+        confirming it seeds from the template with the new, accurate message and restores
+        correctly afterward; ran the real `./installer.sh install` end to end again after all of
+        the above with no regressions; installed the pre-commit hook for real in this clone
+        (`dev-scripts/install-hooks.sh` — it hadn't been active for any of this session's many
+        prior commits) so this very change's own commit exercises the real hook, not a simulation.
+      - **Near-miss while testing, worth recording honestly**: running the *pre-fix* version of
+        `make-template.sh` directly on this machine (before the guard existed) didn't just fail
+        to generate `app-hotkeys.template.ahk` — bash's own `> "$root/app-hotkeys.template.ahk"`
+        redirection truncates that file to empty as part of setting the redirection up, *before*
+        `awk` ever runs, so `awk`'s subsequent failure to open the missing `app-hotkeys.ahk`
+        didn't prevent the tracked template from being wiped to 0 bytes first. Caught immediately
+        via `git status`/`git diff` (nothing this session skips verifying), restored with `git
+        restore` before it went anywhere near a commit — but it's the concrete, already-happened
+        version of exactly the risk the `if [ -f ... ]` guard exists to prevent, not a
+        hypothetical one.
 - [x] **Toast confirmations made required, and the whole install audited for one-shot
       reliability** — explicit ask: toasts stop being a best-effort extra (`check_toast_deps()`
       soft-skipping with a printed note if `gtk4-layer-shell` was missing, `install` still

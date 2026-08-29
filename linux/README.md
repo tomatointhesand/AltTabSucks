@@ -77,11 +77,13 @@ Open the extension's **Options** page and set:
 
 ### 3. Add your hotkeys
 
-Unlike `lib/app-hotkeys.ahk` on Windows, `hotkeys.js`/`hotkeys.json` are **tracked, not
-gitignored** — for the meantime, this repo's own real hotkey config comes along with a clone,
-rather than everyone starting from placeholder examples. If `hotkeys.js` is somehow missing (a
-very first install with a repo layout predating this, or a manual delete), it's seeded from
-`hotkeys.template.js` instead. Two ways to edit either file:
+`hotkeys.js`/`hotkeys.json` are gitignored, same as `lib/app-hotkeys.ahk` on Windows — but unlike
+that AHK file, their templates (`hotkeys.template.js`/`hotkeys.template.json`) are an
+**unsanitized** mirror of them, refreshed automatically on every commit (see `hooks/pre-commit`).
+For the meantime, that means a real, working example — this repo's own actual hotkey config as
+of the last commit, not generic placeholders — is what `installer.sh` seeds a missing
+`hotkeys.js` from on first install, without `hotkeys.js`/`hotkeys.json` themselves ever being
+tracked (so a `git pull` never touches your own local edits to them). Two ways to edit them:
 
 **The Hotkeys UI (recommended)** — with the server running, open
 **`http://localhost:9876/hotkeys-ui`**, paste your auth token, and edit bindings there. Saving

@@ -323,16 +323,25 @@ ensure_hotkeys() {
     fi
     cp "$HOTKEYS_TEMPLATE" "$HOTKEYS_PATH"
     # Unconditional (unlike CHOSEN_RESOURCE_CLASS below, which depends on the browser wizard
-    # having run) — $REPO_ROOT is always known, so the template's "Reload Hotkeys" example
-    # always ends up pointing at this exact clone's installer.sh, no user input required.
+    # having run) — $REPO_ROOT is always known, so if the template still has this placeholder at
+    # all (see below — it usually won't), any "Reload Hotkeys"-style example ends up pointing at
+    # this exact clone's installer.sh, no user input required.
     sed -i "s|YOUR_REPO_ROOT|$REPO_ROOT|g" "$HOTKEYS_PATH"
-    if [ -n "$CHOSEN_RESOURCE_CLASS" ]; then
+    # hotkeys.template.js is dev-scripts/make-template.sh's *unsanitized* mirror of the repo
+    # owner's own real hotkeys.js by default now (see .gitignore's own comment) — a working
+    # example with real resourceClass/URL values already in it, not "YOUR_BROWSER_RESOURCE_CLASS"
+    # placeholders, so there's usually nothing here for CHOSEN_RESOURCE_CLASS to fill in at all.
+    # Checked rather than assumed either way, so the printed message stays accurate regardless of
+    # which kind of template a given checkout happens to have.
+    if [ -n "$CHOSEN_RESOURCE_CLASS" ] && grep -q "YOUR_BROWSER_RESOURCE_CLASS" "$HOTKEYS_PATH"; then
         sed -i "s/YOUR_BROWSER_RESOURCE_CLASS/$CHOSEN_RESOURCE_CLASS/g" "$HOTKEYS_PATH"
         echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.js from the template, with your"
         echo "browser's resourceClass ('$CHOSEN_RESOURCE_CLASS') already filled in — still edit in"
         echo "your real profile name(s) and URLs before the examples do anything."
     else
-        echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.js from the template — edit it to add your hotkeys."
+        echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.js from hotkeys.template.js — this"
+        echo "mirrors the repo owner's own real config as of the last commit (a working example, not"
+        echo "generic placeholders), so edit it to match your own setup before relying on it."
     fi
 }
 

@@ -6,8 +6,12 @@ Server/token.txt
 lib/star-citizen.ahk
 __pycache__/
 linux/server/config.py
-# hotkeys.js/hotkeys.json are tracked (not gitignored) deliberately, unlike lib/app-hotkeys.ahk
-# on the Windows side — for the meantime, a `git pull` here is meant to bring your real Linux
-# hotkey config along with it, not just the sanitized hotkeys.template.js examples. Revisit if
-# that ever needs to change (e.g. a runCommand argv gains a real absolute path, or a urlPatterns
-# entry gets more personal than "mail.google.com").
+# hotkeys.js/hotkeys.json are gitignored, same as lib/app-hotkeys.ahk on the Windows side — but
+# unlike lib/app-hotkeys.ahk, their templates (hotkeys.template.js/hotkeys.template.json) are an
+# *unsanitized* mirror of these, refreshed by dev-scripts/make-template.sh on every commit (see
+# hooks/pre-commit). A git pull always brings the real, working config-as-of-the-last-commit
+# along via the template, without git ever touching your own local hotkeys.js/hotkeys.json
+# directly — no merge conflicts, no risk of a pull clobbering local edits you haven't committed
+# anywhere, since these two are never staged/tracked at all.
+linux/kwin/alttabsucks/contents/code/hotkeys.js
+linux/kwin/alttabsucks/contents/code/hotkeys.json
