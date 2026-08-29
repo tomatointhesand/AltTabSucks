@@ -48,14 +48,25 @@ check_deps() {
     command -v systemctl >/dev/null 2>&1 || missing+=("systemctl")
     python3 -c "import dbus" >/dev/null 2>&1 || missing+=("python-dbus")
     python3 -c "from gi.repository import GLib" >/dev/null 2>&1 || missing+=("python-gobject")
+    # Toast confirmations are a required part of the install, not a best-effort extra — checked
+    # here alongside every other hard dependency instead of the separate soft check_toast_deps()
+    # this used to be (which let `install` "succeed" with no on-screen feedback for any hotkey
+    # ever, silently, unless you happened to read the terminal at install time). A missing
+    # gtk4-layer-shell now stops the install the same way a missing kpackagetool6 does.
+    python3 -c "
+import gi
+gi.require_version('Gtk', '4.0')
+gi.require_version('Gtk4LayerShell', '1.0')
+from gi.repository import Gtk4LayerShell
+" >/dev/null 2>&1 || missing+=("gtk4-layer-shell (toast confirmations after a hotkey fires)")
 
     if [ ${#missing[@]} -gt 0 ]; then
         echo "Missing dependencies:"
         printf '  - %s\n' "${missing[@]}"
         if command -v pacman >/dev/null 2>&1; then
             echo
-            echo "Install the Python ones on Arch with:"
-            echo "  sudo pacman -S python-dbus python-gobject"
+            echo "Install the non-KDE ones on Arch with:"
+            echo "  sudo pacman -S python-dbus python-gobject gtk4-layer-shell"
             echo "(the kwin/qt6 tools come with a KDE Plasma install already — if any of those"
             echo "are missing, something's unusual about this setup and is worth a closer look)"
         fi
@@ -261,27 +272,18 @@ find_gtk4_layer_shell_so() {
     { ldconfig -p 2>/dev/null || true; } | awk '/libgtk4-layer-shell\.so / { print $NF; exit }'
 }
 
-check_toast_deps() {
-    if ! python3 -c "
-import gi
-gi.require_version('Gtk', '4.0')
-gi.require_version('Gtk4LayerShell', '1.0')
-from gi.repository import Gtk4LayerShell
-" >/dev/null 2>&1; then
-        echo "Toast overlay feedback (a colored on-screen confirmation after a hotkey fires) needs"
-        echo "gtk4-layer-shell, not found — skipping it, everything else installs normally. Install"
-        echo "it and re-run to enable: sudo pacman -S gtk4-layer-shell"
-        return 1
-    fi
-    return 0
-}
-
 install_toast_service() {
     local so_path staged
     so_path="$(find_gtk4_layer_shell_so)"
     if [ -z "$so_path" ]; then
-        echo "Couldn't resolve libgtk4-layer-shell.so's path via ldconfig — skipping toast daemon."
-        return
+        # check_deps already confirmed gtk4-layer-shell's Python bindings import cleanly, so
+        # reaching this specific failure means the .so itself is somewhere ldconfig doesn't know
+        # about (an unusual install layout) — worth stopping for rather than silently shipping
+        # an install with no toast daemon, now that this is a required feature, not optional.
+        echo "ERROR: gtk4-layer-shell's Python bindings are available, but couldn't resolve" >&2
+        echo "libgtk4-layer-shell.so's path via ldconfig — can't install the toast daemon." >&2
+        echo "Check 'ldconfig -p | grep gtk4-layer-shell' and your library path setup." >&2
+        exit 1
     fi
     mkdir -p "$(dirname "$TOAST_SERVICE_DEST")"
     staged="$(mktemp)"
@@ -429,15 +431,27 @@ do_install() {
     ensure_config
     install_service
     install_kwin_script
-    check_toast_deps && install_toast_service
+    install_toast_service
 
-    sleep 1
+    # token.txt is written by the server process itself on its first run (load_or_create_token),
+    # not by anything in this script — `systemctl --user enable --now` only guarantees the
+    # process has been *spawned* (Type=simple's whole definition of "active"), not that it's
+    # gotten far enough to import dbus-python/GLib and write the file yet. A flat `sleep 1` here
+    # used to just guess that was always enough; polled instead so a one-shot `install` reliably
+    # ends with the token in hand on a slower first cold start too, not a "run this again in a
+    # second" fallback as the common case.
+    local waited=0
+    while [ ! -f "$TOKEN_PATH" ] && [ "$waited" -lt 100 ]; do
+        sleep 0.1
+        waited=$((waited + 1))
+    done
     if [ -f "$TOKEN_PATH" ]; then
         echo
         echo "Auth token (paste into the extension Options page): $(tr -d '\n' < "$TOKEN_PATH")"
     else
         echo
-        echo "token.txt not yet created — wait a moment, then run: cat '$TOKEN_PATH'"
+        echo "token.txt still not created after 10s — something's wrong with the server; check:"
+        echo "  journalctl --user -u $SERVICE_NAME -e"
     fi
     echo
     echo "Next: load BrowserExtension/ unpacked in your browser, open its Options page, and"

@@ -19,18 +19,20 @@ and why — see [`alttabsucks_linux_porting_checklist.md`](../alttabsucks_linux_
 - **KDE Plasma 6** — this relies on `kpackagetool6`/`qdbus6`/`kwriteconfig6` specifically (Qt6
   tools), not Plasma 5's `kpackagetool5`/`qdbus`/`kwriteconfig5`. Wayland is assumed throughout;
   it hasn't been tested under X11.
-- **Python 3**, plus the `dbus` and `gi` (PyGObject) modules. On Arch:
+- **Python 3**, plus the `dbus` and `gi` (PyGObject) modules, and **`gtk4-layer-shell`** (the
+  on-screen toast confirmation after a hotkey fires — required, not optional, so you always get
+  feedback that a hotkey actually did something). On Arch:
   ```bash
-  sudo pacman -S python-dbus python-gobject
+  sudo pacman -S python-dbus python-gobject gtk4-layer-shell
   ```
   (the `kpackagetool6`/`qdbus6`/`kwriteconfig6` trio and `systemctl` all come with a normal KDE
   Plasma install already.)
 - **git**, to clone this repo. Clone it wherever you like — `installer.sh` bakes the actual
   clone path into the systemd units it installs, no fixed location required.
-- *Optional*, for the on-screen toast confirmation after a hotkey fires: **`gtk4-layer-shell`**
-  (`sudo pacman -S gtk4-layer-shell` on Arch). Everything else works fine without it — the
-  installer detects it's missing, skips just the toast daemon, and tells you what to install if
-  you want it later.
+
+`./installer.sh install` checks all of the above up front and refuses to start if any are
+missing (with exactly what to install), rather than partway through leaving you with, say, a
+working server but silently no toast daemon.
 
 ---
 
@@ -55,7 +57,7 @@ guessed table), then:
 1. Installs and starts the bridge server as a `systemd --user` service (`alttabsucks-server`),
    listening on `localhost:9876` — same port as Windows.
 2. Installs and enables the KWin script that owns your global hotkeys.
-3. Installs the toast daemon too, if `gtk4-layer-shell` is available.
+3. Installs the toast daemon.
 4. Prints an **auth token** at the end — copy it (also saved to `Server/token.txt` for later).
 
 ### 2. Load the browser extension
@@ -199,7 +201,8 @@ pkill -f "python3 .*alttabsucks_server\.py"
 
 **No toast appears after a hotkey fires**
 
-Toasts are a pure enhancement layered on top — every hotkey still works without them. Confirm
-`gtk4-layer-shell` is installed and re-run `./installer.sh install` to pick it up; check
-`systemctl --user status alttabsucks-toast.service` if it's installed but still not showing
-anything.
+`gtk4-layer-shell` is a required dependency (`./installer.sh install` refuses to run at all
+without it), so if you got this far it should be installed and running. Check
+`systemctl --user status alttabsucks-toast.service` — every hotkey's underlying action (window
+focus, tab switch, ...) still works even if the toast daemon itself is somehow down, so this is
+worth a look but isn't blocking anything else.

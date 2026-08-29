@@ -878,6 +878,42 @@ be approached differently than the Windows version was.
       built for these two the way `make-template.sh` exists for the AHK side, since that wasn't
       the ask and `hotkeys.template.js` already exists separately (hand-maintained, per its own
       long-standing follow-up note above) for anyone who wants placeholder examples instead.
+- [x] **Toast confirmations made required, and the whole install audited for one-shot
+      reliability** — explicit ask: toasts stop being a best-effort extra (`check_toast_deps()`
+      soft-skipping with a printed note if `gtk4-layer-shell` was missing, `install` still
+      "succeeding" with silently no on-screen feedback for any hotkey ever) and become a hard
+      requirement, checked alongside every other dependency; and a general pass over `do_install`
+      to find and fix anything else standing between a fresh clone and a fully working install
+      in exactly one `./installer.sh install` run.
+      - `gtk4-layer-shell`'s Python-bindings check moved from the separate `check_toast_deps()`
+        into `check_deps()` itself — a missing one now stops the install up front with the rest
+        of the dependency list, same treatment as a missing `kpackagetool6`. `check_toast_deps()`
+        removed entirely; `do_install`'s `check_toast_deps && install_toast_service` became a
+        plain unconditional `install_toast_service` call. `install_toast_service`'s own internal
+        fallback (unresolvable `libgtk4-layer-shell.so` path via `ldconfig`, a narrower and rarer
+        case than the Python import failing) changed from a silent `return` to an `exit 1` with a
+        clear message, for the same "required means required all the way down" reason.
+      - **A real one-shot gap found during the audit, not assumed**: the final auth-token print
+        used a flat `sleep 1` before checking whether `token.txt` existed yet. `token.txt` is
+        written by the server process itself on its first run, not by anything in `installer.sh`
+        — `systemctl --user enable --now` only guarantees the process has been *spawned*
+        (`Type=simple`'s entire definition of "active"), not that it's gotten as far as importing
+        `dbus`/`gi` and writing the file. A flat 1-second guess meant a slower first cold start
+        (or, now, a slower `install_toast_service` run ahead of it) could plausibly leave a
+        fresh, otherwise-successful install ending on "wait a moment, then run cat" instead of
+        the token in hand — the opposite of one-shot. Replaced with an actual poll (100ms
+        intervals, up to 10s) so the common case reliably gets the token printed immediately
+        without guessing, with a real, more actionable failure message (pointing at
+        `journalctl --user -u alttabsucks-server.service -e`) if it genuinely never appears.
+      - Verified live: ran the real `./installer.sh install` end to end again after all of the
+        above, confirmed it completed in ~1.3s with the toast daemon installed unconditionally
+        and the token printed immediately (already-existing token, so the poll loop's very first
+        check already succeeded) rather than falling through to the fallback message. Separately
+        exercised the new hard-failure path itself — without touching the real, working
+        `gtk4-layer-shell` install on this machine — by running `check_deps`'s exact
+        dependency-detection logic in isolation against a deliberately-nonexistent GI module
+        name, confirming it correctly reports the missing dependency, prints the `pacman` install
+        line including `gtk4-layer-shell`, and exits non-zero.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [x] **Linux install guide, `linux/README.md`** — a dedicated user-facing doc rather than a
