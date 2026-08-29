@@ -1,0 +1,159 @@
+{
+  "bindings": [
+    {
+      "type": "tabFocus",
+      "title": "Hotkey config",
+      "key": "Ctrl+Alt+/",
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "localhost:9876/hotkeys-ui"
+      ],
+      "openUrl": "http://localhost:9876/hotkeys-ui"
+    },
+    {
+      "type": "tabFocus",
+      "title": "Gmail",
+      "key": "Ctrl+Alt+Shift+G",
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "mail.google.com"
+      ],
+      "openUrl": "https://mail.google.com"
+    },
+    {
+      "type": "tabFocus",
+      "title": "Youtube",
+      "key": "Ctrl+Alt+Shift+Y",
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "youtube.com"
+      ],
+      "openUrl": "https://youtube.com"
+    },
+    {
+      "type": "tabFocus",
+      "title": "maps",
+      "key": "Ctrl+Alt+Shift+M",
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "google.com/maps"
+      ],
+      "openUrl": "https://google.com/maps"
+    },
+    {
+      "type": "tabFocus",
+      "title": "yt music",
+      "key": "Ctrl+Shift+Meta+Y",
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://music.youtube.com"
+      ],
+      "openUrl": "https://music.youtube.com"
+    },
+    {
+      "type": "tabFocus",
+      "title": "keep",
+      "key": "Ctrl+Shift+Meta+K",
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://keep.google.com"
+      ],
+      "openUrl": "https://keep.google.com"
+    },
+    {
+      "type": "tabFocus",
+      "title": "chat",
+      "key": "Ctrl+Alt+Shift+C",
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://chat.google.com"
+      ],
+      "openUrl": "https://chat.google.com"
+    },
+    {
+      "type": "tabFocus",
+      "title": "android messages",
+      "key": "Ctrl+Alt+Shift+X",
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://messages.google.com"
+      ],
+      "openUrl": "https://messages.google.com"
+    },
+    {
+      "type": "tabFocus",
+      "title": "ebay",
+      "key": "Ctrl+Alt+Shift+P",
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://ebay.com"
+      ],
+      "openUrl": "https://ebay.com"
+    },
+    {
+      "type": "profileCycle",
+      "title": "Cycle personal",
+      "key": "Ctrl+Shift+Alt+I",
+      "resourceClass": "brave-browser",
+      "launchArgv": [
+        "brave-browser"
+      ],
+      "enabled": true,
+      "profileName": "Personal"
+    },
+    {
+      "type": "windowCycle",
+      "title": "discord",
+      "key": "Ctrl+Alt+Shift+D",
+      "resourceClass": "discord",
+      "launchArgv": [
+        "discord"
+      ]
+    },
+    {
+      "type": "windowCycle",
+      "title": "vscode",
+      "key": "Ctrl+Alt+Shift+E",
+      "resourceClass": "code-oss",
+      "launchArgv": [
+        "code-oss"
+      ],
+      "enabled": true
+    },
+    {
+      "type": "splitTab",
+      "title": "Split browser tab",
+      "key": "Alt+X",
+      "enabled": true,
+      "resourceClass": "brave-browser",
+      "profileName": "Personal"
+    },
+    {
+      "type": "mergeTabs",
+      "title": "Merge browser tab",
+      "key": "Alt+Z",
+      "enabled": true,
+      "resourceClass": "brave-browser",
+      "profileName": "Personal"
+    },
+    {
+      "type": "windowCycle",
+      "title": "Kate",
+      "key": "Ctrl+Alt+Shift+N",
+      "enabled": true,
+      "resourceClass": "org.kde.kate",
+      "launchArgv": [
+        "kate"
+      ]
+    }
+  ]
+}

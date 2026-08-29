@@ -6,5 +6,8 @@ Server/token.txt
 lib/star-citizen.ahk
 __pycache__/
 linux/server/config.py
-linux/kwin/alttabsucks/contents/code/hotkeys.js
-linux/kwin/alttabsucks/contents/code/hotkeys.json
+# hotkeys.js/hotkeys.json are tracked (not gitignored) deliberately, unlike lib/app-hotkeys.ahk
+# on the Windows side — for the meantime, a `git pull` here is meant to bring your real Linux
+# hotkey config along with it, not just the sanitized hotkeys.template.js examples. Revisit if
+# that ever needs to change (e.g. a runCommand argv gains a real absolute path, or a urlPatterns
+# entry gets more personal than "mail.google.com").

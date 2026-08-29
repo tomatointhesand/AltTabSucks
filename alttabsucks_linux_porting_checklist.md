@@ -863,6 +863,21 @@ be approached differently than the Windows version was.
         "Kate" `kglobalaccel` shortcut, confirmed via a probe that the launched window was
         genuinely `workspace.activeWindow` this time (screenshotted too — Kate visibly in the
         foreground, not just reported active).
+- [x] **`hotkeys.js`/`hotkeys.json` now tracked, not gitignored** — a deliberate deviation from
+      the Windows side's own precedent (`lib/app-hotkeys.ahk` is gitignored there, with a whole
+      pre-commit-hook-driven sanitization pipeline built specifically to keep real URLs/paths/
+      profile names out of what *is* tracked, `lib/app-hotkeys.template.ahk`). Explicit ask: "for
+      the meantime," a `git pull` on this port should bring the real, working hotkey config along
+      with it rather than everyone starting from `hotkeys.template.js`'s placeholder examples.
+      Checked the actual file content before committing rather than assuming it was fine to
+      make public just because it was asked for — no secrets, no absolute filesystem paths
+      currently present (the one binding that used to carry one, a `runCommand` "Reload Hotkeys"
+      pointed at this exact clone's `installer.sh`, isn't in the current file at all), just
+      ordinary URLs (`mail.google.com`, `ebay.com`, ...) and window resourceClasses. Removed both
+      files' `.gitignore` entries and committed them as they stand — no sanitization pipeline
+      built for these two the way `make-template.sh` exists for the AHK side, since that wasn't
+      the ask and `hotkeys.template.js` already exists separately (hand-maintained, per its own
+      long-standing follow-up note above) for anyone who wants placeholder examples instead.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [x] **Linux install guide, `linux/README.md`** — a dedicated user-facing doc rather than a

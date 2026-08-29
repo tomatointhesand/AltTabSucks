@@ -75,9 +75,11 @@ Open the extension's **Options** page and set:
 
 ### 3. Add your hotkeys
 
-`linux/kwin/alttabsucks/contents/code/hotkeys.js` was seeded from a template on first install
-(gitignored, like `lib/app-hotkeys.ahk` on Windows) with a handful of placeholder examples. Two
-ways to edit it:
+Unlike `lib/app-hotkeys.ahk` on Windows, `hotkeys.js`/`hotkeys.json` are **tracked, not
+gitignored** — for the meantime, this repo's own real hotkey config comes along with a clone,
+rather than everyone starting from placeholder examples. If `hotkeys.js` is somehow missing (a
+very first install with a repo layout predating this, or a manual delete), it's seeded from
+`hotkeys.template.js` instead. Two ways to edit either file:
 
 **The Hotkeys UI (recommended)** — with the server running, open
 **`http://localhost:9876/hotkeys-ui`**, paste your auth token, and edit bindings there. Saving
