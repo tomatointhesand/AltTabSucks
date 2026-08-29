@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 %h/git/alttabsucks/linux/server/alttabsucks_server.py
+ExecStart=/usr/bin/python3 YOUR_REPO_ROOT/linux/server/alttabsucks_server.py
 Restart=on-failure
 RestartSec=2
 

@@ -205,8 +205,18 @@ ensure_config() {
 # ---- systemd service --------------------------------------------------------------------------
 
 install_service() {
+    local staged
     mkdir -p "$(dirname "$SERVICE_DEST")"
-    cp "$SERVICE_SRC" "$SERVICE_DEST"
+    # Templated the same way install_toast_service() below already handles YOUR_REPO_ROOT — this
+    # used to be a bare `cp`, with the tracked unit file's ExecStart hardcoded to
+    # %h/git/alttabsucks specifically. That only ever worked for a clone at exactly that path;
+    # everyone else's install silently pointed ExecStart at a nonexistent file. Staged through a
+    # tmpfile rather than sed -i'ing $SERVICE_SRC in place, so the tracked template itself never
+    # gets mutated on disk.
+    staged="$(mktemp)"
+    sed -e "s|YOUR_REPO_ROOT|$REPO_ROOT|g" "$SERVICE_SRC" > "$staged"
+    cp "$staged" "$SERVICE_DEST"
+    rm -f "$staged"
     systemctl --user daemon-reload
     if systemctl --user is-active "$SERVICE_NAME" >/dev/null 2>&1; then
         # enable --now on an already-running service is a no-op re: the running process — it

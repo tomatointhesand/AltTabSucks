@@ -876,10 +876,22 @@ be approached differently than the Windows version was.
         assumed**: `linux/systemd/alttabsucks-server.service`'s `ExecStart` is a plain hardcoded
         `%h/git/alttabsucks/...` path — unlike the toast service, which `install_toast_service`
         templates from `YOUR_REPO_ROOT` at install time, `install_service` just `cp`s the server
-        unit file verbatim, no substitution at all. Only works out of the box if cloned to
-        exactly `~/git/alttabsucks`; called out explicitly in the guide's Prerequisites rather
-        than silently documented around. Worth templating properly in `installer.sh` itself at
-        some point — not done here since fixing it wasn't the ask, just flagging it accurately.
+        unit file verbatim, no substitution at all. Only worked out of the box cloned to exactly
+        `~/git/alttabsucks`; flagged explicitly in the guide's Prerequisites at the time, then
+        **fixed properly right after** (three options weighed — mirror the toast service's own
+        sed-templating, a systemd drop-in override instead of rewriting the unit, or a symlink at
+        `~/git/alttabsucks` pointing wherever the repo actually lives; picked the first, since
+        the toast service already proves that exact approach with no downside, and the other two
+        would've made these two sibling services *less* consistent with each other, not more).
+        `alttabsucks-server.service`'s tracked `ExecStart` now reads `YOUR_REPO_ROOT/linux/...`
+        and `install_service` gained the identical stage-into-a-tmpfile-then-sed-then-copy
+        treatment `install_toast_service` already had — same pattern, not a new one. The
+        Prerequisites callout was removed again once cloning anywhere genuinely worked. Verified
+        live, not just re-read: re-ran `install_service`'s new logic directly, confirmed the
+        deployed `~/.config/systemd/user/alttabsucks-server.service` had the real absolute path
+        baked into `ExecStart` (not the placeholder), then ran the *real* `./installer.sh
+        install` end to end and confirmed the same — service active, a real authenticated
+        request to `GET /profiles` still returning 200 afterward.
       - Cross-checked specific command claims against the script rather than assumed from memory
         while drafting: caught that `./installer.sh stop` does *not* kill orphaned
         `alttabsucks_server.py` processes still holding the port (only `uninstall` does) — an

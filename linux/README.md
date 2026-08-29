@@ -25,17 +25,12 @@ and why — see [`alttabsucks_linux_porting_checklist.md`](../alttabsucks_linux_
   ```
   (the `kpackagetool6`/`qdbus6`/`kwriteconfig6` trio and `systemctl` all come with a normal KDE
   Plasma install already.)
-- **git**, to clone this repo.
+- **git**, to clone this repo. Clone it wherever you like — `installer.sh` bakes the actual
+  clone path into the systemd units it installs, no fixed location required.
 - *Optional*, for the on-screen toast confirmation after a hotkey fires: **`gtk4-layer-shell`**
   (`sudo pacman -S gtk4-layer-shell` on Arch). Everything else works fine without it — the
   installer detects it's missing, skips just the toast daemon, and tells you what to install if
   you want it later.
-
-**Clone to `~/git/alttabsucks`.** The installed systemd service's `ExecStart` path
-(`linux/systemd/alttabsucks-server.service`) is not templated the way the toast service's is —
-it's hardcoded to that path. Cloned somewhere else, either symlink it there, or edit
-`ExecStart=` in `~/.config/systemd/user/alttabsucks-server.service` by hand after the first
-install and run `systemctl --user daemon-reload`.
 
 ---
 
