@@ -1,12 +1,15 @@
 # AltTabSucks
 
-ATS is the alt-tab of the future: a keyboard shortcut based solution for app-specific window focus control, profile-aware URL-based browser tab focus control, and more. Supports Brave, Chrome, Edge, Opera, and Firefox at the moment. Windows only for now.
+ATS is the alt-tab of the future: a keyboard shortcut based solution for app-specific window focus control, profile-aware URL-based browser tab focus control, and more. Supports Brave, Chrome, Edge, Opera, and Firefox at the moment.
 
 **Features:**
 - **App window management** — cycle or toggle any app's windows with a single hotkey; launch it if it isn't running
 - **Browser tab focus** — jump to a tab by URL pattern for a given browser profile; opens the URL if no matching tab exists
 - **Browser profile cycling** — cycle through all windows for a given browser profile
 - **Split/merge tab snapping** — tear the active tab into its own window and snap both halves side-by-side; merge them back with another hotkey
+
+**Platforms:** Windows (below) and Linux/KDE Plasma 6 (Chromium-family browsers only for now —
+see **[linux/README.md](linux/README.md)** for the Linux install guide).
 
 ---
 

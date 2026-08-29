@@ -865,7 +865,31 @@ be approached differently than the Windows version was.
         foreground, not just reported active).
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
-- [ ] Linux README section (installer.sh usage still needs documenting there)
+- [x] **Linux install guide, `linux/README.md`** — a dedicated user-facing doc rather than a
+      section bolted onto the root `README.md` (which stays Windows-focused), linked from both
+      directions. Prerequisites, quick start (clone/install/extension/hotkeys), `installer.sh`
+      action reference, known limitations (Firefox/window switcher/secrets manager/settings GUI
+      not ported), and a troubleshooting section built from real failure modes hit and fixed
+      earlier in this same checklist (resourceClass mismatches, the `kglobalaccel` sticky-key
+      behavior, port conflicts, missing toast deps) — not speculative content.
+      - **A real, previously-undocumented gotcha caught while researching for the guide, not
+        assumed**: `linux/systemd/alttabsucks-server.service`'s `ExecStart` is a plain hardcoded
+        `%h/git/alttabsucks/...` path — unlike the toast service, which `install_toast_service`
+        templates from `YOUR_REPO_ROOT` at install time, `install_service` just `cp`s the server
+        unit file verbatim, no substitution at all. Only works out of the box if cloned to
+        exactly `~/git/alttabsucks`; called out explicitly in the guide's Prerequisites rather
+        than silently documented around. Worth templating properly in `installer.sh` itself at
+        some point — not done here since fixing it wasn't the ask, just flagging it accurately.
+      - Cross-checked specific command claims against the script rather than assumed from memory
+        while drafting: caught that `./installer.sh stop` does *not* kill orphaned
+        `alttabsucks_server.py` processes still holding the port (only `uninstall` does) — an
+        early draft said otherwise for the "port already in use" case; corrected to the actual
+        fix (`pkill` then `start`) after reading `do_stop`/`uninstall_service` side by side.
+        Also confirmed the `kglobalaccel` sticky-key troubleshooting entry doesn't need a manual
+        `qdbus6 unregister` fallback at all — `unregister_alttabsucks_shortcuts`'s prefix-based
+        matching (`"AltTabSucks: "`) already unregisters *every* AltTabSucks-owned shortcut on
+        every reload, orphaned ones included, not just ones still present in `hotkeys.json` —
+        trimmed the fallback command out rather than document unnecessary complexity.
 
 ---
 
