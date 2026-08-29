@@ -271,6 +271,38 @@ be approached differently than the Windows version was.
           "show everything" state came back empty under `jsdom` specifically — a known `jsdom`
           synthetic-focus-event limitation, not something touching real browser behavior; typing
           and selecting, the parts that actually matter, worked correctly both times.)
+  - [x] **`windowCycle`/`windowToggle` merged into one "App windows" section** — they're the
+        exact same `manageAppWindows(resourceClass, mode, launchArgv)` call either way
+        (`hotkeys_generator.py` already only ever varied a `mode` string between them), so having
+        them as two entirely separate sections was mostly duplicated structure for what's really
+        one binding concept with two behaviors. `hotkeys.json`/`hotkeys_generator.py` are
+        untouched — `binding.type` is still the literal string `"windowCycle"`/`"windowToggle"`,
+        no schema change at all; only how `hotkeys-ui.html` *groups and labels* those two values
+        changed.
+        - Replaced the flat `TYPE_LABELS` (type -> title) with a `GROUPS` array — each entry
+          lists every `binding.type` it covers (`types`), which one a bare `+ Add` should create
+          (`defaultType`), and, only for this merged group, a `modeOptions` list driving a
+          per-row Mode `<select>` (values `windowCycle`/`windowToggle`, labels "Cycle"/"Toggle").
+          `GROUP_BY_TYPE`, built once from `GROUPS`, replaces the old one-type-is-one-group
+          assumption everywhere that mattered: `renderAll`'s section list, the drag-reorder
+          same-group guard (now compares groups, not exact types — reordering across
+          Cycle/Toggle rows within the merged section works the same as within any other
+          section), and `renderGroupHeader`'s field-list lookup (via `defaultType`, since every
+          type in a group is required to share `TYPE_COLUMNS`, unchanged from before — `windowCycle`
+          and `windowToggle` already aliased to the same array).
+        - The Mode dropdown is a narrower, intentionally different thing from the old *global*
+          Type `<select>` removed earlier: that one could reassign a binding to any of 7 mostly-
+          unrelated types (and got removed for being redundant display + confusing reassignment);
+          this one only ever offers the 2 values that are actually the same underlying function,
+          scoped to the one group where "switch to the other behavior, keep everything else"
+          is a real, common thing to want.
+        - Verified live with a headless DOM replay of the real running page against the actual
+          `hotkeys.json`: 6 sections instead of 7, all 3 real `windowCycle`/`windowToggle`
+          bindings rendering together under one "App windows" heading with correct per-row Mode
+          values, and — the part that actually exercises the new code, not just its structure —
+          flipping one row's Mode dropdown (Cycle -> Toggle) correctly updated that binding's
+          `type` and left it sitting in the same section afterward, still 3 rows, not split off
+          anywhere.
   - [x] **`Ctrl+Alt+Shift+'` reloads hotkeys** — the Linux equivalent of `AltTabSucks.ahk`'s
         built-in `^!+'::Reload`, but *not* hardcoded as a framework special case the way it first
         shipped (a `main.js` `registerShortcut` + a dedicated `dbus_bridge.py` `ReloadHotkeys`

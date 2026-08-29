@@ -168,15 +168,29 @@
 </div>
 
 <script>
-const TYPE_LABELS = {
-  windowCycle: "Cycle app windows",
-  windowToggle: "Toggle app windows",
-  profileCycle: "Cycle browser profile",
-  tabFocus: "Focus browser tab",
-  splitTab: "Split browser tab into new window",
-  mergeTabs: "Merge browser windows",
-  runCommand: "Run command",
-};
+// One section per group, in display order. windowCycle/windowToggle share a section (they're
+// the exact same manageAppWindows(resourceClass, mode) call, "mode" is the only thing that ever
+// differed — see hotkeys_generator.py) with a per-row Mode dropdown standing in for what would
+// otherwise be two near-identical sections a hotkey could never move between; every other type
+// still gets its own single-type section, same as before. `types` lists every binding.type this
+// group covers (TYPE_COLUMNS below must give all of them the *same* field list — the header is
+// only ever built from `defaultType`, so a group mixing different field sets would render a
+// header that doesn't match some of its own rows). `modeOptions`, only present on the merged
+// group, drives the dropdown built in renderBindingRow/renderGroupHeader.
+const GROUPS = [
+  {
+    key: "windowManage", title: "App windows", types: ["windowCycle", "windowToggle"], defaultType: "windowCycle",
+    modeOptions: [{ value: "windowCycle", label: "Cycle" }, { value: "windowToggle", label: "Toggle" }],
+  },
+  { key: "profileCycle", title: "Cycle browser profile", types: ["profileCycle"], defaultType: "profileCycle" },
+  { key: "tabFocus", title: "Focus browser tab", types: ["tabFocus"], defaultType: "tabFocus" },
+  { key: "splitTab", title: "Split browser tab into new window", types: ["splitTab"], defaultType: "splitTab" },
+  { key: "mergeTabs", title: "Merge browser windows", types: ["mergeTabs"], defaultType: "mergeTabs" },
+  { key: "runCommand", title: "Run command", types: ["runCommand"], defaultType: "runCommand" },
+];
+// binding.type -> its GROUPS entry, built once rather than searched on every lookup.
+const GROUP_BY_TYPE = {};
+GROUPS.forEach((g) => g.types.forEach((t) => { GROUP_BY_TYPE[t] = g; }));
 
 let profiles = [];
 let runningResourceClasses = [];
@@ -490,6 +504,7 @@ function newBindingOfType(type) {
 
 function renderBindingRow(binding, localIndex) {
   const index = bindings.indexOf(binding); // real position in `bindings` — what save/drag/remove all key off
+  const group = GROUP_BY_TYPE[binding.type];
   const row = el("div", { class: "binding" + (binding.enabled === false ? " disabled" : "") });
 
   const badgeBox = el("button", {
@@ -505,10 +520,10 @@ function renderBindingRow(binding, localIndex) {
   // (draggable="true" on the row would turn ordinary text selection inside its inputs into an
   // accidental drag). dragover/drop still listen on the *row* below, not the handle — the user
   // drops wherever the mouse ends up, not necessarily on another handle. Reordering only makes
-  // sense within the same type group — a binding's type isn't changeable in place at all (see
-  // the group's own +Add for creating one of a different type), so dragging onto a different
-  // type's row would just silently do nothing visible; guarded out here instead of leaving that
-  // dead end for the user to find.
+  // sense within the same group — a binding's type is only changeable in place when its group
+  // has a Mode dropdown (built below), and dropping across two *different* groups' rows has no
+  // such control to fall back on either, so it would just silently do nothing visible; guarded
+  // out here instead of leaving that dead end for the user to find.
   const dragHandle = el("div", { class: "drag-handle spacer-handle", draggable: "true", title: "Drag to reorder within this group" }, ["⋮⋮"]);
   dragHandle.addEventListener("dragstart", (e) => {
     draggedIndex = index;
@@ -521,12 +536,12 @@ function renderBindingRow(binding, localIndex) {
     row.classList.remove("dragging");
   });
   row.addEventListener("dragover", (e) => {
-    if (draggedIndex === null || bindings[draggedIndex].type !== binding.type) return;
+    if (draggedIndex === null || GROUP_BY_TYPE[bindings[draggedIndex].type] !== group) return;
     e.preventDefault(); // required for drop to fire at all
     e.dataTransfer.dropEffect = "move";
   });
   row.addEventListener("drop", (e) => {
-    if (draggedIndex === null || bindings[draggedIndex].type !== binding.type) return;
+    if (draggedIndex === null || GROUP_BY_TYPE[bindings[draggedIndex].type] !== group) return;
     e.preventDefault(); // even for a same-row no-op drop below — otherwise the browser's
                          // default handling of the dragstart's text/plain payload can kick in
     if (draggedIndex === index) return;
@@ -536,17 +551,27 @@ function renderBindingRow(binding, localIndex) {
     renderAll();
   });
 
+  // Only the merged windowCycle/windowToggle group has this — every other group is exactly one
+  // binding.type, nothing to switch between in place.
+  let modeSelect = null;
+  if (group.modeOptions) {
+    modeSelect = el("select", {}, group.modeOptions.map((opt) =>
+      el("option", opt.value === binding.type ? { value: opt.value, selected: "" } : { value: opt.value }, [opt.label])));
+    modeSelect.addEventListener("change", () => { binding.type = modeSelect.value; renderAll(); });
+  }
+
   const removeBtn = el("button", { class: "danger remove-btn", type: "button", title: "Remove this hotkey" }, ["✕"]);
   removeBtn.addEventListener("click", () => { bindings.splice(index, 1); renderAll(); });
 
   row.appendChild(dragHandle);
-  // spacer-badge goes on the *wrapper* here, not the button itself — a fixed-width flex class
-  // means something different depending on which flex container it's in (main-axis is
-  // horizontal in .binding/.group-header, but vertical inside .field's own column layout), so
-  // putting a width class straight on a leaf control instead of its wrapper can silently set
-  // its *height* instead — confirmed live as a real bug (originally hit via the Type <select>
-  // this row used to have) before this fix.
+  // spacer-badge/select-col go on the *wrapper* here, not the button/select itself — a
+  // fixed-width flex class means something different depending on which flex container it's in
+  // (main-axis is horizontal in .binding/.group-header, but vertical inside .field's own column
+  // layout), so putting a width class straight on a leaf control instead of its wrapper can
+  // silently set its *height* instead — confirmed live as a real bug (originally hit via the
+  // Type <select> this row used to have) before this fix.
   row.appendChild(field(null, badgeBox, "fixed spacer-badge"));
+  if (modeSelect) row.appendChild(field(null, modeSelect, "fixed select-col"));
   (TYPE_COLUMNS[binding.type] || []).forEach((col) => {
     row.appendChild(field(null, col.build(binding), col.extraClass));
   });
@@ -554,37 +579,39 @@ function renderBindingRow(binding, localIndex) {
   return row;
 }
 
-// One header row per type, shared by every binding of that type below it — see the .group-header
-// CSS comment. Builds the same leading placeholder cell (handle/badge) a data row builds, then
-// one labeled cell per TYPE_COLUMNS entry, then the same trailing placeholder cell a data row's
-// ✕ button takes up — needed for more than just visual completeness: flexbox splits a row's
-// *leftover* width (after every item's own basis) among the "grow" columns (resourceClass,
-// urlPatterns, ...) proportionally, so leaving the header short of the row's trailing button
-// width would hand the header's grow columns more leftover space than the row's own get,
-// throwing off exactly the columns most worth keeping aligned. Confirmed live: before this,
-// every grow column in the header sat visibly wider than its input below it.
-function renderGroupHeader(type) {
+// One header row per group, shared by every binding in it below — see the .group-header CSS
+// comment. Builds the same leading placeholder cells (handle/badge/Mode) a data row builds, then
+// one labeled cell per TYPE_COLUMNS entry (looked up via defaultType — see GROUPS' own comment
+// for why every type in a group must share the same columns), then the same trailing placeholder
+// cell a data row's ✕ button takes up — needed for more than just visual completeness: flexbox
+// splits a row's *leftover* width (after every item's own basis) among the "grow" columns
+// (resourceClass, urlPatterns, ...) proportionally, so leaving the header short of the row's
+// trailing button width would hand the header's grow columns more leftover space than the row's
+// own get, throwing off exactly the columns most worth keeping aligned. Confirmed live: before
+// this, every grow column in the header sat visibly wider than its input below it.
+function renderGroupHeader(group) {
   const header = el("div", { class: "group-header" });
   header.appendChild(el("div", { class: "spacer-handle" }));
   header.appendChild(field(null, null, "fixed spacer-badge"));
-  (TYPE_COLUMNS[type] || []).forEach((col) => {
+  if (group.modeOptions) header.appendChild(field("Mode", null, "fixed select-col"));
+  (TYPE_COLUMNS[group.defaultType] || []).forEach((col) => {
     header.appendChild(field(col.label, null, col.extraClass));
   });
   header.appendChild(field(null, null, "fixed spacer-remove"));
   return header;
 }
 
-function renderGroup(type, groupBindings) {
+function renderGroup(group, groupBindings) {
   const section = el("div", { class: "group" });
 
   const titleRow = el("div", { class: "group-title" });
-  titleRow.appendChild(el("span", {}, [TYPE_LABELS[type]]));
-  const addBtn = el("button", { type: "button", class: "group-add-btn", title: `Add a "${TYPE_LABELS[type]}" hotkey` }, ["+ Add"]);
-  addBtn.addEventListener("click", () => { bindings.push(newBindingOfType(type)); renderAll(); });
+  titleRow.appendChild(el("span", {}, [group.title]));
+  const addBtn = el("button", { type: "button", class: "group-add-btn", title: `Add a "${group.title}" hotkey` }, ["+ Add"]);
+  addBtn.addEventListener("click", () => { bindings.push(newBindingOfType(group.defaultType)); renderAll(); });
   titleRow.appendChild(addBtn);
   section.appendChild(titleRow);
 
-  section.appendChild(renderGroupHeader(type));
+  section.appendChild(renderGroupHeader(group));
   groupBindings.forEach((b, i) => section.appendChild(renderBindingRow(b, i)));
   return section;
 }
@@ -592,17 +619,17 @@ function renderGroup(type, groupBindings) {
 function renderAll() {
   const container = document.getElementById("bindings");
   container.innerHTML = "";
-  // Fixed type order (TYPE_LABELS', not `bindings`') so groups don't reshuffle position just
-  // because of what order bindings happen to be saved in. Every type gets a section
-  // unconditionally, even with zero bindings — the previous "skip an empty type's section
-  // entirely" behavior saved a little vertical space but was a real dead end once the Type
-  // <select> was removed (see the group's own +Add above): deleting a section's last binding
-  // took its whole section, +Add button included, with it, leaving no way back to that type
-  // short of hand-editing hotkeys.json. Reported live: deleting the sole "Run command" binding
-  // made the entire Run Command section vanish.
-  Object.keys(TYPE_LABELS).forEach((type) => {
-    const groupBindings = bindings.filter((b) => b.type === type);
-    container.appendChild(renderGroup(type, groupBindings));
+  // Fixed GROUPS order (not `bindings`') so sections don't reshuffle position just because of
+  // what order bindings happen to be saved in. Every group gets a section unconditionally, even
+  // with zero bindings — the previous "skip an empty group's section entirely" behavior saved a
+  // little vertical space but was a real dead end once per-row type reassignment was removed
+  // (see the group's own +Add above): deleting a section's last binding took its whole section,
+  // +Add button included, with it, leaving no way back to that group short of hand-editing
+  // hotkeys.json. Reported live: deleting the sole "Run command" binding made the entire Run
+  // Command section vanish.
+  GROUPS.forEach((group) => {
+    const groupBindings = bindings.filter((b) => group.types.includes(b.type));
+    container.appendChild(renderGroup(group, groupBindings));
   });
 }
 
