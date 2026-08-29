@@ -833,6 +833,36 @@ be approached differently than the Windows version was.
         - Verified live end to end: emptied the real Run Command group (server-side, via the
           same save path) and confirmed its section — header and `+ Add` included — still
           rendered with zero rows, in a fresh browser load.
+- [x] **`manageAppWindows`'s launch-when-empty path never activated the window it launched** —
+      reported live after switching the "Kate" binding from `windowToggle` to `windowCycle`:
+      "works fine if already launched, but will not launch a new instance ... after closing it
+      completely." Two distinct causes stacked on top of each other here, found one at a time:
+      1. The binding had no `launchArgv` at all (missing on this specific binding, not a code
+         bug — `manageAppWindows`'s documented behavior is a deliberate no-op with 0 windows and
+         no `launchArgv` given). Added `["kate"]` directly via the real `POST /hotkeys-config`
+         save path.
+      2. Even with `launchArgv` now set, a real live test (close Kate completely, invoke the
+         real `kglobalaccel` shortcut, check via a probe whether the resulting window was
+         `workspace.activeWindow`) showed the window genuinely launched (`findAppWindows`
+         found it) but was never the active one — confirmed visually too, sitting unfocused
+         behind other windows. Root cause: `manageAppWindows`'s launch branch calls
+         `LaunchCommand` and returns, with no follow-up wait-for-window-then-activate step at
+         all — unlike every *other* "launch something, then find and activate its window" flow
+         in this file (`waitAndActivateProfile`, `waitForTabOrOpen`), which already have one.
+         Checked against `lib/window-management.ahk`'s `ManageAppWindows`: it does the exact
+         same bare `Run(exePath)` with no wait/activate either — not a porting regression, this
+         gap has always been there, just invisible on Windows, where a freshly hotkey-launched
+         app's window generally grabs foreground on its own. KWin's focus-stealing prevention
+         means a `Popen()`'d process's window does *not* get focus once it finally appears here,
+         moments after the callback already returned — needed a real fix, not a faithful port
+         of the original's absence of one.
+      - Fix: new `waitAndActivateLaunchedWindow(resourceClass, deadline)`, called right after
+        `LaunchCommand` — same 500ms/8s poll-then-activate tuning as
+        `waitAndActivateProfile`/`waitForTabOrOpen`, not new numbers invented for this.
+      - Verified live end to end, both fixes together: closed Kate completely, invoked the real
+        "Kate" `kglobalaccel` shortcut, confirmed via a probe that the launched window was
+        genuinely `workspace.activeWindow` this time (screenshotted too — Kate visibly in the
+        foreground, not just reported active).
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [ ] Linux README section (installer.sh usage still needs documenting there)

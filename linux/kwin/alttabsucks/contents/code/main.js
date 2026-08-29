@@ -77,6 +77,15 @@ function manageAppWindows(resourceClass, mode, launchArgv) {
             // iterates character-by-character into the array instead (confirmed empirically:
             // dbus.Array("dolphin") -> ['d','o','l','p','h','i','n'], not ["dolphin"]).
             bridgeCall("LaunchCommand", [launchArgv], function () {});
+            // lib/window-management.ahk's ManageAppWindows does the equivalent Run(exePath) and
+            // nothing more — fine on Windows, where a hotkey-launched app's window generally
+            // grabs foreground on its own. Confirmed live this isn't true here: KWin's focus-
+            // stealing prevention means a freshly Popen()'d process's window does *not* get
+            // focus once it finally appears, moments after this callback has already returned —
+            // reported as "won't launch a new instance", when the process was actually starting
+            // fine, just silently, off-screen-focus-wise. Same 500ms/8s poll-then-activate shape
+            // as waitAndActivateProfile/waitForTabOrOpen, which launch into the identical gap.
+            waitAndActivateLaunchedWindow(resourceClass, Date.now() + 8000);
         } else {
             print("AltTabSucks: no windows for " + resourceClass + " and manageAppWindows() wasn't given a launch command");
         }
@@ -107,6 +116,22 @@ function manageAppWindows(resourceClass, mode, launchArgv) {
         if (all[i] === active) { activeIdx = i; break; }
     }
     activateWindow(all[(activeIdx + 1) % all.length], resourceClass);
+}
+
+// Polls for the first window of resourceClass to appear after manageAppWindows's LaunchCommand
+// spawn, then activates it — see the comment at that call site for why this step exists at all.
+// Same 500ms/8s poll-then-activate tuning as waitAndActivateProfile/waitForTabOrOpen, not new
+// numbers.
+function waitAndActivateLaunchedWindow(resourceClass, deadline) {
+    var found = findAppWindows(resourceClass);
+    var w = found.visible[0] || found.minimized[0];
+    if (w) {
+        activateWindow(w, resourceClass);
+        return;
+    }
+    if (Date.now() < deadline) {
+        afterDelay(500, function () { waitAndActivateLaunchedWindow(resourceClass, deadline); });
+    }
 }
 
 // --- D-Bus bridge to linux/server/dbus_bridge.py ---------------------------------------------
