@@ -981,6 +981,47 @@ be approached differently than the Windows version was.
         dependency-detection logic in isolation against a deliberately-nonexistent GI module
         name, confirming it correctly reports the missing dependency, prints the `pacman` install
         line including `gtk4-layer-shell`, and exits non-zero.
+- [x] **`alttabsucks-server.service` could start with no display environment at all — the
+      launch-when-not-open codepath silently broken for every app on this exact machine, not a
+      code bug** — reported live: cycling/toggling an already-open Kate/discord/vscode worked
+      fine, but launching any of them fresh from closed never did. Every earlier check came back
+      clean (the source fix from a previous session was intact in both `main.js` and the
+      deployed KWin script, the shortcuts were genuinely registered, `hotkeys.js` genuinely had
+      `launchArgv` set for all three) — even a *direct* `LaunchCommand` D-Bus call bypassing the
+      KWin script entirely still failed to produce a running process, which is what actually
+      pointed away from anything KWin-side and at the server itself.
+      - Root cause found in `journalctl --user -u alttabsucks-server.service`: `kate` (and by the
+        same mechanism, anything else `LaunchCommand`/`_spawn_detached` starts) was crashing
+        instantly with `could not connect to display` / `Could not load the Qt platform plugin
+        "xcb"`. Confirmed via `/proc/<server pid>/environ`: the *running* server process had
+        `XDG_RUNTIME_DIR` but no `WAYLAND_DISPLAY`/`DISPLAY` at all, even though
+        `systemctl --user show-environment` (the *manager's* current environment, used only for
+        *newly started* services) had both set correctly. A process's own environment is fixed
+        at its own start time and never updates after the fact — this service had started before
+        the graphical session finished importing its display variables into `systemctl --user`,
+        and every GUI app it spawned from then on inherited that same incomplete environment and
+        crashed the same way, silently from the KWin script's perspective (the D-Bus call
+        genuinely succeeds; the *child process* is what fails, moments later, with nothing to
+        report the failure back through).
+      - Root cause of the root cause: `alttabsucks-server.service`'s `[Unit]` section only had
+        `After=network.target` — `alttabsucks-toast.service` already has
+        `After=graphical-session.target` (needed for the exact same reason, a GTK4/Wayland app
+        needing a real display to connect to), but the *server* never got that same dependency
+        added, despite also spawning GUI apps via its own `LaunchCommand`. An asymmetry between
+        two sibling services doing conceptually the same kind of thing, not a deliberate choice.
+      - Fix: `systemctl --user restart alttabsucks-server.service` for the immediate problem
+        (re-inherits the manager's by-then-correct environment); added
+        `After=graphical-session.target` to `alttabsucks-server.service`'s tracked unit
+        (alongside the existing `network.target`, not replacing it) so a fresh login doesn't hit
+        this ordering race in the first place, matching the toast service's own proven-working
+        ordering rather than guessing at a new one.
+      - Verified live end to end, both apps the user could safely test with (asked to avoid the
+        third, code-oss, since it's this exact session's own editor): closed Kate and Discord
+        completely, restarted the server, confirmed via `/proc/<pid>/environ` that the new
+        process actually has `WAYLAND_DISPLAY`/`DISPLAY` this time, then invoked both real
+        `kglobalaccel` shortcuts and confirmed both actually launched (Kate additionally
+        screenshotted genuinely in the foreground, exercising the earlier
+        `waitAndActivateLaunchedWindow` fix's other half in the same pass).
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [x] **Linux install guide, `linux/README.md`** — a dedicated user-facing doc rather than a

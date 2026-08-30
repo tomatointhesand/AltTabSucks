@@ -162,6 +162,22 @@ often use reversed-domain names (`org.kde.dolphin`, `org.kde.kate`) rather than 
 name. Open the Hotkeys UI, launch the target app, and check what the `resourceClass` typeahead
 actually suggests for it — don't guess.
 
+**Cycling/toggling an already-open app works, but launching a closed one never does — for every
+app, not just one**
+
+The server started before your session finished importing `DISPLAY`/`WAYLAND_DISPLAY` into
+`systemctl --user`'s environment — a timing race on login/boot, not a config problem, and once a
+process is already running it never picks up an environment update after the fact. Every GUI app
+it then spawns fails to connect to any display and crashes instantly and silently on the
+server's side; `journalctl --user -u alttabsucks-server.service -e` shows the actual crash
+(`could not connect to display`, or similar). Fix for right now:
+```bash
+systemctl --user restart alttabsucks-server.service
+```
+This shouldn't recur going forward — the service now starts `After=graphical-session.target`,
+same as the toast daemon already did, specifically so this ordering race doesn't happen on a
+future login. If it still comes up somehow, that's worth reporting.
+
 **Changed a hotkey's key, but the old key still fires (or the new one does nothing)**
 
 `kglobalaccel` locks a shortcut's key to whatever it was on its *first-ever* registration under

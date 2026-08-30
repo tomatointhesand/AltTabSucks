@@ -1,6 +1,19 @@
 [Unit]
 Description=AltTabSucks bridge server
-After=network.target
+# graphical-session.target matters here for the same reason it already does for the toast
+# service's unit — this server spawns GUI apps too (LaunchCommand, used by manageAppWindows'/
+# cycleChromiumProfile's launch-if-not-running paths), so it needs a real DISPLAY/WAYLAND_DISPLAY
+# in its own environment, not just network access. Confirmed live as a real bug, not a
+# hypothetical one: this service can start before the session finishes importing its display
+# environment into systemd --user (observed on this exact machine — the running process had
+# XDG_RUNTIME_DIR but no WAYLAND_DISPLAY/DISPLAY at all), and once a process is running, it never
+# picks up an environment update after the fact — every GUI app it then spawns fails to connect
+# to any display and crashes instantly, silently, from the KWin script's side (reported as
+# "won't launch a new instance" for every app, on every hotkey, despite nothing being wrong with
+# hotkeys.js or main.js at all). A plain `systemctl --user restart` fixes it for the current
+# session by re-inheriting the by-then-correct environment; this ordering fixes it from
+# happening in the first place on a future login.
+After=network.target graphical-session.target
 
 [Service]
 Type=simple
