@@ -1048,6 +1048,23 @@ be approached differently than the Windows version was.
         both toast modes; a pixel-level zoom into one corner (800% nearest-neighbor crop) showed
         a smooth anti-aliased curve straight from the desktop wallpaper's own color into the
         toast's background color, no black fringe anywhere.
+- [x] **Toast: leftover dark pixels at the bottom two corners only, top corners clean** —
+      follow-up report after the fix above ("that's a lot better! weirdly i still see a couple
+      dark pixels in the very corner of each bottom corner (not the top corners)"). The
+      background-color fix above only overrode that one property on `window` — GTK4's CSS
+      cascade is per-property, not per-rule, so the active theme's own default `box-shadow` on
+      `window` (Adwaita-style themes ship one with a downward offset, mimicking light from above)
+      was still active and being rasterized into the otherwise-transparent surface, showing up as
+      a faint dark cluster right at the rounded corners on the side the shadow falls toward —
+      exactly the observed bottom-only asymmetry.
+      - Fix: added `box-shadow: none;` alongside `background-color: transparent;` on the `window`
+        rule in both `show()` and `show_command_result()`.
+      - Verified live: restarted `alttabsucks-toast.service`, triggered both `ShowToast` (plain
+        rounded box) and `ShowCommandResult` (rounded box + 1px border) over D-Bus, screenshotted
+        each, and cropped/zoomed (800% nearest-neighbor) into all four corners of each — not just
+        the two that were reported broken, to rule out a regression at the top. All eight corner
+        crops (2 toast modes × 4 corners) showed a clean anti-aliased curve straight into the
+        desktop background with no dark pixels anywhere.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [x] **Linux install guide, `linux/README.md`** — a dedicated user-facing doc rather than a

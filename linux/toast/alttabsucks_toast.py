@@ -123,7 +123,14 @@ class ToastWindow:
             # *child* widget — children are always composited as textures over whatever the
             # window node underneath already is, so a transparent window + an opaque rounded
             # child is what actually gets a clean rounded shape with transparent corners.
-            "window { background-color: transparent; }\n"
+            # box-shadow: none is required too — CSS cascade is per-property, not per-rule, so
+            # overriding background-color above does NOT clear the active GTK theme's own
+            # default box-shadow on `window` (Adwaita-style themes ship one with a downward
+            # offset). Left in place, that shadow still gets rasterized into the transparent
+            # window's alpha, showing up as a few dark/purplish pixels right at the rounded
+            # corners — confirmed live: visible at both bottom corners, absent at the top
+            # corners, exactly matching a downward-offset shadow.
+            "window { background-color: transparent; box-shadow: none; }\n"
             "#toast-box { background-color: %s; border-radius: 14px; }\n"
             "#toast-title {\n"
             "  color: white; font-weight: 800; font-size: 24px; font-family: monospace;\n"
@@ -150,9 +157,10 @@ class ToastWindow:
         else:
             self.output_label.set_visible(False)
         self._css.load_from_data((
-            # See show()'s comment on why the window node itself has to be fully transparent
-            # and the actual visible rounded box has to be the #toast-box child instead.
-            "window { background-color: transparent; }\n"
+            # See show()'s comment on why the window node itself has to be fully transparent,
+            # box-shadow included, and the actual visible rounded box has to be the #toast-box
+            # child instead.
+            "window { background-color: transparent; box-shadow: none; }\n"
             "#toast-box { background-color: %s; border-radius: 14px; border: 1px solid %s; }\n"
             "#toast-title {\n"
             "  color: white; font-weight: 800; font-size: 18px; font-family: monospace;\n"
