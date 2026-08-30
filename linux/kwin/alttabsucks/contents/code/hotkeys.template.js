@@ -13,13 +13,13 @@
 registerShortcut("Hotkey config", "AltTabSucks: Hotkey config",
     "Ctrl+Alt+/", function () { focusTab("brave-browser", "Personal", ["localhost:9876/hotkeys-ui"], "http://localhost:9876/hotkeys-ui"); });
 
-registerShortcut("Gmail", "AltTabSucks: Gmail",
+registerShortcut("gmail", "AltTabSucks: gmail",
     "Ctrl+Alt+Shift+G", function () { focusTab("brave-browser", "Personal", ["mail.google.com"], "https://mail.google.com"); });
 
-registerShortcut("Youtube", "AltTabSucks: Youtube",
+registerShortcut("youtube", "AltTabSucks: youtube",
     "Ctrl+Alt+Shift+Y", function () { focusTab("brave-browser", "Personal", ["youtube.com"], "https://youtube.com"); });
 
-registerShortcut("maps", "AltTabSucks: maps",
+registerShortcut("google maps", "AltTabSucks: google maps",
     "Ctrl+Alt+Shift+M", function () { focusTab("brave-browser", "Personal", ["google.com/maps"], "https://google.com/maps"); });
 
 registerShortcut("yt music", "AltTabSucks: yt music",
@@ -54,3 +54,6 @@ registerShortcut("Merge browser tab", "AltTabSucks: Merge browser tab",
 
 registerShortcut("Kate", "AltTabSucks: Kate",
     "Ctrl+Alt+Shift+N", function () { manageAppWindows("org.kde.kate", "cycle", ["kate"]); });
+
+registerShortcut("gemini web", "AltTabSucks: gemini web",
+    "Ctrl+Shift+Meta+G", function () { focusTab("brave-browser", "Personal", ["https://gemini.google.com"], "https://gemini.google.com"); });

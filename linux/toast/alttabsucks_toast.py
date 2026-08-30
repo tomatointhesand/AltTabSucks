@@ -84,6 +84,7 @@ class ToastWindow:
         # result() just toggle which widgets are populated/visible, keeping this the single
         # persistent surface the module docstring explains the whole daemon exists for.
         self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.box.set_name("toast-box")
         self.win.set_child(self.box)
 
         self.title_label = Gtk.Label()
@@ -112,7 +113,18 @@ class ToastWindow:
         self.output_label.set_visible(False)
         self.title_label.set_text(text.upper())
         self._css.load_from_data((
-            "window { background-color: %s; border-radius: 14px; }\n"
+            # The *toplevel* window's own CSS node has to be fully transparent, not just
+            # the color the toast actually looks like — GTK4 composites a layer-shell
+            # surface's alpha from the window node itself, and painting a solid color +
+            # border-radius directly on it only rounds how that node's *own* background is
+            # drawn, it doesn't punch real alpha=0 holes in the surface outside the radius.
+            # Confirmed live: doing that left the corners outside the rounded rect opaque
+            # black instead of see-through. The actual visible rounded box is #toast-box, a
+            # *child* widget — children are always composited as textures over whatever the
+            # window node underneath already is, so a transparent window + an opaque rounded
+            # child is what actually gets a clean rounded shape with transparent corners.
+            "window { background-color: transparent; }\n"
+            "#toast-box { background-color: %s; border-radius: 14px; }\n"
             "#toast-title {\n"
             "  color: white; font-weight: 800; font-size: 24px; font-family: monospace;\n"
             "  text-shadow: 2px 3px 0 %s;\n"
@@ -138,7 +150,10 @@ class ToastWindow:
         else:
             self.output_label.set_visible(False)
         self._css.load_from_data((
-            "window { background-color: %s; border-radius: 14px; border: 1px solid %s; }\n"
+            # See show()'s comment on why the window node itself has to be fully transparent
+            # and the actual visible rounded box has to be the #toast-box child instead.
+            "window { background-color: transparent; }\n"
+            "#toast-box { background-color: %s; border-radius: 14px; border: 1px solid %s; }\n"
             "#toast-title {\n"
             "  color: white; font-weight: 800; font-size: 18px; font-family: monospace;\n"
             "  padding: 16px 24px 4px 24px;\n"

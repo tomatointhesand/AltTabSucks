@@ -1022,6 +1022,32 @@ be approached differently than the Windows version was.
         `kglobalaccel` shortcuts and confirmed both actually launched (Kate additionally
         screenshotted genuinely in the foreground, exercising the earlier
         `waitAndActivateLaunchedWindow` fix's other half in the same pass).
+- [x] **Toast corners rendered opaque black instead of transparent** — reported live. Root cause
+      is a real GTK4/Wayland layer-shell gotcha, not anything specific to this codebase's own
+      logic: `ToastWindow`'s CSS painted the solid background color *and* `border-radius`
+      directly on the `window` CSS node (the toplevel `Gtk.Window` itself). That rounds how the
+      window node's *own* background is drawn, but it doesn't punch real per-pixel alpha holes
+      in the actual Wayland surface outside the rounded rect — a layer-shell surface's alpha
+      compositing is derived from the window node specifically, so the corner regions outside
+      the radius rendered as opaque (black — undefined surface content) instead of see-through.
+      - Fix: the toplevel `window` node's CSS background is now unconditionally
+        `background-color: transparent`, and the actual visible rounded box moved onto a *child*
+        widget (`self.box`, given `set_name("toast-box")`, styled via `#toast-box` instead of
+        `window`) — child widgets are always composited as textures over whatever the window
+        node underneath already is, so an opaque rounded child sitting on a fully transparent
+        window is what actually produces a clean rounded shape with genuinely transparent
+        corners. Applied to both `show()` and `show_command_result()`'s stylesheets (the latter's
+        border also moved from `window` to `#toast-box` alongside the background, so it still
+        traces the same rounded shape).
+      - Verified live, not just by re-reading the CSS: triggered both `ShowToast` and
+        `ShowCommandResult` directly over D-Bus and screenshotted the result both times — one
+        first attempt with an invalid test color (missing the leading `#` real callers always
+        include, confirmed by checking `toast_colors.DEFAULT_BG`/`main.js`'s own `showToast`
+        call) made the whole box vanish rather than prove anything, caught and redone correctly
+        rather than left as a false signal. The corrected test showed a clean rounded rect for
+        both toast modes; a pixel-level zoom into one corner (800% nearest-neighbor crop) showed
+        a smooth anti-aliased curve straight from the desktop wallpaper's own color into the
+        toast's background color, no black fringe anywhere.
 - [ ] Settings persistence (`lib/settings.ahk` equivalent — plain config file is fine, no GUI
       required for v1)
 - [x] **Linux install guide, `linux/README.md`** — a dedicated user-facing doc rather than a

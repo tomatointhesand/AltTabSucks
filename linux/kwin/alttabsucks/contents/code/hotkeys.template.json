@@ -13,7 +13,7 @@
     },
     {
       "type": "tabFocus",
-      "title": "Gmail",
+      "title": "gmail",
       "key": "Ctrl+Alt+Shift+G",
       "resourceClass": "brave-browser",
       "profileName": "Personal",
@@ -24,7 +24,7 @@
     },
     {
       "type": "tabFocus",
-      "title": "Youtube",
+      "title": "youtube",
       "key": "Ctrl+Alt+Shift+Y",
       "resourceClass": "brave-browser",
       "profileName": "Personal",
@@ -35,7 +35,7 @@
     },
     {
       "type": "tabFocus",
-      "title": "maps",
+      "title": "google maps",
       "key": "Ctrl+Alt+Shift+M",
       "resourceClass": "brave-browser",
       "profileName": "Personal",
@@ -154,6 +154,18 @@
       "launchArgv": [
         "kate"
       ]
+    },
+    {
+      "type": "tabFocus",
+      "title": "gemini web",
+      "key": "Ctrl+Shift+Meta+G",
+      "enabled": true,
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://gemini.google.com"
+      ],
+      "openUrl": "https://gemini.google.com"
     }
   ]
 }
