@@ -1,6 +1,11 @@
 [Unit]
 Description=AltTabSucks toast overlay daemon
+# See alttabsucks-server.service's own comment for the full story — the short version: After=
+# alone doesn't reliably order this against graphical-session.target unless [Install] below also
+# points at graphical-session.target (not default.target), since only then does this service get
+# pulled into the same startup transaction that After= can actually order within.
 After=graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
@@ -10,4 +15,4 @@ Restart=on-failure
 RestartSec=2
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target

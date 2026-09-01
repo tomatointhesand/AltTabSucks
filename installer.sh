@@ -228,6 +228,12 @@ install_service() {
     sed -e "s|YOUR_REPO_ROOT|$REPO_ROOT|g" "$SERVICE_SRC" > "$staged"
     cp "$staged" "$SERVICE_DEST"
     rm -f "$staged"
+    # disable before daemon-reload/enable so a stale [Install] symlink from an older version of
+    # this unit file gets cleaned up — [Install]'s WantedBy target changed (default.target ->
+    # graphical-session.target, see the unit file's own comment for why); enable alone would add
+    # the new symlink without removing the old one, since both still validly point at this same
+    # unit file.
+    systemctl --user disable "$SERVICE_NAME" 2>/dev/null || true
     systemctl --user daemon-reload
     if systemctl --user is-active "$SERVICE_NAME" >/dev/null 2>&1; then
         # enable --now on an already-running service is a no-op re: the running process — it
@@ -291,6 +297,9 @@ install_toast_service() {
         "$TOAST_SERVICE_SRC" > "$staged"
     cp "$staged" "$TOAST_SERVICE_DEST"
     rm -f "$staged"
+    # See install_service()'s identical line for why: cleans up a stale default.target symlink
+    # left behind by an older version of this unit file before enable adds the new one.
+    systemctl --user disable "$TOAST_SERVICE_NAME" 2>/dev/null || true
     systemctl --user daemon-reload
     if systemctl --user is-active "$TOAST_SERVICE_NAME" >/dev/null 2>&1; then
         systemctl --user enable "$TOAST_SERVICE_NAME"
