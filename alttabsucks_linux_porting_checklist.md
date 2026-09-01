@@ -1022,6 +1022,46 @@ be approached differently than the Windows version was.
         `kglobalaccel` shortcuts and confirmed both actually launched (Kate additionally
         screenshotted genuinely in the foreground, exercising the earlier
         `waitAndActivateLaunchedWindow` fix's other half in the same pass).
+- [x] **Follow-up: `After=graphical-session.target` alone was NOT sufficient — same bug came back
+      on a real reboot** — reported live ("i rebooted and the launch app from scratch code path
+      of hotkeys like ones for kate and code-oss did not launch the target apps. didn't we already
+      try to address this?"). It was a fair question — the fix above was real and tested, but
+      incomplete.
+      - Root cause: `After=` only orders two units *within the same startup transaction* — it does
+        nothing on its own to guarantee one unit even runs in the same transaction as another.
+        Both services' `[Install]` sections still said `WantedBy=default.target`, so systemd pulls
+        them in and starts them as part of *`default.target`'s* own transaction at login —
+        entirely independent of whenever Plasma's session separately gets around to activating
+        `graphical-session.target` once its own startup finishes importing the display
+        environment. `After=graphical-session.target` had nothing to actually order against.
+        Confirmed live, not just reasoned: after the reboot, `alttabsucks-server.service`'s
+        `ActiveEnterTimestamp` was **15 seconds earlier** than `graphical-session.target`'s own —
+        direct proof the server started first despite the `After=` line. The toast service, with
+        the identical config, happened to start *after* on this particular boot (no visible bug
+        reported for it this time) — which is exactly the problem: a race with no ordering
+        guarantee, not a fix, so it was only ever going to be a matter of time before it lost the
+        race visibly again, on either service.
+      - Real fix: changed `[Install]` on both units from `WantedBy=default.target` to
+        `WantedBy=graphical-session.target` (with `PartOf=graphical-session.target` added too, so
+        they also stop cleanly with the session instead of lingering as orphans) — the documented
+        `systemd.special(7)` pattern for a user service that needs the display session. This makes
+        both services actually get pulled in and started *as part of* `graphical-session.target`'s
+        own transaction, so `After=` finally has something real to order against. `installer.sh`'s
+        `install_service()`/`install_toast_service()` now `systemctl --user disable` each unit
+        right before redeploying it, so a stale `default.target.wants/` symlink from an
+        already-installed older unit file gets cleaned up rather than left alongside the new
+        `graphical-session.target.wants/` one.
+      - Verified live: re-ran `./installer.sh install`, confirmed via `ls` that both stale
+        `default.target.wants/` symlinks were gone and both new
+        `graphical-session.target.wants/` symlinks existed, closed Kate completely, invoked the
+        real `kglobalaccel` shortcut, and confirmed via `systemctl --user status` (showing `kate`
+        as a live child process under the server's own cgroup) plus a screenshot that it actually
+        launched and reached the foreground.
+      - **Honestly incomplete**: this reproduces the documented systemd ordering guarantee and was
+        confirmed to deploy correctly, but the previous fix *also* looked fixed until it lost the
+        race on an actual reboot — a live restart can't fully stand in for that. Full confidence
+        needs one more real reboot to confirm the new `[Install]` ordering actually holds at boot
+        time; flagged to the user rather than claimed as fully proven.
 - [x] **Toast corners rendered opaque black instead of transparent** — reported live. Root cause
       is a real GTK4/Wayland layer-shell gotcha, not anything specific to this codebase's own
       logic: `ToastWindow`'s CSS painted the solid background color *and* `border-radius`

@@ -174,9 +174,19 @@ server's side; `journalctl --user -u alttabsucks-server.service -e` shows the ac
 ```bash
 systemctl --user restart alttabsucks-server.service
 ```
-This shouldn't recur going forward — the service now starts `After=graphical-session.target`,
-same as the toast daemon already did, specifically so this ordering race doesn't happen on a
-future login. If it still comes up somehow, that's worth reporting.
+This shouldn't recur going forward — an `After=graphical-session.target` line alone was tried
+first and turned out **not** to be enough (confirmed live on a real reboot: the server still
+started with no display env despite that line already being there). `After=` only orders two
+units *within the same startup transaction* — with `[Install]` still pointing at `default.target`
+at the time, the server got pulled in and started by `default.target`'s own transaction at login,
+completely independently of whenever Plasma later got around to activating
+`graphical-session.target` itself. Both `alttabsucks-server.service` and
+`alttabsucks-toast.service` now have `[Install]` pointing at `graphical-session.target` instead
+(the documented `systemd.special(7)` pattern for a user service that needs the display session),
+which makes them actually get pulled in and started as part of *that* target's own transaction —
+so `After=` has something real to order against. Re-run `./installer.sh install` to pick up this
+change if you installed before it landed (it cleans up the old `default.target` registration
+automatically). If it still comes up somehow after that, that's worth reporting.
 
 **Changed a hotkey's key, but the old key still fires (or the new one does nothing)**
 

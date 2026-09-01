@@ -11,9 +11,26 @@ Description=AltTabSucks bridge server
 # to any display and crashes instantly, silently, from the KWin script's side (reported as
 # "won't launch a new instance" for every app, on every hotkey, despite nothing being wrong with
 # hotkeys.js or main.js at all). A plain `systemctl --user restart` fixes it for the current
-# session by re-inheriting the by-then-correct environment; this ordering fixes it from
-# happening in the first place on a future login.
+# session by re-inheriting the by-then-correct environment.
+#
+# After=graphical-session.target alone (a first attempt at this fix) turned out NOT to be
+# sufficient on its own — confirmed live on a real reboot, where this service still started with
+# no WAYLAND_DISPLAY/DISPLAY despite this line already being here. After= only orders two units
+# *within the same startup transaction*; with [Install] pointing at default.target (below, as it
+# used to), this service gets pulled in and started by default.target's own transaction at login,
+# completely independently of whenever the session gets around to actually activating
+# graphical-session.target (a separate transaction Plasma triggers once its own startup finishes
+# importing the display environment) — so there was never any transaction linking the two units
+# for After= to actually order against. Confirmed live: on one boot this service's
+# ActiveEnterTimestamp was *15 seconds earlier* than graphical-session.target's own. [Install]
+# below now points at graphical-session.target instead — the documented systemd pattern
+# (systemd.special(7)) for a user service that needs the display session, which makes this
+# service actually get pulled in and started as part of graphical-session.target's own
+# transaction, so After= has something real to order against.
 After=network.target graphical-session.target
+# Ties lifecycle to the session too, not just startup order — stops with graphical-session.target
+# (e.g. logout) instead of lingering as an orphan with a now-dead display connection.
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
@@ -22,4 +39,4 @@ Restart=on-failure
 RestartSec=2
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target
