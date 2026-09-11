@@ -166,6 +166,18 @@
         "https://gemini.google.com"
       ],
       "openUrl": "https://gemini.google.com"
+    },
+    {
+      "type": "tabFocus",
+      "title": "reddit",
+      "key": "Ctrl+Alt+Shift+R",
+      "enabled": true,
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://reddit.com"
+      ],
+      "openUrl": "https://reddit.com/r/sailing"
     }
   ]
 }

@@ -57,3 +57,6 @@ registerShortcut("Kate", "AltTabSucks: Kate",
 
 registerShortcut("gemini web", "AltTabSucks: gemini web",
     "Ctrl+Shift+Meta+G", function () { focusTab("brave-browser", "Personal", ["https://gemini.google.com"], "https://gemini.google.com"); });
+
+registerShortcut("reddit", "AltTabSucks: reddit",
+    "Ctrl+Alt+Shift+R", function () { focusTab("brave-browser", "Personal", ["https://reddit.com"], "https://reddit.com/r/sailing"); });
