@@ -722,6 +722,61 @@ be approached differently than the Windows version was.
         `QueueSplitTab`/`QueueMergeTabs` directly (bypassing the resourceClass gate entirely)
         isolated the bridge/extension/geometry logic from that timing concern and is the more
         reliable way to test this specific pair of functions live in the future.
+- [x] **Merge always rejoins into the real split source, and the resulting window is maximized**
+      — the user's request directly: `mergeTabs` had no memory of which window a tab was split
+      *from*, so with more than two windows open for a profile it picked "the other window" via
+      `[...new Set(allTabs.map(t => t.windowId))].find(id => id !== sourceWindowId)` — effectively
+      arbitrary, since Set/array ordering has nothing to do with which window is the real split
+      origin.
+      - **`background.js`** (shared by both Windows and Linux — this is browser-extension-side
+        logic, not KWin/AHK-side, so the fix applies to both platforms at once) now keeps
+        `splitRelations`, an in-memory `{ [profileName]: { sourceWindowId, splitWindowId } }` map.
+        `splitTab` records the pair when it creates the new window; `mergeTabs` checks it first —
+        if the currently-focused window is still one half of a live pair, it always collapses
+        *into the recorded source*, regardless of which half is focused, falling back to the old
+        "one other window" heuristic only when there's no live tracked relation (extension
+        restarted, or merge invoked without a prior split). A `chrome.windows.onRemoved` listener
+        drops a pair as soon as either half closes, so a stale id can't later get treated as a
+        real source. Lives only in the service worker's memory by design — matches this file's
+        existing `keepAlive()`-dependent state model; forgotten on a real browser/extension
+        restart, same as before this feature existed.
+      - **A real logic bug found and fixed via live testing, not caught by reading the code
+        back**: the first version computed `sourceWindowId` (the side whose tabs get moved) with
+        `focusedWindowId === rel.sourceWindowId ? rel.splitWindowId : rel.sourceWindowId` —
+        backwards. Since `targetWindowId` is unconditionally `rel.sourceWindowId` in this branch,
+        the "focused on the split window" case made `sourceWindowId` *also* resolve to
+        `rel.sourceWindowId` — a silent self-merge no-op. Confirmed live: hitting merge while
+        focused on the split-off window correctly moved focus and re-asserted maximize on the
+        source (proving the command really was received and processed), but the split window's
+        tab never actually moved and the window never closed — a very misleading partial-success
+        signature that took a direct-D-Bus-bypass `QueueMergeTabs` call (isolating the extension
+        logic from the KWin `kglobalaccel`/focus path per this feature's own testing note above)
+        plus re-reading the ternary line by line to actually catch. Fix: direction is fixed by the
+        tracked pair alone — `sourceWindowId = rel.splitWindowId` unconditionally, no ternary.
+      - **`main.js`'s `mergeFocusedWindow`** now also polls (100ms/3s, same
+        diff-the-window-list shape as `waitAndSnapSplit`, but watching a pre-merge window count
+        *decrease* instead of increase) for the merge to actually complete, then calls KWin's own
+        `setMaximize(true, true)` on whichever window is left focused — a redundant second pass
+        alongside `background.js`'s existing `chrome.windows.update(..., state:'maximized')`
+        request, not a fix for an observed failure: a live `frameGeometry`/`maximizeMode` probe
+        confirmed the extension's own maximize request already lands correctly on its own. Kept
+        anyway as cheap, KWin-native belt-and-suspenders, matching this file's established
+        preference for KWin's own geometry APIs over trusting another process's state requests
+        (same reasoning as `splitFocusedTab`'s explicit `frameGeometry` placement over simulating
+        Win+Left/Right). Caught and corrected an initial version of this comment that overclaimed
+        "confirmed live: not maximized" — that read turned out to be a misread of a screenshot
+        spanning more than this session's one actual KWin-managed monitor (`workspace.screens`
+        confirmed exactly one, 2560×1080), not a real defect; left uncorrected it would have been
+        a false "confirmed live" claim sitting in shipped code.
+      - **Verified live end to end, both focus directions**: real `kglobalaccel` shortcuts
+        end-to-end (split, then merge with focus left on the split-off window; split again, then a
+        `loadScript` probe explicitly re-focused the original source before merging) — both
+        correctly rejoined the split tab into the same tracked source window, confirmed via
+        `GET /debugtabs`. Maximize confirmed via both a direct KWin geometry probe
+        (`frameGeometry`/`maximizeMode` matching `workspace.screens[0]`'s full area) and a
+        full-screen screenshot. The old "one other window" fallback was separately exercised
+        (and confirmed still correct) cleaning up stray windows left over from earlier rounds of
+        this same live-testing session.
 - [x] **hotkeys-ui grouped by binding type, one shared header row per group** — the user's
       complaint directly: every row repeated its own label-above-input for every field, so a
       page with a dozen `tabFocus` bindings (a real one — see below) was mostly whitespace, not

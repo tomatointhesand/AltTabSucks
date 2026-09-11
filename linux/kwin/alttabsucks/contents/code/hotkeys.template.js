@@ -16,6 +16,9 @@ registerShortcut("Hotkey config", "AltTabSucks: Hotkey config",
 registerShortcut("GPU dashboard", "AltTabSucks: GPU dashboard",
     "Ctrl+Alt+Shift+L", function () { focusTab("brave-browser", "Personal", ["http://localhost:8081/"], "http://localhost:8081"); });
 
+registerShortcut("Firearms dashboard", "AltTabSucks: Firearms dashboard",
+    "Ctrl+Shift+Meta+F", function () { focusTab("brave-browser", "Personal", ["http://127.0.0.1:5000"], "http://127.0.0.1:5000"); });
+
 registerShortcut("gmail", "AltTabSucks: gmail",
     "Ctrl+Alt+Shift+G", function () { focusTab("brave-browser", "Personal", ["mail.google.com"], "https://mail.google.com"); });
 
@@ -60,3 +63,9 @@ registerShortcut("Kate", "AltTabSucks: Kate",
 
 registerShortcut("gemini web", "AltTabSucks: gemini web",
     "Ctrl+Shift+Meta+G", function () { focusTab("brave-browser", "Personal", ["https://gemini.google.com"], "https://gemini.google.com"); });
+
+registerShortcut("reddit", "AltTabSucks: reddit",
+    "Ctrl+Alt+Shift+R", function () { focusTab("brave-browser", "Personal", ["https://reddit.com"], "https://reddit.com/r/sailing"); });
+
+registerShortcut("Open WebUI", "AltTabSucks: Open WebUI",
+    "Ctrl+Shift+Meta+O", function () { focusTab("brave-browser", "Personal", ["http://100.113.193.3:8080"], "http://100.113.193.3:8080"); });

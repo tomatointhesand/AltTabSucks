@@ -24,6 +24,18 @@
     },
     {
       "type": "tabFocus",
+      "title": "Firearms dashboard",
+      "key": "Ctrl+Shift+Meta+F",
+      "enabled": true,
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "http://127.0.0.1:5000"
+      ],
+      "openUrl": "http://127.0.0.1:5000"
+    },
+    {
+      "type": "tabFocus",
       "title": "gmail",
       "key": "Ctrl+Alt+Shift+G",
       "resourceClass": "brave-browser",
@@ -177,6 +189,30 @@
         "https://gemini.google.com"
       ],
       "openUrl": "https://gemini.google.com"
+    },
+    {
+      "type": "tabFocus",
+      "title": "reddit",
+      "key": "Ctrl+Alt+Shift+R",
+      "enabled": true,
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://reddit.com"
+      ],
+      "openUrl": "https://reddit.com/r/sailing"
+    },
+    {
+      "type": "tabFocus",
+      "title": "Open WebUI",
+      "key": "Ctrl+Shift+Meta+O",
+      "enabled": true,
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "http://100.113.193.3:8080"
+      ],
+      "openUrl": "http://100.113.193.3:8080"
     }
   ]
 }

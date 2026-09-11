@@ -627,13 +627,53 @@ function waitAndSnapSplit(resourceClass, origWindow, existingWindows, deadline) 
     workspace.activeWindow = newWindow; // AHK ends the same way: WinActivate(newHwnd)
 }
 
-// mergeTabs(profile) moves every tab from the focused window into the profile's other window,
-// then the extension activates and maximizes that target window itself (chrome.windows.update)
-// — no window-hunting/snapping needed on this side at all, unlike split.
+// mergeTabs(profile) moves every tab from the focused window into the tracked split source
+// window (background.js's own splitRelations tracking — falls back to "one other window" if
+// there's no live split to rejoin), then the extension activates that target window and asks
+// Chromium to maximize it itself (chrome.windows.update state:'maximized') — verified live to
+// genuinely work on its own (maximizeMode/frameGeometry checked directly via a KWin scripting
+// probe after a real split+merge): the extension-side request is not actually unreliable here.
+//
+// This still calls KWin's own setMaximize as a second, redundant pass on the surviving window
+// rather than leaving it to Chromium alone — belt-and-suspenders, not a fix for an observed bug.
+// splitFocusedTab places its windows via a direct frameGeometry assignment rather than any real
+// maximize/restore transition, so it's plausible for Chromium's own "current state" bookkeeping to
+// drift out of sync with actual geometry on some future browser/Wayland combination even though it
+// didn't here; a native KWin call is authoritative regardless of how the window got to its current
+// geometry, cheap, and matches this file's existing preference for KWin's own geometry APIs over
+// trusting another process's state requests (see splitFocusedTab's own comment). Polls for the
+// merge to actually complete first (same diff-the-window-list shape as waitAndSnapSplit, but
+// watching for a window to disappear — the emptied split-off window Chromium closes once its last
+// tab moves out — instead of appear), then acts on whichever window is left focused afterward.
 function mergeFocusedWindow(resourceClass, profileName) {
     var active = workspace.activeWindow;
     if (!active || active.resourceClass !== resourceClass) return;
-    bridgeCall("QueueMergeTabs", [profileName], function () {});
+    var existingWindows = listBrowserWindows(resourceClass);
+    bridgeCall("QueueMergeTabs", [profileName], function () {
+        afterDelay(100, function () { waitAndMaximizeMerge(resourceClass, existingWindows, Date.now() + 3000); });
+    });
+}
+
+// Polls (100ms/3s, matching every other bridgeCall-then-poll loop above) for the pre-merge window
+// count to drop by at least one — the signal that the extension actually finished moving tabs out
+// of the merged-away window and Chromium closed it. Once that's observed, whichever window
+// Chromium has since focused (via its own chrome.windows.update({focused:true}) call) is the real
+// survivor — KWin scripting's own activation-request handling is trusted here the same way
+// waitAndActivateLaunchedWindow/waitAndSnapSplit already trust workspace.activeWindow elsewhere,
+// just arriving from the opposite direction (the app asking to be focused, not a script assigning
+// focus directly).
+function waitAndMaximizeMerge(resourceClass, existingWindows, deadline) {
+    var current = listBrowserWindows(resourceClass);
+    if (current.length < existingWindows.length) {
+        var survivor = workspace.activeWindow;
+        if (survivor && survivor.resourceClass === resourceClass) {
+            survivor.setMaximize(true, true);
+        }
+        return;
+    }
+    if (Date.now() < deadline) {
+        afterDelay(100, function () { waitAndMaximizeMerge(resourceClass, existingWindows, deadline); });
+    }
 }
 
 // --- periodic push: keep hotkeys-ui.html's resourceClass typeahead fresh -----------------------
