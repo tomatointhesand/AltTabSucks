@@ -14,7 +14,7 @@
     {
       "type": "tabFocus",
       "title": "GPU dashboard",
-      "key": "Ctrl+Alt+Shift+L",
+      "key": "Ctrl+Shift+Meta+L",
       "resourceClass": "brave-browser",
       "profileName": "Personal",
       "urlPatterns": [
@@ -213,6 +213,20 @@
         "http://100.113.193.3:8080"
       ],
       "openUrl": "http://100.113.193.3:8080"
+    },
+    {
+      "type": "windowCycle",
+      "title": "steam",
+      "key": "Ctrl+Alt+Shift+S",
+      "enabled": true,
+      "resourceClass": "steam"
+    },
+    {
+      "type": "windowCycle",
+      "title": "shelly",
+      "key": "Ctrl+Alt+Shift+L",
+      "enabled": true,
+      "resourceClass": "shelly-ui"
     }
   ]
 }

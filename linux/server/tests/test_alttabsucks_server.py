@@ -179,9 +179,21 @@ class ServerTestCase(unittest.TestCase):
 
     def test_running_resource_classes_reflects_pushed_state(self):
         self.state.running_resource_classes = ["brave-browser", "kate"]
+        self.state.running_resource_class_names = {"brave-browser": "brave", "kate": ""}
         status, _, body = self.request("GET", "/running-resource-classes")
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body), ["brave-browser", "kate"])
+        self.assertEqual(json.loads(body), [
+            {"resourceClass": "brave-browser", "resourceName": "brave"},
+            {"resourceClass": "kate", "resourceName": ""},
+        ])
+
+    def test_running_resource_classes_missing_name_defaults_empty_string(self):
+        # A resourceClass with no matching entry in running_resource_class_names at all (not just
+        # an empty one) — e.g. pushed before main.js started sending names — shouldn't KeyError.
+        self.state.running_resource_classes = ["kate"]
+        status, _, body = self.request("GET", "/running-resource-classes")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), [{"resourceClass": "kate", "resourceName": ""}])
 
     # ---- /tabs -------------------------------------------------------
 

@@ -14,7 +14,7 @@ registerShortcut("Hotkey config", "AltTabSucks: Hotkey config",
     "Ctrl+Alt+/", function () { focusTab("brave-browser", "Personal", ["localhost:9876/hotkeys-ui"], "http://localhost:9876/hotkeys-ui"); });
 
 registerShortcut("GPU dashboard", "AltTabSucks: GPU dashboard",
-    "Ctrl+Alt+Shift+L", function () { focusTab("brave-browser", "Personal", ["http://localhost:8081/"], "http://localhost:8081"); });
+    "Ctrl+Shift+Meta+L", function () { focusTab("brave-browser", "Personal", ["http://localhost:8081/"], "http://localhost:8081"); });
 
 registerShortcut("Firearms dashboard", "AltTabSucks: Firearms dashboard",
     "Ctrl+Shift+Meta+F", function () { focusTab("brave-browser", "Personal", ["http://127.0.0.1:5000"], "http://127.0.0.1:5000"); });
@@ -69,3 +69,9 @@ registerShortcut("reddit", "AltTabSucks: reddit",
 
 registerShortcut("Open WebUI", "AltTabSucks: Open WebUI",
     "Ctrl+Shift+Meta+O", function () { focusTab("brave-browser", "Personal", ["http://100.113.193.3:8080"], "http://100.113.193.3:8080"); });
+
+registerShortcut("steam", "AltTabSucks: steam",
+    "Ctrl+Alt+Shift+S", function () { manageAppWindows("steam", "cycle"); });
+
+registerShortcut("shelly", "AltTabSucks: shelly",
+    "Ctrl+Alt+Shift+L", function () { manageAppWindows("shelly-ui", "cycle"); });

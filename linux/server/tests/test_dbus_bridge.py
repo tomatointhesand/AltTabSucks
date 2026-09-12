@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dbus_bridge import normalize_resource_classes, url_matches_pattern
+from dbus_bridge import merge_resource_class_names, normalize_resource_classes, url_matches_pattern
 
 
 class TestUrlMatchesPattern(unittest.TestCase):
@@ -75,6 +75,35 @@ class TestNormalizeResourceClasses(unittest.TestCase):
         # dbus.service.method call passes those here rather than bare Python strings.
         self.assertEqual(normalize_resource_classes(["kate"]), ["kate"])
         self.assertIsInstance(normalize_resource_classes(["kate"])[0], str)
+
+
+class TestMergeResourceClassNames(unittest.TestCase):
+    # ---- the reported bug: resourceClass and resourceName can differ completely ---------------
+    def test_pairs_positionally(self):
+        self.assertEqual(
+            merge_resource_class_names(["com.shellyorg.shelly", "org.kde.kate"], ["shelly-ui", "kate"]),
+            {"com.shellyorg.shelly": "shelly-ui", "org.kde.kate": "kate"},
+        )
+
+    def test_missing_name_defaults_empty_string(self):
+        # resource_names shorter than resource_classes (e.g. a future push that only ever sends
+        # resourceClass) shouldn't IndexError.
+        self.assertEqual(merge_resource_class_names(["kate"], []), {"kate": ""})
+
+    def test_drops_empty_resource_class(self):
+        self.assertEqual(merge_resource_class_names(["", "kate"], ["ignored", "kate"]), {"kate": "kate"})
+
+    def test_first_name_wins_on_duplicate_resource_class(self):
+        self.assertEqual(merge_resource_class_names(["kate", "kate"], ["first", "second"]), {"kate": "first"})
+
+    def test_empty_input(self):
+        self.assertEqual(merge_resource_class_names([], []), {})
+
+    def test_coerces_to_str(self):
+        # Same D-Bus marshaling note as normalize_resource_classes above.
+        result = merge_resource_class_names(["kate"], ["shelly-ui"])
+        self.assertIsInstance(list(result.keys())[0], str)
+        self.assertIsInstance(list(result.values())[0], str)
 
 
 if __name__ == "__main__":

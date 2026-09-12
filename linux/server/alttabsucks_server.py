@@ -85,11 +85,17 @@ class AppState:
                                                     # POST /profiles on Windows (AHK) or Firefox
         self.running_resource_classes: list[str] = []  # distinct resourceClass values currently
                                                     # open, per main.js's periodic PushRunningResourceClasses
-                                                    # — feeds hotkeys-ui.html's resourceClass <datalist>.
+                                                    # — feeds hotkeys-ui.html's resourceClass typeahead.
                                                     # Everything else in this file flows KWin-script-
                                                     # to-server, never the other way (the sandbox has
                                                     # no way to be called *into* on demand) — same
                                                     # push shape as the browser extension's POST /tabs.
+        self.running_resource_class_names: dict[str, str] = {}  # resourceClass -> resourceName,
+                                                    # pushed alongside running_resource_classes so the
+                                                    # typeahead is also searchable by an app's binary/
+                                                    # package name, not just its (often unrelated,
+                                                    # reversed-domain) resourceClass — see
+                                                    # dbus_bridge.merge_resource_class_names.
         self.chromium_profile_dirs: dict[str, str] = {}  # display name -> profile dir name
         self.chromium_exe: str = ""            # from config.py; e.g. "brave" (see dbus_bridge's
                                                  # LaunchChromiumProfile — not always the same as
@@ -255,7 +261,13 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
             if path == "/profiles":
                 self._end_json(200, state.profile_list)
             elif path == "/running-resource-classes":
-                self._end_json(200, state.running_resource_classes)
+                # {resourceClass, resourceName} pairs, not a bare string list — resourceName rides
+                # along so hotkeys-ui.html's typeahead can also match an app's binary/package name
+                # (see dbus_bridge.merge_resource_class_names for why that's not just a nicety).
+                self._end_json(200, [
+                    {"resourceClass": rc, "resourceName": state.running_resource_class_names.get(rc, "")}
+                    for rc in state.running_resource_classes
+                ])
             elif path == "/tabs":
                 self._end_json(200, state.store)
             elif path == "/activetitles":

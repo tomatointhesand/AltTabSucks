@@ -271,6 +271,45 @@ be approached differently than the Windows version was.
           "show everything" state came back empty under `jsdom` specifically — a known `jsdom`
           synthetic-focus-event limitation, not something touching real browser behavior; typing
           and selecting, the parts that actually matter, worked correctly both times.)
+  - [x] **Follow-up: typeahead couldn't be found by an app's binary/package name, only its
+        resourceClass** — reported live ("the resourceClass typeahead for app cycle isn't working
+        for shelly-ui"). Root-caused with a `loadScript` probe scanning every current window for
+        anything Shelly-related: the real app's `resourceClass` is the reversed-domain
+        `com.shellyorg.shelly`; `shelly-ui` is its `resourceName` — a completely different X11/
+        Wayland window property this typeahead never looked at. Not a bug in the substring-match
+        filter itself (confirmed it's a plain `.includes(q)` check, working exactly as written) —
+        `"com.shellyorg.shelly"` genuinely doesn't contain `"shelly-ui"` as a substring, so zero
+        results was the *correct* answer to the query actually being run. The real gap: a user
+        has no way to know that ahead of typing, and `resourceName` is usually the more
+        recognizable of the two (this project's own README already calls out KDE apps'
+        reversed-domain resourceClasses as the single most common hotkey failure mode).
+        - `main.js`'s `pushRunningResourceClasses()` now also collects each window's
+          `resourceName`, sent alongside `resourceClass` as a second, positionally-parallel
+          array (`PushRunningResourceClasses(classes, names)`, `in_signature="asas"`).
+          `dbus_bridge.py` gained `merge_resource_class_names` (pure function, same
+          unit-testability reasoning as `normalize_resource_classes`/`url_matches_pattern`) to
+          zip them into a `{resourceClass: resourceName}` lookup, stored as a new
+          `AppState.running_resource_class_names` field. `GET /running-resource-classes`'
+          response shape changed from a bare string list to `[{resourceClass, resourceName}, ...]`
+          pairs — a deliberate breaking change to that endpoint's shape, fine since
+          `hotkeys-ui.html` is its only consumer and got updated in the same change.
+        - `hotkeys-ui.html`'s `showSuggestionsFor` now matches the typed query against *either*
+          field, and shows `resourceClass (resourceName)` in the dropdown when they differ (bare
+          `resourceClass` when they're the same, e.g. `kate`/`kate` — no redundant parenthetical).
+          The value actually written into the field on selection is always `resourceClass`,
+          never the display label or the name it was found by — `dataset.value` on each
+          suggestion `<div>` carries that, read by both the mousedown handler and
+          `handleSuggestionKeydown`'s Enter case, specifically so a match found *by* resourceName
+          can't accidentally commit that parenthetical text instead of the real value.
+        - Verified live end to end: redeployed the server and KWin script, waited for a real push
+          cycle, and confirmed `GET /running-resource-classes` returned the real
+          `com.shellyorg.shelly` / `shelly-ui` pairing (and correct pairings for every other
+          currently-open app) with no manual seeding. The exact filter/label expressions from the
+          fix were also run standalone in plain Node against that reported case — `"shelly-ui"`
+          correctly matches and resolves to `com.shellyorg.shelly`, and a same-name case (`kate`/
+          `kate`) correctly skips the redundant parenthetical. 8 new/updated unit tests
+          (`merge_resource_class_names` and the HTTP endpoint's new response shape); full
+          68-test suite still green.
   - [x] **`windowCycle`/`windowToggle` merged into one "App windows" section** — they're the
         exact same `manageAppWindows(resourceClass, mode, launchArgv)` call either way
         (`hotkeys_generator.py` already only ever varied a `mode` string between them), so having
