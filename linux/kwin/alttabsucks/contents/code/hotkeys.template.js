@@ -60,3 +60,9 @@ registerShortcut("gemini web", "AltTabSucks: gemini web",
 
 registerShortcut("reddit", "AltTabSucks: reddit",
     "Ctrl+Alt+Shift+R", function () { focusTab("brave-browser", "Personal", ["https://reddit.com"], "https://reddit.com/r/sailing"); });
+
+registerShortcut("steam", "AltTabSucks: steam",
+    "Ctrl+Alt+Shift+S", function () { manageAppWindows("steam", "cycle"); });
+
+registerShortcut("shelly", "AltTabSucks: shelly",
+    "Ctrl+Alt+Shift+L", function () { manageAppWindows("shelly-ui", "cycle"); });

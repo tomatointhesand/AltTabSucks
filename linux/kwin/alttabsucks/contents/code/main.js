@@ -688,6 +688,7 @@ function pushRunningResourceClasses() {
     var order = workspace.stackingOrder;
     var seen = {};
     var classes = [];
+    var names = [];
     for (var i = 0; i < order.length; i++) {
         var w = order[i];
         // Same normalWindow/!transient filter as findAppWindows above — only real top-level app
@@ -696,8 +697,16 @@ function pushRunningResourceClasses() {
         if (seen[w.resourceClass]) continue;
         seen[w.resourceClass] = true;
         classes.push(w.resourceClass);
+        // resourceName rides along, positionally parallel to classes, purely so the hotkeys-ui
+        // typeahead can also be found by it — reported live: a real app's resourceClass was the
+        // reversed-domain "com.shellyorg.shelly" while its resourceName was "shelly-ui", the name
+        // actually printed on its binary/package and what a user would think to type first. The
+        // *value* a binding actually needs is still always resourceClass; resourceName is only
+        // ever join-key trivia for finding it. "" (never undefined) when a window has none, so the
+        // two arrays stay the same length for PushRunningResourceClasses' positional pairing.
+        names.push(w.resourceName || "");
     }
-    bridgeCall("PushRunningResourceClasses", [classes], function () {});
+    bridgeCall("PushRunningResourceClasses", [classes, names], function () {});
     afterDelay(10000, pushRunningResourceClasses);
 }
 pushRunningResourceClasses();

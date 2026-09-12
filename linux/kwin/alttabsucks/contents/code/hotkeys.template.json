@@ -178,6 +178,20 @@
         "https://reddit.com"
       ],
       "openUrl": "https://reddit.com/r/sailing"
+    },
+    {
+      "type": "windowCycle",
+      "title": "steam",
+      "key": "Ctrl+Alt+Shift+S",
+      "enabled": true,
+      "resourceClass": "steam"
+    },
+    {
+      "type": "windowCycle",
+      "title": "shelly",
+      "key": "Ctrl+Alt+Shift+L",
+      "enabled": true,
+      "resourceClass": "shelly-ui"
     }
   ]
 }

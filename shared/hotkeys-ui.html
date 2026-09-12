@@ -193,7 +193,9 @@ const GROUP_BY_TYPE = {};
 GROUPS.forEach((g) => g.types.forEach((t) => { GROUP_BY_TYPE[t] = g; }));
 
 let profiles = [];
-let runningResourceClasses = [];
+let runningResourceClasses = []; // [{resourceClass, resourceName}, ...] — see GET
+                                  // /running-resource-classes; resourceName is search/display
+                                  // trivia only, never the value a binding actually stores.
 let bindings = [];
 let draggedIndex = null; // set by a drag-handle's dragstart, read by another binding's drop
 
@@ -272,18 +274,32 @@ function selectSuggestion(input, value) {
 
 function showSuggestionsFor(input) {
   const q = input.value.trim().toLowerCase();
-  const matches = runningResourceClasses.filter(rc => !q || rc.toLowerCase().includes(q));
+  // Matches against resourceClass OR resourceName — the reported bug was a real app whose
+  // resourceClass ("com.shellyorg.shelly") shares nothing in common with the name actually
+  // printed on its binary/package ("shelly-ui"); searching resourceClass alone meant typing the
+  // name most users would think of first found nothing, even though the window really was
+  // running and really was in the list.
+  const matches = runningResourceClasses.filter(({ resourceClass, resourceName }) =>
+    !q || resourceClass.toLowerCase().includes(q) || resourceName.toLowerCase().includes(q));
   if (matches.length === 0) { hideSuggestions(); return; }
   if (!suggestionsBox) {
     suggestionsBox = el("div", { class: "suggestions" });
     document.body.appendChild(suggestionsBox);
   }
   suggestionsBox.innerHTML = "";
-  matches.forEach((rc, i) => {
-    const item = el("div", { class: "suggestion-item" + (i === 0 ? " active" : "") }, [rc]);
+  matches.forEach(({ resourceClass, resourceName }, i) => {
+    // resourceClass is always the value actually selected/stored — resourceName only ever earns
+    // its keep here as a parenthetical, so a match found *by* name still shows (and inserts) the
+    // real resourceClass a binding needs. dataset.value (not textContent) is what both the
+    // mousedown handler below and handleSuggestionKeydown's Enter case read, precisely so that
+    // parenthetical never accidentally ends up as the committed value.
+    const label = resourceName && resourceName !== resourceClass
+        ? `${resourceClass} (${resourceName})` : resourceClass;
+    const item = el("div", { class: "suggestion-item" + (i === 0 ? " active" : "") }, [label]);
+    item.dataset.value = resourceClass;
     // mousedown, not click: fires (and with preventDefault, keeps focus on the input) before a
     // click would, so there's no blur-vs-click ordering race to work around.
-    item.addEventListener("mousedown", (e) => { e.preventDefault(); selectSuggestion(input, rc); });
+    item.addEventListener("mousedown", (e) => { e.preventDefault(); selectSuggestion(input, resourceClass); });
     suggestionsBox.appendChild(item);
   });
   const rect = input.getBoundingClientRect();
@@ -314,7 +330,7 @@ function handleSuggestionKeydown(e, input) {
     items[(idx - 1 + items.length) % items.length].classList.add("active");
   } else if (e.key === "Enter" && idx !== -1) {
     e.preventDefault();
-    selectSuggestion(input, items[idx].textContent);
+    selectSuggestion(input, items[idx].dataset.value);
   }
 }
 

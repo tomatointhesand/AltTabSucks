@@ -73,6 +73,34 @@ def normalize_resource_classes(resource_classes):
     return sorted(set(str(r) for r in resource_classes if r))
 
 
+def merge_resource_class_names(resource_classes, resource_names):
+    """Pairs each resourceClass with the resourceName the same window reported (main.js pushes
+    these as two positionally-parallel arrays, one entry per window) into a
+    {resourceClass: resourceName} lookup used only for the hotkeys-ui typeahead's display/search,
+    not for deduping/sorting — normalize_resource_classes above still owns that. Its own pure
+    function for the same unit-testability reason as that one.
+
+    This exists because resourceClass and resourceName can differ completely for the same window
+    — reported live: a real app's resourceClass was the reversed-domain "com.shellyorg.shelly",
+    while its resourceName (closer to the binary/package name a user would actually think to type)
+    was "shelly-ui". The typeahead's search previously only ever looked at resourceClass, so typing
+    the name actually printed on the app's own binary/package found nothing — not a bug in the
+    matching logic, just a real value the search had no way to reach. resourceName is join-key
+    trivia for search/display only: the value actually written into a binding's resourceClass
+    field is always the real resourceClass, never this.
+
+    Mismatched array lengths degrade gracefully (missing name -> ""), and the first name seen for
+    a given resourceClass wins if it somehow appears more than once."""
+    names = {}
+    for i, raw_rc in enumerate(resource_classes):
+        rc = str(raw_rc) if raw_rc else ""
+        if not rc or rc in names:
+            continue
+        raw_name = resource_names[i] if i < len(resource_names) else ""
+        names[rc] = str(raw_name) if raw_name else ""
+    return names
+
+
 def _spawn_detached(argv):
     """Popen + a background reaper thread. Without ever calling wait()/poll() on a Popen, the
     child becomes a zombie once it exits (its intermediate launcher process, if any, exits well
@@ -164,16 +192,20 @@ class Bridge(dbus.service.Object):
         # Mirrors GET /profiles.
         return list(self._state.profile_list)
 
-    @dbus.service.method(INTERFACE, in_signature="as")
-    def PushRunningResourceClasses(self, resource_classes):
+    @dbus.service.method(INTERFACE, in_signature="asas")
+    def PushRunningResourceClasses(self, resource_classes, resource_names):
         # The one place in this file the data flows *into* the server from something other than
         # a queued command — main.js calls this periodically (see its own comment) with the
-        # distinct resourceClass values currently open, purely so hotkeys-ui.html's resourceClass
-        # field can offer a live typeahead instead of requiring it typed from memory. There's no
-        # reverse channel for the server to ask the KWin script on demand (the sandbox can't be
-        # called *into*, only call out — see the module docstring), so this mirrors the browser
+        # distinct resourceClass values currently open (plus each one's resourceName, added
+        # alongside so the typeahead can also be found by an app's more recognizable binary/
+        # package name — see merge_resource_class_names' docstring for why that turned out to be
+        # necessary, not just nice-to-have), purely so hotkeys-ui.html's resourceClass field can
+        # offer a live typeahead instead of requiring it typed from memory. There's no reverse
+        # channel for the server to ask the KWin script on demand (the sandbox can't be called
+        # *into*, only call out — see the module docstring), so this mirrors the browser
         # extension's own POST /tabs push model instead of inventing a new shape.
         self._state.running_resource_classes = normalize_resource_classes(resource_classes)
+        self._state.running_resource_class_names = merge_resource_class_names(resource_classes, resource_names)
 
     # Concurrency note: these two are plain single-key dict writes on switch_queue, individually
     # atomic under the GIL. The only read-modify-write sequence on switch_queue is GET
