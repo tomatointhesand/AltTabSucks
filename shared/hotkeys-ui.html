@@ -419,7 +419,20 @@ function textInput(binding, key, placeholder, suggest) {
     if (suggest) showSuggestionsFor(input);
   });
   if (suggest) {
-    input.addEventListener("focus", () => showSuggestionsFor(input));
+    input.addEventListener("focus", () => {
+      // Instant response from whatever's already cached (no flicker/delay waiting on a fetch),
+      // then a background rescan in case something's launched since the page — or since this
+      // field was last focused — that isn't in the cached list yet. main.js only pushes a new
+      // snapshot every 10s on its own schedule; this closes the gap between focusing the field
+      // and that next scheduled push actually landing, rather than making the user wait it out
+      // or reload the whole page.
+      showSuggestionsFor(input);
+      refreshRunningResourceClasses().then(() => {
+        // Only worth re-rendering if this field is still the one focused — the user may have
+        // already tabbed away, clicked a suggestion, or blurred by the time the fetch resolves.
+        if (document.activeElement === input) showSuggestionsFor(input);
+      });
+    });
     // A short delay, not an immediate hide: a suggestion click is a mousedown+mouseup pair that
     // straddles this blur, and hiding synchronously would tear the box down mid-click before
     // its own mousedown handler (which runs first and calls preventDefault, per
@@ -432,7 +445,8 @@ function textInput(binding, key, placeholder, suggest) {
 
 // Shared by every TYPE_COLUMNS entry that has a resourceClass field, instead of repeating the
 // same textInput(...) call per type — the trailing `true` turns on the typeahead dropdown (see
-// showSuggestionsFor above), sourced from runningResourceClasses (populated in load() from GET
+// showSuggestionsFor above), sourced from runningResourceClasses (populated by load() on page
+// open and refreshRunningResourceClasses() on every field focus — see textInput — from GET
 // /running-resource-classes; main.js pushes that list periodically — see its own comment for
 // why the push happens that direction, not a pull from here).
 function resourceClassColumn() {
@@ -702,13 +716,23 @@ async function load() {
   // Separate, best-effort fetch: main.js only pushes this every 10s (see its own comment), so a
   // very-first load right after install could still race an empty list — that's fine, it just
   // means the typeahead has nothing to suggest until the next push, not a reason to fail the
-  // whole page load the way a missing token/hotkeys.json genuinely should above. No re-render
-  // needed here (unlike profiles/bindings above) — showSuggestionsFor reads this array live,
-  // on demand, whenever a resourceClass field is actually focused.
+  // whole page load the way a missing token/hotkeys.json genuinely should above.
+  await refreshRunningResourceClasses();
+}
+
+// Also called on every resourceClass field focus (see textInput) so the suggestion list can't go
+// stale between page loads — e.g. an app launched after this page was opened is missing from
+// whatever main.js last pushed until either its next 10s cycle lands or a field is refocused.
+// Best-effort: a failed fetch here leaves the previous list in place rather than blanking
+// suggestions that were working a moment ago (unlike the very first call from load(), where
+// there's nothing to preserve yet and an empty list is the correct starting state anyway).
+async function refreshRunningResourceClasses() {
   try {
     runningResourceClasses = await apiGet("/running-resource-classes");
   } catch (e) {
-    runningResourceClasses = [];
+    // Leave whatever's already there — on the very first call from load() that's still the []
+    // it was declared with, and on a later refresh it's a previous successful fetch, worth more
+    // than throwing it away over one transient failure.
   }
 }
 
