@@ -310,6 +310,26 @@ be approached differently than the Windows version was.
           `kate`) correctly skips the redundant parenthetical. 8 new/updated unit tests
           (`merge_resource_class_names` and the HTTP endpoint's new response shape); full
           68-test suite still green.
+  - [x] **Follow-up: focusing a resourceClass field now rescans instead of only ever showing
+        whatever was cached at page load** — `runningResourceClasses` was previously populated
+        exactly once, in `load()`; `main.js` only pushes a fresh snapshot every 10s on its own
+        schedule regardless of what the user is doing, so an app launched *after* opening the
+        Hotkeys UI (or after the last time a given field happened to be focused) had no way to
+        show up in that field's suggestions short of reloading the whole page — a real
+        discoverability gap for the exact workflow this feature exists for ("launch the app once
+        and start typing its name," per the README).
+        - The page-load fetch logic was pulled out into its own `refreshRunningResourceClasses()`
+          (unchanged behavior there — `load()` just calls it now instead of inlining the same
+          `try`/`catch`), and `textInput`'s `focus` handler for suggest-enabled fields now calls
+          it too: shows suggestions instantly from whatever's already cached (no flicker waiting
+          on a fetch), then re-shows them once the background rescan resolves — only if the field
+          is still the one focused, since the user may have already tabbed away, clicked a
+          suggestion, or blurred by the time it lands. A failed rescan leaves the previous list in
+          place rather than blanking suggestions that were working a moment ago.
+        - Verified live: confirmed via `curl` that the running server (serving `hotkeys-ui.html`
+          straight from disk, no separate deploy step for this file) picked up the change
+          immediately with no restart needed; syntax-checked the extracted inline `<script>` block
+          directly with `node --check`.
   - [x] **`windowCycle`/`windowToggle` merged into one "App windows" section** — they're the
         exact same `manageAppWindows(resourceClass, mode, launchArgv)` call either way
         (`hotkeys_generator.py` already only ever varied a `mode` string between them), so having

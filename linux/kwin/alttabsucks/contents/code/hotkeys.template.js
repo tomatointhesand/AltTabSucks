@@ -74,4 +74,7 @@ registerShortcut("steam", "AltTabSucks: steam",
     "Ctrl+Alt+Shift+S", function () { manageAppWindows("steam", "cycle"); });
 
 registerShortcut("shelly", "AltTabSucks: shelly",
-    "Ctrl+Alt+Shift+L", function () { manageAppWindows("shelly-ui", "cycle"); });
+    "Ctrl+Alt+Shift+L", function () { manageAppWindows("com.shellyorg.shelly", "cycle"); });
+
+registerShortcut("bitwarden", "AltTabSucks: bitwarden",
+    "Ctrl+Alt+Shift+B", function () { manageAppWindows("Bitwarden", "cycle"); });

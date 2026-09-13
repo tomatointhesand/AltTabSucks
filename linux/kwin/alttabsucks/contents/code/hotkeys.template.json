@@ -226,7 +226,14 @@
       "title": "shelly",
       "key": "Ctrl+Alt+Shift+L",
       "enabled": true,
-      "resourceClass": "shelly-ui"
+      "resourceClass": "com.shellyorg.shelly"
+    },
+    {
+      "type": "windowCycle",
+      "title": "bitwarden",
+      "key": "Ctrl+Alt+Shift+B",
+      "enabled": true,
+      "resourceClass": "Bitwarden"
     }
   ]
 }
