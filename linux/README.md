@@ -82,8 +82,20 @@ that AHK file, their templates (`hotkeys.template.js`/`hotkeys.template.json`) a
 **unsanitized** mirror of them, refreshed automatically on every commit (see `hooks/pre-commit`).
 For the meantime, that means a real, working example — this repo's own actual hotkey config as
 of the last commit, not generic placeholders — is what `installer.sh` seeds a missing
-`hotkeys.js` from on first install, without `hotkeys.js`/`hotkeys.json` themselves ever being
-tracked (so a `git pull` never touches your own local edits to them). Two ways to edit them:
+`hotkeys.js`/`hotkeys.json` from (each independently, whichever one is actually missing) on
+install/reload-hotkeys, without `hotkeys.js`/`hotkeys.json` themselves ever being tracked (so a
+`git pull` never touches your own local edits to them). Since a `git pull` only updates the
+tracked templates, not your gitignored copies, the two can drift out of sync with each other —
+e.g. `hotkeys.js` seeded from an older template than `hotkeys.json` was, or one of the pair
+hand-refreshed from its template without the other — so if the Hotkeys UI stops matching what's
+actually deployed, or a pulled template gained new bindings you want, refresh both by hand from
+their templates and run `./installer.sh reload-hotkeys`:
+```bash
+cp linux/kwin/alttabsucks/contents/code/hotkeys.template.js linux/kwin/alttabsucks/contents/code/hotkeys.js
+cp linux/kwin/alttabsucks/contents/code/hotkeys.template.json linux/kwin/alttabsucks/contents/code/hotkeys.json
+./installer.sh reload-hotkeys
+```
+Two ways to edit them:
 
 **The Hotkeys UI (recommended)** — with the server running, open
 **`http://localhost:9876/hotkeys-ui`**, paste your auth token, and edit bindings there. Saving
