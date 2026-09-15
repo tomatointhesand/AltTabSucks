@@ -1059,6 +1059,41 @@ be approached differently than the Windows version was.
         restore` before it went anywhere near a commit — but it's the concrete, already-happened
         version of exactly the risk the `if [ -f ... ]` guard exists to prevent, not a
         hypothetical one.
+- [x] **Follow-up: `hotkeys.json` was never seeded at all — `ensure_hotkeys()` only ever handled
+      `hotkeys.js`** — surfaced by testing this exact template-mirroring setup on a genuinely
+      fresh machine for the first time (a second cachyos laptop): a fresh clone's Hotkeys UI
+      showed zero bindings even after `./installer.sh install`, despite `hotkeys.js` itself
+      having been correctly seeded and deployed with real, working shortcuts. Root cause: `GET
+      /hotkeys-config` (the Hotkeys UI's own source of truth) reads `hotkeys.json` specifically,
+      not `hotkeys.js` — and nothing in `installer.sh` had ever created that file if it didn't
+      already exist, so `alttabsucks_server.py` silently fell back to an empty
+      `{"bindings": []}` (a caught `OSError` on the missing file, not a crash — exactly the kind
+      of failure that stays quiet until someone notices the UI looks empty).
+      - This was a real, separate gap from the earlier "push was silently failing, so a fresh
+        clone got a stale `hotkeys.template.js`" issue (see this session's own git-remote-auth
+        troubleshooting) — fixing the push made the *content* current, but `hotkeys.json` itself
+        was never being created in the first place, on any machine, stale or not.
+      - Fix (`installer.sh`): new `ensure_hotkeys_json()`, mirroring `ensure_hotkeys()`'s own
+        seed-once-and-never-touch-again contract exactly (seeds from `hotkeys.template.json` only
+        if `hotkeys.json` doesn't already exist), called from `ensure_hotkeys()` so both
+        `./installer.sh install` and `reload-hotkeys` seed it (both flow through
+        `install_kwin_script` → `ensure_hotkeys`) — checked and seeded independently of
+        `hotkeys.js`, since either file can go missing on its own. `build_staged_kwin_package`'s
+        cleanup step also gained `hotkeys.json`/`hotkeys.template.json` alongside their existing
+        `.js` counterparts — source material only, `main.js` never reads either JSON file, so
+        neither belongs in the deployed KWin package.
+      - **Verified live, not just by reading the diff**: confirmed `hotkeys.template.json` has no
+        leftover `YOUR_...` placeholders needing a Linux-path substitution the way `hotkeys.js`'s
+        `YOUR_REPO_ROOT` does (it's the same unsanitized-mirror content, already real values), and
+        that `installer.sh`'s `HOTKEYS_JSON_PATH` and `alttabsucks_server.py`'s
+        `HOTKEYS_CONFIG_PATH` genuinely resolve to the identical path. Then reproduced the exact
+        bug end to end on the original dev machine: backed up the real `hotkeys.json`, moved it
+        aside, ran `./installer.sh reload-hotkeys`, confirmed it printed the new seed message and
+        recreated the file identical to `hotkeys.template.json`, confirmed `GET /hotkeys-config`
+        against the real running server went from what would have been an empty list to 23 real
+        bindings — then restored the original file byte-for-byte and redeployed, leaving the
+        machine exactly as it was. Full Python test suite (68 tests) and `bash -n installer.sh`
+        both still clean.
 - [x] **Toast confirmations made required, and the whole install audited for one-shot
       reliability** — explicit ask: toasts stop being a best-effort extra (`check_toast_deps()`
       soft-skipping with a printed note if `gtk4-layer-shell` was missing, `install` still
