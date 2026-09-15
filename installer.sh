@@ -30,6 +30,8 @@ CONFIG_PATH="$REPO_ROOT/linux/server/config.py"
 CONFIG_TEMPLATE="$REPO_ROOT/linux/server/config.template.py"
 HOTKEYS_PATH="$KWIN_SCRIPT_DIR/contents/code/hotkeys.js"
 HOTKEYS_TEMPLATE="$KWIN_SCRIPT_DIR/contents/code/hotkeys.template.js"
+HOTKEYS_JSON_PATH="$KWIN_SCRIPT_DIR/contents/code/hotkeys.json"
+HOTKEYS_JSON_TEMPLATE="$KWIN_SCRIPT_DIR/contents/code/hotkeys.template.json"
 TOKEN_PATH="$REPO_ROOT/Server/token.txt"
 TOAST_SERVICE_SRC="$REPO_ROOT/linux/systemd/alttabsucks-toast.service"
 TOAST_SERVICE_NAME="alttabsucks-toast.service"
@@ -326,7 +328,28 @@ uninstall_toast_service() {
 # the hard way — see the checklist's Phase 2 notes); loadScript unload + reconfigure is what
 # actually forces a fresh load, so that's what's used here rather than relying on --upgrade alone.
 
+# hotkeys.json is the Hotkeys UI's (shared/hotkeys-ui.html, via GET/POST /hotkeys-config) source
+# of truth once anyone saves through it — same seed-once-and-never-touch-again contract as
+# hotkeys.js below, just for the structured side main.js never reads directly. Left unseeded, GET
+# /hotkeys-config silently falls back to an empty {"bindings": []} (state.hotkeys_config_path
+# .read_text() raising OSError, caught in alttabsucks_server.py) — so the UI shows no bindings at
+# all even when hotkeys.js has real ones concatenated into a working, deployed KWin script.
+# Independent of ensure_hotkeys' own hotkeys.js check below: either file can be missing on its own
+# (this is exactly how it was found missing once already — a fresh install only ever seeded
+# hotkeys.js, never hotkeys.json, until this function existed), so each gets its own existence
+# check rather than one gating the other.
+ensure_hotkeys_json() {
+    if [ -f "$HOTKEYS_JSON_PATH" ]; then
+        return
+    fi
+    cp "$HOTKEYS_JSON_TEMPLATE" "$HOTKEYS_JSON_PATH"
+    echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.json from hotkeys.template.json, so"
+    echo "the Hotkeys UI (http://localhost:9876/hotkeys-ui) reflects the same starting bindings as"
+    echo "hotkeys.js."
+}
+
 ensure_hotkeys() {
+    ensure_hotkeys_json
     if [ -f "$HOTKEYS_PATH" ]; then
         return
     fi
@@ -369,9 +392,12 @@ build_staged_kwin_package() {
         echo "// --- hotkeys.js (concatenated in by installer.sh) ---------------------------------------"
         cat "$HOTKEYS_PATH"
     } > "$staging/contents/code/main.js"
-    # hotkeys.js/hotkeys.template.js are source material only, not part of the shipped script —
-    # drop them from the staged copy so there's exactly one script file KWin could ever load.
-    rm -f "$staging/contents/code/hotkeys.js" "$staging/contents/code/hotkeys.template.js"
+    # hotkeys.js/hotkeys.template.js (and their JSON counterparts, the Hotkeys UI's source
+    # material — main.js never reads either .json file) are source material only, not part of
+    # the shipped script — drop them from the staged copy so there's exactly one script file KWin
+    # could ever load.
+    rm -f "$staging/contents/code/hotkeys.js" "$staging/contents/code/hotkeys.template.js" \
+          "$staging/contents/code/hotkeys.json" "$staging/contents/code/hotkeys.template.json"
     echo "$staging"
 }
 
