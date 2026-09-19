@@ -27,44 +27,56 @@ class GenerateBindingJsTestCase(unittest.TestCase):
         self.assertIn('manageAppWindows("org.kde.dolphin", "toggle", ["dolphin"]);', js)
 
     def test_profile_cycle(self):
+        # No resourceClass on the binding at all — profileCycle/tabFocus/splitTab/mergeTabs source
+        # it from the browser_resource_class parameter instead (see the module docstring for why).
         js = generate_binding_js({
             "type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P",
-            "resourceClass": "brave-browser", "profileName": "Work",
-        })
+            "profileName": "Work",
+        }, browser_resource_class="brave-browser")
         self.assertIn('cycleChromiumProfile("brave-browser", "Work");', js)
 
     def test_split_tab(self):
         js = generate_binding_js({
-            "type": "splitTab", "title": "Split Tab", "key": "Alt+X",
-            "resourceClass": "brave-browser", "profileName": "Personal",
-        })
+            "type": "splitTab", "title": "Split Tab", "key": "Alt+X", "profileName": "Personal",
+        }, browser_resource_class="brave-browser")
         self.assertIn('splitFocusedTab("brave-browser", "Personal");', js)
 
     def test_merge_tabs(self):
         js = generate_binding_js({
-            "type": "mergeTabs", "title": "Merge Windows", "key": "Alt+Z",
-            "resourceClass": "brave-browser", "profileName": "Personal",
-        })
+            "type": "mergeTabs", "title": "Merge Windows", "key": "Alt+Z", "profileName": "Personal",
+        }, browser_resource_class="brave-browser")
         self.assertIn('mergeFocusedWindow("brave-browser", "Personal");', js)
 
     def test_split_tab_missing_profile_name_raises(self):
         with self.assertRaises(ValueError):
             generate_binding_js({
-                "type": "splitTab", "title": "X", "key": "Alt+X", "resourceClass": "x",
-            })
+                "type": "splitTab", "title": "X", "key": "Alt+X",
+            }, browser_resource_class="brave-browser")
 
-    def test_merge_tabs_missing_resource_class_raises(self):
-        with self.assertRaises(ValueError):
+    def test_merge_tabs_missing_browser_resource_class_raises(self):
+        with self.assertRaises(ValueError) as cm:
             generate_binding_js({
                 "type": "mergeTabs", "title": "X", "key": "Alt+Z", "profileName": "Personal",
-            })
+            })  # no browser_resource_class passed — defaults to ""
+        self.assertIn("./installer.sh configure", str(cm.exception))
+
+    def test_browser_scoped_binding_ignores_its_own_leftover_resourceclass_field(self):
+        # A binding saved before this refactor may still carry a stale resourceClass key —
+        # harmless dead data now, never read for these four types. browser_resource_class always
+        # wins, confirming it's not silently falling back to the binding's own (wrong) value.
+        js = generate_binding_js({
+            "type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P",
+            "profileName": "Work", "resourceClass": "some-stale-value",
+        }, browser_resource_class="brave-browser")
+        self.assertIn('cycleChromiumProfile("brave-browser", "Work");', js)
+        self.assertNotIn("some-stale-value", js)
 
     def test_tab_focus_multiple_patterns(self):
         js = generate_binding_js({
             "type": "tabFocus", "title": "Focus Gmail", "key": "Ctrl+Alt+Shift+G",
-            "resourceClass": "brave-browser", "profileName": "Personal",
+            "profileName": "Personal",
             "urlPatterns": ["mail.google.com", "inbox.google.com"], "openUrl": "https://mail.google.com",
-        })
+        }, browser_resource_class="brave-browser")
         self.assertIn(
             'focusTab("brave-browser", "Personal", ["mail.google.com", "inbox.google.com"], "https://mail.google.com");',
             js,
@@ -118,19 +130,29 @@ class GenerateBindingJsTestCase(unittest.TestCase):
             generate_binding_js({"type": "windowCycle", "title": "X", "key": "Ctrl+Alt+Shift+B"})
 
     def test_profile_cycle_missing_profile_name_raises(self):
+        # browser_resource_class passed so this actually exercises the profileName check, not the
+        # (also-ValueError) "no browser configured" one above it.
         with self.assertRaises(ValueError):
             generate_binding_js({
-                "type": "profileCycle", "title": "X", "key": "Ctrl+Alt+Shift+B", "resourceClass": "x",
-            })
+                "type": "profileCycle", "title": "X", "key": "Ctrl+Alt+Shift+B",
+            }, browser_resource_class="brave-browser")
 
     def test_tab_focus_missing_fields_raise(self):
-        base = {"type": "tabFocus", "title": "X", "key": "Ctrl+Alt+Shift+B", "resourceClass": "x"}
+        base = {"type": "tabFocus", "title": "X", "key": "Ctrl+Alt+Shift+B"}
         with self.assertRaises(ValueError):
-            generate_binding_js(dict(base))
+            generate_binding_js(dict(base), browser_resource_class="brave-browser")
         with self.assertRaises(ValueError):
-            generate_binding_js(dict(base, profileName="P"))
+            generate_binding_js(dict(base, profileName="P"), browser_resource_class="brave-browser")
         with self.assertRaises(ValueError):
-            generate_binding_js(dict(base, profileName="P", urlPatterns=["a.com"]))
+            generate_binding_js(dict(base, profileName="P", urlPatterns=["a.com"]), browser_resource_class="brave-browser")
+
+    def test_tab_focus_missing_browser_resource_class_raises(self):
+        with self.assertRaises(ValueError) as cm:
+            generate_binding_js({
+                "type": "tabFocus", "title": "X", "key": "Ctrl+Alt+Shift+B", "profileName": "P",
+                "urlPatterns": ["a.com"], "openUrl": "https://a.com",
+            })  # no browser_resource_class passed
+        self.assertIn("./installer.sh configure", str(cm.exception))
 
     def test_unknown_type_raises(self):
         with self.assertRaises(ValueError):

@@ -234,6 +234,18 @@
       "key": "Ctrl+Alt+Shift+B",
       "enabled": true,
       "resourceClass": "Bitwarden"
+    },
+    {
+      "type": "tabFocus",
+      "title": "Twitch",
+      "key": "Ctrl+Shift+Meta+T",
+      "enabled": true,
+      "resourceClass": "brave-browser",
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://twitch.tv"
+      ],
+      "openUrl": "https://twitch.tv/atrioc"
     }
   ]
 }

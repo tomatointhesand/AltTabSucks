@@ -29,6 +29,19 @@ Binding "type" maps to one main.js function each:
                                   of lib/chromium.ahk's MergeFocusedWindow, same profileName note
                                   as splitTab above.
 
+resourceClass means two different things depending on "type", deliberately not treated the same
+way. windowCycle/windowToggle target an arbitrary app (Kate, Discord, a game, ...) that genuinely
+varies per binding, so it stays a field on the binding dict itself, exactly like every other field.
+profileCycle/tabFocus/splitTab/mergeTabs are all inherently *about* the single browser this whole
+install manages — every one of them also takes a profileName, a browser-profile concept no other
+kind of app has — so their resourceClass comes from generate_hotkeys_js's/generate_binding_js's own
+`browser_resource_class` parameter instead, sourced from config.py's CHROMIUM_RESOURCE_CLASS (set
+once via `./installer.sh configure`) rather than hotkeys.json. This used to be a per-binding field
+for these four types too, meaning the same literal string ("brave-browser") had to be retyped or
+reselected into every single browser-scoped binding, with no relationship between them enforced —
+switching browsers meant hand-editing every one individually, and nothing caught two bindings
+quietly disagreeing about which browser they meant. Moving it up to one value fixes both.
+
 Once hotkeys.json has been saved via the UI, it — not hand-edited hotkeys.js — is the source of
 truth: every save regenerates hotkeys.js from scratch, so direct edits to hotkeys.js won't
 survive the next UI save. hotkeys.js remains fully hand-editable on its own for anyone who never
@@ -55,17 +68,27 @@ def _js_array_of_strings(values) -> str:
     return "[" + ", ".join(_js_string(v) for v in values) + "]"
 
 
-def generate_binding_js(binding: dict) -> str:
-    """Returns one registerShortcut(...) statement for a single binding dict. Raises ValueError
-    on a missing/invalid field — callers should validate before this is reached in a save flow
-    (see alttabsucks_server.py's POST /hotkeys-config), but this stays strict rather than silently
-    emitting broken JS."""
+# Raised for profileCycle/tabFocus/splitTab/mergeTabs when browser_resource_class is empty — these
+# four no longer have a resourceClass field of their own to blame (see this module's own docstring
+# for why), so the error has to point at the actual fix instead of a binding that can't have one.
+_NO_BROWSER_CONFIGURED = "no browser configured — run ./installer.sh configure to set one"
+
+
+def generate_binding_js(binding: dict, browser_resource_class: str = "") -> str:
+    """Returns one registerShortcut(...) statement for a single binding dict. `browser_resource_class`
+    is the single configured browser's resourceClass (config.py's CHROMIUM_RESOURCE_CLASS, read by
+    the caller — see alttabsucks_server.py) — used for every type except windowCycle/windowToggle,
+    which still take their own resourceClass from the binding dict since they target an arbitrary
+    app, not necessarily the browser. Raises ValueError on a missing/invalid field — callers should
+    validate before this is reached in a save flow (see alttabsucks_server.py's POST
+    /hotkeys-config), but this stays strict rather than silently emitting broken JS."""
     kind = binding.get("type")
     title = (binding.get("title") or "").strip()
     key = (binding.get("key") or "").strip()
-    # resourceClass isn't required for every type (runCommand has no window/tab/profile to
-    # match), so its check lives per-branch below rather than up here with title/key.
-    resource_class = (binding.get("resourceClass") or "").strip()
+    # See this module's own docstring for why these two are treated differently.
+    window_manage = kind in ("windowCycle", "windowToggle")
+    resource_class = (binding.get("resourceClass") or "").strip() if window_manage \
+        else (browser_resource_class or "").strip()
 
     if not title:
         raise ValueError(f"binding missing title: {binding!r}")
@@ -88,14 +111,14 @@ def generate_binding_js(binding: dict) -> str:
         call += ");"
     elif kind == "profileCycle":
         if not resource_class:
-            raise ValueError(f"binding {title!r} missing resourceClass")
+            raise ValueError(_NO_BROWSER_CONFIGURED)
         profile = (binding.get("profileName") or "").strip()
         if not profile:
             raise ValueError(f"binding {title!r} missing profileName")
         call = f"cycleChromiumProfile({_js_string(resource_class)}, {_js_string(profile)});"
     elif kind == "tabFocus":
         if not resource_class:
-            raise ValueError(f"binding {title!r} missing resourceClass")
+            raise ValueError(_NO_BROWSER_CONFIGURED)
         profile = (binding.get("profileName") or "").strip()
         url_patterns = binding.get("urlPatterns") or []
         open_url = (binding.get("openUrl") or "").strip()
@@ -116,7 +139,7 @@ def generate_binding_js(binding: dict) -> str:
         call = f'runCommandWithToast({_js_string(title)}, {_js_array_of_strings(argv)});'
     elif kind in ("splitTab", "mergeTabs"):
         if not resource_class:
-            raise ValueError(f"binding {title!r} missing resourceClass")
+            raise ValueError(_NO_BROWSER_CONFIGURED)
         profile = (binding.get("profileName") or "").strip()
         if not profile:
             raise ValueError(f"binding {title!r} missing profileName")
@@ -128,7 +151,7 @@ def generate_binding_js(binding: dict) -> str:
     return header + call + " });"
 
 
-def generate_hotkeys_js(config: dict) -> str:
+def generate_hotkeys_js(config: dict, browser_resource_class: str = "") -> str:
     bindings = config.get("bindings", [])
     # A binding with "enabled": false (the hotkeys-ui badge/toggle button) produces no
     # registerShortcut call at all — it's not "registered but inert", it's simply skipped, same
@@ -157,6 +180,6 @@ def generate_hotkeys_js(config: dict) -> str:
 
     parts = [GENERATED_HEADER, ""]
     for binding in active:
-        parts.append(generate_binding_js(binding))
+        parts.append(generate_binding_js(binding, browser_resource_class))
         parts.append("")
     return "\n".join(parts)

@@ -44,6 +44,12 @@ class ServerTestCase(unittest.TestCase):
         # (exit 0, no output) so POST /hotkeys-config's subprocess.run()-and-report-the-result
         # code path is still genuinely exercised, just against a harmless command.
         self.state.deploy_command = ["true"]
+        # The single configured browser's window resourceClass (config.py's
+        # CHROMIUM_RESOURCE_CLASS) — see hotkeys_generator's module docstring. Defaulted here so
+        # every existing profileCycle/tabFocus/splitTab/mergeTabs test binding below (written
+        # before that field moved off the binding dict) still generates successfully without
+        # individually setting this; tests that care about it being unset override it explicitly.
+        self.state.chromium_resource_class = "brave-browser"
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.state))
         self.httpd.daemon_threads = True  # don't let tearDown block on a stuck test connection
         self.port = self.httpd.server_address[1]
@@ -346,7 +352,15 @@ class ServerTestCase(unittest.TestCase):
     def test_hotkeys_config_get_defaults_to_empty_bindings_when_no_file_yet(self):
         status, _, body = self.request("GET", "/hotkeys-config")
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body), {"bindings": []})
+        self.assertEqual(json.loads(body), {"bindings": [], "browserResourceClass": "brave-browser"})
+
+    def test_hotkeys_config_get_reflects_configured_browser_resource_class(self):
+        # Informational only (see the handler's own comment) — reflects whatever config.py
+        # currently says, not anything read from hotkeys.json itself.
+        self.state.chromium_resource_class = "google-chrome"
+        status, _, body = self.request("GET", "/hotkeys-config")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["browserResourceClass"], "google-chrome")
 
     def test_hotkeys_config_post_writes_config_and_generates_js(self):
         config = {"bindings": [
@@ -364,14 +378,56 @@ class ServerTestCase(unittest.TestCase):
         self.assertIn('manageAppWindows("org.kde.dolphin", "toggle", ["dolphin"]);', js)
 
     def test_hotkeys_config_get_after_post_returns_what_was_saved(self):
+        # No resourceClass field at all — profileCycle no longer has one of its own (see
+        # hotkeys_generator's module docstring); the configured browser (setUp's
+        # chromium_resource_class) is what makes this generate successfully.
         config = {"bindings": [
             {"type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P",
-             "resourceClass": "brave-browser", "profileName": "Work"},
+             "profileName": "Work"},
         ]}
         self.request("POST", "/hotkeys-config", json_body=config)
         status, _, body = self.request("GET", "/hotkeys-config")
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body), config)
+        # What's on disk round-trips exactly (asserted separately, via hotkeys_config_path, in
+        # test_hotkeys_config_post_writes_config_and_generates_js) — the GET response layers
+        # browserResourceClass on top, so compare that way rather than requiring an exact match.
+        result = json.loads(body)
+        self.assertEqual(result["bindings"], config["bindings"])
+        self.assertEqual(result["browserResourceClass"], "brave-browser")
+
+    def test_hotkeys_config_post_profile_cycle_uses_configured_browser_not_a_binding_field(self):
+        self.state.chromium_resource_class = "google-chrome"
+        config = {"bindings": [
+            {"type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P",
+             "profileName": "Work"},
+        ]}
+        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        self.assertEqual(status, 200)
+        js = self.state.hotkeys_js_path.read_text()
+        self.assertIn('cycleChromiumProfile("google-chrome", "Work");', js)
+
+    def test_hotkeys_config_post_browser_scoped_binding_fails_when_no_browser_configured(self):
+        self.state.chromium_resource_class = ""
+        config = {"bindings": [
+            {"type": "tabFocus", "title": "Gmail", "key": "Ctrl+Alt+Shift+G", "profileName": "Personal",
+             "urlPatterns": ["mail.google.com"], "openUrl": "https://mail.google.com"},
+        ]}
+        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        self.assertEqual(status, 400)
+        self.assertIn("run ./installer.sh configure", json.loads(body)["error"])
+        # Same "reject without writing anything" contract as any other invalid binding.
+        self.assertFalse(self.state.hotkeys_config_path.exists())
+        self.assertFalse(self.state.hotkeys_js_path.exists())
+
+    def test_hotkeys_config_post_window_cycle_unaffected_by_missing_browser_config(self):
+        # windowCycle/windowToggle still take their own resourceClass field — genuinely unrelated
+        # to whether a browser is configured at all.
+        self.state.chromium_resource_class = ""
+        config = {"bindings": [
+            {"type": "windowCycle", "title": "Kate", "key": "Ctrl+Alt+Shift+N", "resourceClass": "org.kde.kate"},
+        ]}
+        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        self.assertEqual(status, 200)
 
     def test_hotkeys_config_post_invalid_binding_rejected_without_writing_anything(self):
         config = {"bindings": [{"type": "tabFocus", "title": "Broken"}]}  # missing required fields
