@@ -201,10 +201,47 @@ choose_browser() {
         echo "import os"
         echo "CHROMIUM_USERDATA = \"$userdata\""
         echo "CHROMIUM_EXE = \"$exe\""
+        # The single source of truth every profileCycle/tabFocus/splitTab/mergeTabs hotkey
+        # binding's resourceClass now comes from (see hotkeys_generator.py's module docstring) —
+        # used to only ever fill in a one-time YOUR_BROWSER_RESOURCE_CLASS placeholder in a fresh
+        # hotkeys.js and then be thrown away, so switching browsers meant hand-editing every
+        # browser-scoped binding individually; persisting it here instead means re-running this
+        # wizard (`./installer.sh configure`) really is the one-click way to switch now.
+        echo "CHROMIUM_RESOURCE_CLASS = \"$resource_class\""
         echo "CHROMIUM_EXTRA_FLAGS = []"
     } > "$CONFIG_PATH"
-    echo "Wrote linux/server/config.py (CHROMIUM_USERDATA=$userdata, CHROMIUM_EXE=$exe)."
+    echo "Wrote linux/server/config.py (CHROMIUM_USERDATA=$userdata, CHROMIUM_EXE=$exe, CHROMIUM_RESOURCE_CLASS=$resource_class)."
     CHOSEN_RESOURCE_CLASS="$resource_class"
+
+    # Only ever regenerates the *file on disk* — never redeploys anything itself, matching
+    # do_configure's own existing pattern of leaving that to an explicit `install` afterward.
+    # Without this, switching browsers would still write the correct config.py, but every
+    # already-existing profileCycle/tabFocus/splitTab/mergeTabs binding's *deployed* hotkeys.js
+    # would keep calling with the *old* browser's resourceClass until someone happened to open
+    # the Hotkeys UI and hit Save at least once — not the one-click switch this is meant to be.
+    if [ -f "$HOTKEYS_JSON_PATH" ]; then
+        if python3 - "$REPO_ROOT" "$HOTKEYS_JSON_PATH" "$HOTKEYS_PATH" "$resource_class" <<'PYEOF'
+import json
+import sys
+
+repo_root, hotkeys_json_path, hotkeys_js_path, browser_resource_class = sys.argv[1:5]
+sys.path.insert(0, repo_root + "/linux/server")
+import hotkeys_generator
+
+with open(hotkeys_json_path, encoding="utf-8") as f:
+    config = json.load(f)
+js = hotkeys_generator.generate_hotkeys_js(config, browser_resource_class)
+with open(hotkeys_js_path, "w", encoding="utf-8") as f:
+    f.write(js)
+PYEOF
+        then
+            echo "Regenerated hotkeys.js from hotkeys.json with the new browser."
+        else
+            echo "WARNING: couldn't regenerate hotkeys.js from hotkeys.json automatically (see the" >&2
+            echo "error above) — open the Hotkeys UI (http://localhost:9876/hotkeys-ui) and hit Save" >&2
+            echo "at least once to pick up the new browser for your existing bindings." >&2
+        fi
+    fi
 }
 
 ensure_config() {

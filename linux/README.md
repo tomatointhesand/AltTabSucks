@@ -101,9 +101,13 @@ Two ways to edit them:
 **`http://localhost:9876/hotkeys-ui`**, paste your auth token, and edit bindings there. Saving
 regenerates `hotkeys.js` and redeploys the KWin script automatically — no terminal step needed.
 Bindings are grouped by type (app window cycling/toggling, browser profile cycling, tab focus,
-split/merge, run-command), and the `resourceClass` field offers a live typeahead sourced from
-whatever's actually running right now — the easiest way to find an app's `resourceClass` is
-just to launch it once and start typing its name into that field.
+split/merge, run-command). Only app window cycling/toggling bindings have their own `resourceClass`
+field, since those can target any app (Kate, Discord, a game, ...) — it offers a live typeahead
+sourced from whatever's actually running right now, matchable by either its `resourceClass` or its
+more recognizable binary/package name; the easiest way to find an app's `resourceClass` is just to
+launch it once and start typing its name into that field. Every other binding type is inherently
+about the one browser this install manages, so there's nothing to type there at all — see
+**Managing the service** below for how that's configured instead.
 
 **By hand** — edit `hotkeys.js` directly (see its own comments, and `hotkeys.template.js` for
 every binding type with inline docs), then run `./installer.sh reload-hotkeys` to deploy.
@@ -140,8 +144,14 @@ journalctl --user -u alttabsucks-server.service -f   # live server logs
 `uninstall` deliberately leaves `linux/server/config.py` and `Server/token.txt` in place (same
 as the Windows uninstaller leaving `token.txt`) — remove them by hand for a clean slate.
 
-To switch which browser AltTabSucks manages, run `./installer.sh configure`, then
-`./installer.sh install` to redeploy the server with the new config.
+**Switching which browser AltTabSucks manages is one command**: `./installer.sh configure`
+re-runs the browser picker, writes the new browser's window `resourceClass` into `config.py`'s
+`CHROMIUM_RESOURCE_CLASS` — the single value every browser profile cycling/tab focus/split/merge
+binding uses (see the Hotkeys UI section above) — and, if you already have hotkeys set up,
+immediately regenerates `hotkeys.js` from `hotkeys.json` with it, so every existing browser-scoped
+binding switches at once rather than needing an extra trip through the Hotkeys UI first. Run
+`./installer.sh install` (or `reload-hotkeys`) afterward to actually deploy it, same as any other
+hotkeys change.
 
 ---
 

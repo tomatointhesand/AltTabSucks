@@ -40,6 +40,7 @@
   .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
   h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
   .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 20px; }
+  .sub.warn { color: var(--err); }
   .token-row { display: flex; gap: 8px; flex: 0 0 auto; }
   label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
   input[type=text], select {
@@ -149,6 +150,7 @@
     <div>
       <h1>AltTabSucks — Hotkeys</h1>
       <div class="sub">Saving regenerates <code>hotkeys.js</code> and deploys it to the running KWin script automatically.</div>
+      <div class="sub" id="browserInfo"></div>
     </div>
     <div class="token-row">
       <input type="text" id="token" placeholder="auth token (Server/token.txt)">
@@ -491,6 +493,12 @@ function keyInput(binding) {
 // type) and every data row of that type (inputs only, no per-row label) — see field() above.
 // Getting a type's header and its rows out of sync isn't possible since both read this same list.
 const TYPE_COLUMNS = {
+  // windowCycle/windowToggle target an arbitrary app (Kate, Discord, a game, ...) that genuinely
+  // varies per binding, so these two are the only types that still carry their own resourceClass
+  // column. profileCycle/tabFocus/splitTab/mergeTabs are all inherently *about* the single browser
+  // this whole install manages (every one of them also takes a Profile — a browser-profile
+  // concept nothing else has) — see browserInfo's own comment near load() for where that value
+  // now comes from instead of a per-row field.
   windowCycle: [
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
@@ -500,13 +508,11 @@ const TYPE_COLUMNS = {
   profileCycle: [
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
-    resourceClassColumn(),
     { label: "Profile", extraClass: "fixed select-col", build: (b) => profileSelect(b) },
   ],
   tabFocus: [
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
-    resourceClassColumn(),
     { label: "Profile", extraClass: "fixed select-col", build: (b) => profileSelect(b) },
     { label: "URL pattern(s)", extraClass: "grow", build: (b) => listInput(b, "urlPatterns", "mail.google.com") },
     { label: "Open URL (if no match)", extraClass: "grow", build: (b) => textInput(b, "openUrl", "https://mail.google.com") },
@@ -526,9 +532,9 @@ TYPE_COLUMNS.mergeTabs = TYPE_COLUMNS.profileCycle;
 
 function newBindingOfType(type) {
   const b = { type, title: "", key: "", enabled: true };
-  // runCommand has no window/tab/profile to match against — matches the field-list special
-  // case below, which hides resourceClass entirely for it rather than showing it unused.
-  if (type !== "runCommand") b.resourceClass = "";
+  // Only windowCycle/windowToggle still have a resourceClass field of their own to initialize —
+  // see TYPE_COLUMNS' own comment for why the other browser-scoped types no longer do.
+  if (type === "windowCycle" || type === "windowToggle") b.resourceClass = "";
   return b;
 }
 
@@ -708,6 +714,19 @@ async function load() {
     profiles = profilesResult;
     bindings = configResult.bindings || [];
     renderAll();
+    // The single configured browser (config.py's CHROMIUM_RESOURCE_CLASS) every profileCycle/
+    // tabFocus/splitTab/mergeTabs binding below now targets — GET /hotkeys-config layers this on
+    // read-only, never written back (see that handler's own comment); change it with
+    // `./installer.sh configure`, not per-binding, which is exactly why there's no input here.
+    const browserInfo = document.getElementById("browserInfo");
+    const browserResourceClass = configResult.browserResourceClass || "";
+    if (browserResourceClass) {
+      browserInfo.textContent = `Browser: ${browserResourceClass} — change with ./installer.sh configure (applies to every browser hotkey below, not per-row)`;
+      browserInfo.classList.remove("warn");
+    } else {
+      browserInfo.textContent = "No browser configured yet — run ./installer.sh configure, then Reload. Browser hotkeys below won't save until then.";
+      browserInfo.classList.add("warn");
+    }
     setStatus(`Loaded ${bindings.length} hotkey(s), ${profiles.length} known profile(s).`, false);
   } catch (e) {
     setStatus("Load failed (check your token, and that the server is running): " + e.message, true);

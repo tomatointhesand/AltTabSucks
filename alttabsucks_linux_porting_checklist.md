@@ -1293,6 +1293,66 @@ be approached differently than the Windows version was.
         matching (`"AltTabSucks: "`) already unregisters *every* AltTabSucks-owned shortcut on
         every reload, orphaned ones included, not just ones still present in `hotkeys.json` —
         trimmed the fallback command out rather than document unnecessary complexity.
+- [x] **Browser `resourceClass` moved from a per-binding field to one central config value** —
+      the user's own observation: `profileCycle`/`tabFocus`/`splitTab`/`mergeTabs` all take a
+      `profileName` (a *browser*-profile concept nothing else has), so their `resourceClass` was
+      always going to be the one configured browser, never something that legitimately varied
+      binding to binding — yet it was a retyped/reselected field on every single one, with nothing
+      enforcing they all agreed. Asked directly: how is switching browsers actually done today,
+      and (since it wasn't one command) design a concise refactor.
+      - **How it worked before**: `./installer.sh configure`'s wizard already derived a real,
+        live-verified window `resourceClass` (`choose_browser`'s `verify_resource_class`) — but
+        only ever used it for a one-time `YOUR_BROWSER_RESOURCE_CLASS` text substitution into a
+        *freshly seeded* `hotkeys.js`, then threw it away. Since the template pivoted to an
+        unsanitized real mirror (no placeholder text left to substitute), that consumer had
+        already been fully dead code for a while — the derived value was being computed and
+        immediately discarded on every `configure` run, never persisted anywhere.
+      - **Fix**: `config.py` gained `CHROMIUM_RESOURCE_CLASS`, written by `choose_browser()`
+        (persisting the value it was already computing, not deriving anything new) — the same
+        file `./installer.sh configure` already owns, so nothing new to remember to run.
+        `hotkeys_generator.generate_binding_js`/`generate_hotkeys_js` gained a
+        `browser_resource_class` parameter, used for `profileCycle`/`tabFocus`/`splitTab`/
+        `mergeTabs` instead of `binding["resourceClass"]` (`windowCycle`/`windowToggle` keep
+        their own per-binding field unchanged — those can target *any* app). `alttabsucks_server.py`
+        reads `CHROMIUM_RESOURCE_CLASS` into `state.chromium_resource_class` alongside the
+        already-existing `chromium_exe`, passes it into `generate_hotkeys_js` on
+        `POST /hotkeys-config`, and layers it onto `GET /hotkeys-config`'s response as
+        `browserResourceClass` — informational/read-only, never round-tripped back into
+        `hotkeys.json` (the UI's `save()` always POSTs a fresh `{bindings}` it builds itself, not
+        whatever a GET handed back). `hotkeys-ui.html` drops `resourceClassColumn()` from the four
+        browser-scoped types' `TYPE_COLUMNS` entirely and shows the configured browser once, in a
+        header readout, instead of a field on every row — red/`.warn`-styled if none is configured
+        yet, so a fresh install with no browser configured is obvious rather than silently
+        generating bindings client-side that the server will then reject.
+      - **The one-click gap this would have otherwise left**: `choose_browser()` only ever wrote
+        `config.py` — nothing re-read `hotkeys.json` and regenerated `hotkeys.js` from it, so
+        switching browsers would correctly update *future* bindings but leave every *already-
+        deployed* one calling with the *old* browser's resourceClass until someone happened to
+        open the Hotkeys UI and hit Save at least once. Closed by having `choose_browser()` itself
+        regenerate `hotkeys.js` from `hotkeys.json` (via a small inline `python3` invocation of
+        `hotkeys_generator.generate_hotkeys_js`) immediately after writing the new config, if
+        `hotkeys.json` already exists — deliberately *not* also redeploying the KWin script itself,
+        matching `do_configure`'s own existing pattern of leaving that to an explicit `install`
+        afterward. A generation failure (e.g. some unrelated already-broken binding) leaves the
+        old `hotkeys.js` untouched and prints a warning rather than silently succeeding or
+        half-writing a broken file.
+      - Error message for the four browser-scoped types also changed to match: a binding can no
+        longer be missing its *own* resourceClass (it doesn't have one to be missing), so instead
+        of `binding {title} missing resourceClass` it's now "no browser configured — run
+        ./installer.sh configure to set one" — pointing at the actual fix.
+      - Verified live end to end, not just re-read: ran the real `./installer.sh configure` wizard
+        twice — once normally (confirmed byte-identical `hotkeys.js` before/after, same browser)
+        and once through the manual-entry path with a fake different browser/resourceClass,
+        confirming all 18 browser-scoped `registerShortcut` calls in the real deployed
+        `hotkeys.js` switched to the new value in that single command, with zero occurrences of
+        the old one left — restored back to the real browser the same way afterward, confirmed
+        byte-identical again. Also confirmed via `GET /hotkeys-config` that `browserResourceClass`
+        reflects live state, confirmed the client-side inline script still parses
+        (`node --check`), ran the full Python suite (108 tests, several new ones covering the
+        missing-browser-config error path and the "leftover stale resourceClass field on an old
+        binding is ignored, not silently trusted" case), and fired a real `gmail` `tabFocus`
+        hotkey through the actual `kglobalaccel` → KWin → server → browser pipeline afterward to
+        confirm a binding generated this new way still genuinely works, not just reads correctly.
 
 ---
 

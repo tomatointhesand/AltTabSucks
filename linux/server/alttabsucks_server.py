@@ -100,6 +100,14 @@ class AppState:
         self.chromium_exe: str = ""            # from config.py; e.g. "brave" (see dbus_bridge's
                                                  # LaunchChromiumProfile — not always the same as
                                                  # the resourceClass hotkeys.js matches windows by)
+        self.chromium_resource_class: str = ""  # from config.py's CHROMIUM_RESOURCE_CLASS — the
+                                                 # *window* resourceClass (e.g. "brave-browser"),
+                                                 # the value chromium_exe's own comment says it's
+                                                 # not always the same as. Single source of truth
+                                                 # for every profileCycle/tabFocus/splitTab/
+                                                 # mergeTabs binding's resourceClass now (see
+                                                 # hotkeys_generator's module docstring) — set once
+                                                 # via `./installer.sh configure`, not per-binding.
         self.chromium_extra_flags: list[str] = []  # from config.py CHROMIUM_EXTRA_FLAGS
         # Real paths by default (see the module-level constants); overridable per-instance so
         # tests can point these at a tmp dir instead of writing the real hotkeys.js/hotkeys.json
@@ -329,10 +337,16 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._end_text(200, "\n".join(lines))
             elif path == "/hotkeys-config":
                 try:
-                    config = json.loads(state.hotkeys_config_path.read_text(encoding="utf-8"))
+                    hk_config = json.loads(state.hotkeys_config_path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError):
-                    config = {"bindings": []}
-                self._end_json(200, config)
+                    hk_config = {"bindings": []}
+                # Informational only — never round-tripped back into the file. hotkeys-ui.html's
+                # save() always POSTs a fresh {bindings} object it builds itself, not whatever this
+                # GET handed back, so injecting a key here can't leak into storage and go stale.
+                # See hotkeys_generator's module docstring for why this is a single value instead
+                # of a per-binding field the way it used to be.
+                hk_config["browserResourceClass"] = state.chromium_resource_class
+                self._end_json(200, hk_config)
             else:
                 self._end(404)
 
@@ -398,7 +412,7 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     return
                 import hotkeys_generator
                 try:
-                    js = hotkeys_generator.generate_hotkeys_js(config)
+                    js = hotkeys_generator.generate_hotkeys_js(config, state.chromium_resource_class)
                 except ValueError as e:
                     # A bad binding (missing field, unknown type) — the UI should have caught
                     # this client-side already, but never trust that alone; report it back
@@ -502,6 +516,7 @@ def _load_chromium_config(state):
     state.profile_list = list(profiles.keys())
     state.chromium_exe = getattr(config, "CHROMIUM_EXE", "")
     state.chromium_extra_flags = getattr(config, "CHROMIUM_EXTRA_FLAGS", [])
+    state.chromium_resource_class = getattr(config, "CHROMIUM_RESOURCE_CLASS", "")
 
 
 def main():
