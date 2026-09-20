@@ -6,7 +6,17 @@ hotkeys.json, a structured config the web UI (shared/hotkeys-ui.html) edits.
 
 Binding "type" maps to one main.js function each:
   windowCycle / windowToggle -> manageAppWindows(resourceClass, mode, launchArgv)
-  profileCycle                -> cycleChromiumProfile(resourceClass, profileName)
+  profileCycle                -> cycleChromiumProfile(resourceClass, profileName, launchProfileName)
+                                  — profileName may be ALL_PROFILES ("__all__"), meaning cycle
+                                  every open window of this browser regardless of profile instead
+                                  of one specific profile's own windows (main.js's
+                                  cycleAnyChromiumProfile). launchProfileName is always a real,
+                                  specific profile — what to launch fresh if nothing's open at
+                                  all, since ALL_PROFILES alone doesn't say which one to start;
+                                  defaults to profileName itself when profileName isn't
+                                  ALL_PROFILES (see generate_binding_js below), so this stayed
+                                  fully backward compatible for every binding saved before this
+                                  parameter existed.
   tabFocus                    -> focusTab(resourceClass, profileName, urlPatterns, openUrl)
   runCommand                  -> runCommandWithToast(title, argv) — waits for argv[0] to finish
                                   (no shell) and shows a toast with its exit status and any
@@ -55,6 +65,12 @@ GENERATED_HEADER = (
     "// Hand edits here will be overwritten the next time you save in the UI — edit\n"
     "// hotkeys.json (or just use the UI) instead, unless you never use the UI at all.\n"
 )
+
+# A profileCycle binding's profileName sentinel meaning "cycle every open window of this browser,
+# regardless of profile" — see the module docstring above. Must exactly match main.js's own
+# ALL_PROFILES constant and shared/hotkeys-ui.html's own copy; the three aren't auto-synced (no
+# shared module across Python/JS), so keep them in lockstep by hand if this ever changes.
+ALL_PROFILES = "__all__"
 
 
 def _js_string(value) -> str:
@@ -115,7 +131,24 @@ def generate_binding_js(binding: dict, browser_resource_class: str = "") -> str:
         profile = (binding.get("profileName") or "").strip()
         if not profile:
             raise ValueError(f"binding {title!r} missing profileName")
-        call = f"cycleChromiumProfile({_js_string(resource_class)}, {_js_string(profile)});"
+        launch_profile = (binding.get("launchProfileName") or "").strip()
+        if profile == ALL_PROFILES:
+            # ALL_PROFILES alone doesn't say which profile to launch if nothing's open at all —
+            # unlike the branch below, there's no sensible default to fall back to here.
+            if not launch_profile:
+                raise ValueError(
+                    f"binding {title!r} cycles all profiles but has no launch profile set "
+                    "(which one to open if nothing's running)"
+                )
+        elif not launch_profile:
+            # Backward compatible default for every binding saved before launchProfileName
+            # existed at all (or the UI simply never diverged it) — launching the same profile
+            # you're cycling is the only sensible choice when there's a real, single profile.
+            launch_profile = profile
+        call = (
+            f"cycleChromiumProfile({_js_string(resource_class)}, {_js_string(profile)}, "
+            f"{_js_string(launch_profile)});"
+        )
     elif kind == "tabFocus":
         if not resource_class:
             raise ValueError(_NO_BROWSER_CONFIGURED)

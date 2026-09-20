@@ -1353,6 +1353,75 @@ be approached differently than the Windows version was.
         binding is ignored, not silently trusted" case), and fired a real `gmail` `tabFocus`
         hotkey through the actual `kglobalaccel` → KWin → server → browser pipeline afterward to
         confirm a binding generated this new way still genuinely works, not just reads correctly.
+- [x] **"All profiles" option for Cycle browser profile, with a separate launch-profile field** —
+      the user's own follow-up request: the Profile dropdown couldn't express "cycle every open
+      window of this browser, regardless of profile" — only one specific profile at a time — and
+      asked for that as a real option, separating "what to cycle" from "what to launch fresh if
+      nothing's open at all" (the latter can't just fall back to "the profile" once cycling isn't
+      scoped to one).
+      - `"__all__"` is the sentinel — duplicated by hand across three places that can't share a
+        module (`hotkeys_generator.py`'s new `ALL_PROFILES` constant, `main.js`'s own copy,
+        `shared/hotkeys-ui.html`'s own copy), each cross-referencing the other two so a future
+        change to one doesn't quietly desync it from the rest — same pattern this file already
+        uses for `DBUS_SERVICE`/`DBUS_PATH`/`DBUS_IFACE` between `dbus_bridge.py` and `main.js`.
+      - **`main.js`**: `cycleChromiumProfile(resourceClass, profileName, launchProfileName)`
+        gained a third parameter and now branches on `profileName === ALL_PROFILES` right at the
+        top, delegating to a new `cycleAnyChromiumProfile(resourceClass, launchProfileName)` —
+        skips the per-profile `GetActiveTitles` matching/caching entirely (there's no single
+        profile to key that cache on) and just cycles `listBrowserWindows(resourceClass)`
+        directly. This is exactly what the *existing* single-profile path's own
+        `matching.length === 0` fallback already did as a last-resort safety net for stale/missing
+        per-profile data — here it's the deliberate, primary behavior for this mode instead of an
+        incidental fallback for another one. The toast can't name a specific profile the way the
+        single-profile path's own does (there isn't one to name), so it just says "All profiles".
+      - **`hotkeys_generator.py`**: the `profileCycle` branch now also reads `launchProfileName`,
+        required (raises, pointing at the actual gap — "which one to open if nothing's running") only
+        when `profileName == ALL_PROFILES`; otherwise defaults to `profileName` itself when unset
+        or blank, so every binding saved before this field existed at all keeps generating
+        identical output with zero migration needed — confirmed directly with a dedicated test
+        asserting the 2-field-old-shape input still produces the 3-arg call, `launchProfileName`
+        matching `profileName`.
+      - **`shared/hotkeys-ui.html`**: new `profileCycleTargetSelect` (Profile column,
+        `profileCycle` only — `tabFocus`/`splitTab`/`mergeTabs` stay on plain `profileSelect`,
+        since "all profiles" isn't meaningful for a window-scoped or currently-focused-window
+        operation) and `launchProfileSelect` (new "Launch profile (if none open)" column). Since
+        `splitTab`/`mergeTabs` used to alias `TYPE_COLUMNS.profileCycle` directly, that alias was
+        split out into its own `SPLIT_MERGE_COLUMNS` (Title/Key/Profile only) so they don't
+        inherit fields that don't apply to them. "All profiles" is appended *last* in the Profile
+        dropdown, not first, so a brand-new binding still defaults to a real profile, same as
+        before this existed — an opt-in choice, not a new default.
+      - **A real footgun caught and closed before it shipped, not just during review**: an early
+        version let `launchProfileName` default independently (first real profile in the list) —
+        meaning a normal, non-"all" binding could silently end up *cycling* one profile while
+        *launching* a completely different one, just because the two `<select>`s happened to
+        default differently, with nothing forcing them to agree. Fixed by having the Profile
+        field's own `change` handler force `launchProfileName` to match it whenever the new value
+        isn't `ALL_PROFILES` (deliberately overwriting any earlier divergence — cycling and
+        launching the same profile is the only sane combination once you're not on "All profiles"
+        anymore), covering both the very first render and every later change.
+      - **A second real bug caught the same way**: that sync originally only updated
+        `binding.launchProfileName` in memory — the Launch profile field is a *separate* `<select>`
+        that only reads that value when it's built, so its on-screen display would silently go
+        stale (still showing the old value) even though the data underneath, and what Save would
+        actually send, was already correct. Fixed with a `renderAll()` call in that same branch —
+        same reasoning, and the same already-proven-safe "call `renderAll()` from inside this
+        element's own event handler" pattern, as the enabled-badge toggle's existing click handler.
+      - Verified live end to end: real `POST /hotkeys-config` save round-trips confirmed both the
+        normal case (`launchProfileName` defaults to `profileName`, e.g.
+        `cycleChromiumProfile("brave-browser", "Personal", "Personal")`) and the "all profiles"
+        case (`cycleChromiumProfile("brave-browser", "__all__", "Personal")`) generate correctly.
+        Then, since this dev machine only has one real profile configured, used the already-proven
+        split feature (not `brave --new-window`, which turned out not to actually create a second
+        top-level window on this machine — confirmed via a direct KWin window-count probe before
+        concluding that and switching approaches) to get two genuinely separate Brave windows,
+        temporarily set the real "Cycle personal" binding to `"__all__"`, and fired the real
+        deployed hotkey via `kglobalaccel` twice in a row — confirmed via a KWin `activeWindow`
+        probe after each press that it correctly cycled *to* the other window and then *back*,
+        proving `cycleAnyChromiumProfile` genuinely works end to end, not just that it generates
+        the right JS text. Restored the real binding and merged the test window back afterward,
+        confirmed the live config byte-for-byte identical to before testing. Full Python suite
+        green throughout, plus a `node --check` syntax pass on both `main.js` and the extracted
+        `hotkeys-ui.html` inline script.
 
 ---
 

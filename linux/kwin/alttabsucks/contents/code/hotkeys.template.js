@@ -44,7 +44,7 @@ registerShortcut("ebay", "AltTabSucks: ebay",
     "Ctrl+Alt+Shift+P", function () { focusTab("brave-browser", "Personal", ["https://ebay.com"], "https://ebay.com"); });
 
 registerShortcut("Cycle personal", "AltTabSucks: Cycle personal",
-    "Ctrl+Shift+Alt+I", function () { cycleChromiumProfile("brave-browser", "Personal"); });
+    "Ctrl+Shift+Alt+I", function () { cycleChromiumProfile("brave-browser", "Personal", "Personal"); });
 
 registerShortcut("discord", "AltTabSucks: discord",
     "Ctrl+Alt+Shift+D", function () { manageAppWindows("discord", "cycle", ["discord"]); });
