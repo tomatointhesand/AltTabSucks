@@ -29,11 +29,40 @@ class GenerateBindingJsTestCase(unittest.TestCase):
     def test_profile_cycle(self):
         # No resourceClass on the binding at all — profileCycle/tabFocus/splitTab/mergeTabs source
         # it from the browser_resource_class parameter instead (see the module docstring for why).
+        # No launchProfileName either — defaults to profileName itself (see the "all profiles"
+        # tests below for when it's actually required to differ).
         js = generate_binding_js({
             "type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P",
             "profileName": "Work",
         }, browser_resource_class="brave-browser")
-        self.assertIn('cycleChromiumProfile("brave-browser", "Work");', js)
+        self.assertIn('cycleChromiumProfile("brave-browser", "Work", "Work");', js)
+
+    def test_profile_cycle_all_profiles(self):
+        js = generate_binding_js({
+            "type": "profileCycle", "title": "Cycle Any", "key": "Ctrl+Alt+Shift+P",
+            "profileName": "__all__", "launchProfileName": "Personal",
+        }, browser_resource_class="brave-browser")
+        self.assertIn('cycleChromiumProfile("brave-browser", "__all__", "Personal");', js)
+
+    def test_profile_cycle_all_profiles_missing_launch_profile_raises(self):
+        # "__all__" alone doesn't say which profile to launch if nothing's open at all — unlike
+        # a normal single profile, there's no sensible default to fall back to.
+        with self.assertRaises(ValueError) as cm:
+            generate_binding_js({
+                "type": "profileCycle", "title": "Cycle Any", "key": "Ctrl+Alt+Shift+P",
+                "profileName": "__all__",
+            }, browser_resource_class="brave-browser")
+        self.assertIn("launch profile", str(cm.exception))
+
+    def test_profile_cycle_explicit_launch_profile_overrides_default(self):
+        # A launchProfileName that genuinely differs from profileName (deliberately set while
+        # profileName was "__all__", say, then profileName changed back) is honored as-is, not
+        # silently forced to match profileName.
+        js = generate_binding_js({
+            "type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P",
+            "profileName": "Work", "launchProfileName": "Personal",
+        }, browser_resource_class="brave-browser")
+        self.assertIn('cycleChromiumProfile("brave-browser", "Work", "Personal");', js)
 
     def test_split_tab(self):
         js = generate_binding_js({
@@ -68,7 +97,7 @@ class GenerateBindingJsTestCase(unittest.TestCase):
             "type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P",
             "profileName": "Work", "resourceClass": "some-stale-value",
         }, browser_resource_class="brave-browser")
-        self.assertIn('cycleChromiumProfile("brave-browser", "Work");', js)
+        self.assertIn('cycleChromiumProfile("brave-browser", "Work", "Work");', js)
         self.assertNotIn("some-stale-value", js)
 
     def test_tab_focus_multiple_patterns(self):

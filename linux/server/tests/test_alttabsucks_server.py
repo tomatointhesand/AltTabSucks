@@ -404,7 +404,7 @@ class ServerTestCase(unittest.TestCase):
         status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
         self.assertEqual(status, 200)
         js = self.state.hotkeys_js_path.read_text()
-        self.assertIn('cycleChromiumProfile("google-chrome", "Work");', js)
+        self.assertIn('cycleChromiumProfile("google-chrome", "Work", "Work");', js)
 
     def test_hotkeys_config_post_browser_scoped_binding_fails_when_no_browser_configured(self):
         self.state.chromium_resource_class = ""

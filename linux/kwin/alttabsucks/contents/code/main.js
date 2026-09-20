@@ -236,11 +236,26 @@ function windowStillExists(w) {
     return workspace.stackingOrder.indexOf(w) !== -1;
 }
 
-// cycleChromiumProfile(resourceClass, profileName)
+// "All profiles" sentinel for a Cycle browser profile binding's Profile field — cycles across
+// every open window of this browser regardless of profile, instead of one specific profile's own
+// windows. Must exactly match hotkeys_generator.py's own ALL_PROFILES constant and
+// shared/hotkeys-ui.html's own copy — JS and Python don't share a module here, so the three are
+// kept in lockstep by hand, not by import.
+var ALL_PROFILES = "__all__";
+
+// cycleChromiumProfile(resourceClass, profileName, launchProfileName)
 //
 // Linux port of lib/chromium.ahk's CycleChromiumProfile(). Cycles through a browser profile's
 // open windows, identified by matching their captions against that profile's active-tab titles
 // (fetched from the bridge server via GetActiveTitles) — same approach as the AHK version.
+// profileName === ALL_PROFILES is its own thing entirely — see cycleAnyChromiumProfile below.
+//
+// launchProfileName is a real, specific profile (never ALL_PROFILES itself) — what gets launched
+// if nothing matches and nothing's open at all. For a normal single-profile binding this is
+// always just profileName again (hotkeys_generator.py defaults it that way when unset, so old
+// bindings saved before this parameter existed keep working with zero changes); it only ever
+// needs to genuinely differ from profileName when profileName is ALL_PROFILES, since "all
+// profiles" alone doesn't say which one to start fresh.
 //
 // Simplifications from the AHK version (noted rather than silently dropped):
 //   - No HWND-ascending sort for "stable ordering" — KWin windows have no numeric-id equivalent,
@@ -251,7 +266,11 @@ function windowStillExists(w) {
 //     title match is found. Minor UX difference, only visible right after a server (re)start.
 var _chromiumCache = {}; // profileName -> { titlesKey: string, windows: [Window, ...] }
 
-function cycleChromiumProfile(resourceClass, profileName) {
+function cycleChromiumProfile(resourceClass, profileName, launchProfileName) {
+    if (profileName === ALL_PROFILES) {
+        cycleAnyChromiumProfile(resourceClass, launchProfileName);
+        return;
+    }
     bridgeCall("GetActiveTitles", [profileName], function (titlesKey) {
         var matching = [];
         var cached = _chromiumCache[profileName];
@@ -283,6 +302,28 @@ function cycleChromiumProfile(resourceClass, profileName) {
         }
         activateWindow(matching[(activeIdx + 1) % matching.length], profileName);
     });
+}
+
+// profileName === ALL_PROFILES path, split out rather than branched inline: cycles every open
+// window of resourceClass regardless of which profile it belongs to, skipping the per-profile
+// GetActiveTitles matching/caching above entirely — there's no single profile to key that cache
+// on. This is exactly what cycleChromiumProfile's own "matching.length === 0" fallback already
+// did as a last-resort safety net for a single profile's cycling; here it's the deliberate,
+// primary behavior instead of a fallback for stale/missing per-profile data. The toast can't name
+// a specific profile the way the single-profile path's does (there isn't one to name), so it just
+// says "All profiles" instead.
+function cycleAnyChromiumProfile(resourceClass, launchProfileName) {
+    var matching = listBrowserWindows(resourceClass);
+    if (matching.length === 0) {
+        launchChromiumProfileAndActivate(resourceClass, launchProfileName);
+        return;
+    }
+    var active = workspace.activeWindow;
+    var activeIdx = -1;
+    for (var i = 0; i < matching.length; i++) {
+        if (matching[i] === active) { activeIdx = i; break; }
+    }
+    activateWindow(matching[(activeIdx + 1) % matching.length], "All profiles");
 }
 
 // Launches the profile fresh (dbus_bridge.py's LaunchChromiumProfile — resolves the profile

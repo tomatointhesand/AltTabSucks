@@ -481,6 +481,65 @@ function profileSelect(binding) {
   return select;
 }
 
+// "All profiles" sentinel — must exactly match hotkeys_generator.py's own ALL_PROFILES constant
+// and main.js's own copy. Not auto-synced across the three (no shared module between Python/JS
+// here), so keep them in lockstep by hand if this ever changes.
+const ALL_PROFILES = "__all__";
+
+// Only "Cycle browser profile" bindings get this — the one type where cycling every open window
+// of the browser regardless of profile is a meaningful thing to want. Every other type with a
+// Profile field is scoped to one profile on purpose (which URL/tab to search within, which
+// window to split/merge into), so plain profileSelect above stays as-is for those. Shares
+// profileOptions with it, just with "All profiles" appended as an explicit, real option — not
+// relying on profileOptions' own "not in discovered list" fallback, which is for a genuinely
+// stale/unknown profile name, not a deliberate sentinel. Kept last in the list (not first) so a
+// brand-new binding's default-selected option is still a real profile, same as before this
+// existed — "All profiles" is an opt-in choice, not the new default.
+function profileCycleTargetSelect(binding) {
+  const isAll = binding.profileName === ALL_PROFILES;
+  const allOpt = el("option", isAll ? { value: ALL_PROFILES, selected: "" } : { value: ALL_PROFILES }, ["All profiles"]);
+  const select = el("select", {}, [...profileOptions(isAll ? null : binding.profileName), allOpt]);
+  if (!binding.profileName && select.options.length) {
+    binding.profileName = select.options[select.selectedIndex].value;
+  }
+  // launchProfileName mirrors a real (non-"All") Profile choice automatically — the only time
+  // they're meant to differ is while Profile is "All profiles", where there's no single profile
+  // for it to mirror. Covers both the very first render (a fresh binding, or one saved before
+  // launchProfileName existed at all) and every later change — switching away from "All profiles"
+  // deliberately overwrites whatever launchProfileName was, since cycling and launching the same
+  // profile is the only sane combination once you're not cycling "All" anymore.
+  if (binding.profileName !== ALL_PROFILES && !binding.launchProfileName) {
+    binding.launchProfileName = binding.profileName;
+  }
+  select.addEventListener("change", () => {
+    binding.profileName = select.value;
+    // The Launch profile field is a *separate* <select> (launchProfileSelect below) that only
+    // reads binding.launchProfileName when it's built — mutating the binding alone here would
+    // leave its on-screen value stale (still showing whatever it last rendered) even though the
+    // saved data would already be correct. renderAll() rebuilds it so what's on screen actually
+    // matches, same reasoning as the enabled-badge toggle's own renderAll() call.
+    if (binding.profileName !== ALL_PROFILES) {
+      binding.launchProfileName = binding.profileName;
+      renderAll();
+    }
+  });
+  return select;
+}
+
+// The real, specific profile a "Cycle browser profile" binding launches fresh if literally no
+// window of the browser is open at all — never "All profiles" itself (see
+// profileCycleTargetSelect's own comment for why). Plain profileSelect-shaped; the "keep this in
+// sync with a real Profile choice" logic lives on the Profile field's own select above, not here,
+// since that's the one side that actually knows when it should or shouldn't apply.
+function launchProfileSelect(binding) {
+  const select = el("select", {}, profileOptions(binding.launchProfileName));
+  if (!binding.launchProfileName && select.options.length) {
+    binding.launchProfileName = select.options[select.selectedIndex].value;
+  }
+  select.addEventListener("change", () => { binding.launchProfileName = select.value; });
+  return select;
+}
+
 function keyInput(binding) {
   const input = el("input", { type: "text" });
   input.value = binding.key || "";
@@ -505,10 +564,14 @@ const TYPE_COLUMNS = {
     resourceClassColumn(),
     { label: "Launch command (optional — spawned if no window open)", extraClass: "grow", build: (b) => listInput(b, "launchArgv", "e.g. dolphin") },
   ],
+  // The only type whose Profile field offers "All profiles" — cycling across every open window
+  // regardless of profile is meaningful specifically for this one, not for tabFocus/splitTab/
+  // mergeTabs (see SPLIT_MERGE_COLUMNS below), which stay scoped to plain profileSelect.
   profileCycle: [
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
-    { label: "Profile", extraClass: "fixed select-col", build: (b) => profileSelect(b) },
+    { label: "Profile", extraClass: "fixed select-col", build: (b) => profileCycleTargetSelect(b) },
+    { label: "Launch profile (if none open)", extraClass: "fixed select-col", build: (b) => launchProfileSelect(b) },
   ],
   tabFocus: [
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
@@ -523,12 +586,22 @@ const TYPE_COLUMNS = {
     { label: "Command (argv, no shell — one arg per line/comma)", extraClass: "grow", build: (b) => listInput(b, "argv", "/path/to/installer.sh, reload-hotkeys") },
   ],
 };
-// windowToggle behaves exactly like windowCycle field-wise, and splitTab/mergeTabs share
-// profileCycle's exact fields (Title/Key/resourceClass/Profile, no window/launch/URL fields of
-// their own) — reusing the spec rather than repeating it keeps them impossible to drift apart.
+// windowToggle behaves exactly like windowCycle field-wise, so it just reuses that spec — reusing
+// rather than repeating it keeps the two impossible to drift apart.
 TYPE_COLUMNS.windowToggle = TYPE_COLUMNS.windowCycle;
-TYPE_COLUMNS.splitTab = TYPE_COLUMNS.profileCycle;
-TYPE_COLUMNS.mergeTabs = TYPE_COLUMNS.profileCycle;
+
+// splitTab/mergeTabs share these exact fields (Title/Key/Profile, no window/launch/URL fields of
+// their own) — used to alias profileCycle's own column spec directly, but profileCycle grew an
+// "All profiles"/Launch profile pair that doesn't make sense here (split/merge act on whichever
+// window is *currently focused*, not something you'd ever want to run against "every profile" at
+// once), so this is its own small spec instead.
+const SPLIT_MERGE_COLUMNS = [
+  { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
+  { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
+  { label: "Profile", extraClass: "fixed select-col", build: (b) => profileSelect(b) },
+];
+TYPE_COLUMNS.splitTab = SPLIT_MERGE_COLUMNS;
+TYPE_COLUMNS.mergeTabs = SPLIT_MERGE_COLUMNS;
 
 function newBindingOfType(type) {
   const b = { type, title: "", key: "", enabled: true };
