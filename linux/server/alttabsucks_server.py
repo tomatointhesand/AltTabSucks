@@ -347,6 +347,17 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 # of a per-binding field the way it used to be.
                 hk_config["browserResourceClass"] = state.chromium_resource_class
                 self._end_json(200, hk_config)
+            elif path == "/suggest-launch-command":
+                # Best-effort — see launch_command_suggester's own module docstring for the
+                # matching heuristic and why it can't promise correctness. Scanned fresh on every
+                # call rather than cached: .desktop files essentially never change mid-session,
+                # but this endpoint is only ever hit interactively (a human editing one hotkey
+                # field in the Hotkeys UI), never a hot path, so there's nothing worth caching for.
+                resource_class = qs.get("resourceClass", [None])[0] or ""
+                import launch_command_suggester
+                entries = launch_command_suggester.load_desktop_entries()
+                argv = launch_command_suggester.suggest_launch_command(resource_class, entries)
+                self._end_json(200, {"argv": argv})
             else:
                 self._end(404)
 

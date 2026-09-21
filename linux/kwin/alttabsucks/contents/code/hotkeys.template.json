@@ -241,7 +241,9 @@
       "key": "Ctrl+Alt+Shift+B",
       "enabled": true,
       "resourceClass": "Bitwarden",
-      "launchArgv": []
+      "launchArgv": [
+        "bitwarden-desktop"
+      ]
     },
     {
       "type": "tabFocus",

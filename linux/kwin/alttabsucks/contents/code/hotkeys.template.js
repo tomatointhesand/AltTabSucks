@@ -77,7 +77,7 @@ registerShortcut("shelly", "AltTabSucks: shelly",
     "Ctrl+Alt+Shift+L", function () { manageAppWindows("com.shellyorg.shelly", "cycle", ["shelly-ui"]); });
 
 registerShortcut("bitwarden", "AltTabSucks: bitwarden",
-    "Ctrl+Alt+Shift+B", function () { manageAppWindows("Bitwarden", "cycle"); });
+    "Ctrl+Alt+Shift+B", function () { manageAppWindows("Bitwarden", "cycle", ["bitwarden-desktop"]); });
 
 registerShortcut("Twitch", "AltTabSucks: Twitch",
     "Ctrl+Shift+Meta+T", function () { focusTab("brave-browser", "Personal", ["https://twitch.tv"], "https://twitch.tv/atrioc"); });

@@ -453,7 +453,42 @@ function textInput(binding, key, placeholder, suggest) {
 // why the push happens that direction, not a pull from here).
 function resourceClassColumn() {
   return { label: "resourceClass", extraClass: "grow",
-    build: (b) => textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...", true) };
+    build: (b) => {
+      const input = textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...", true);
+      // Launch-command auto-suggestion — only reachable from here since resourceClassColumn is
+      // only ever used for windowCycle/windowToggle now (the only types with a Launch command
+      // field at all). "blur" (not "input", which would fire once per keystroke) is the trigger:
+      // a natural "I'm done with this field" signal covering both hand-typing the full value and
+      // moving on after a typeahead pick (selectSuggestion refocuses the field, so blur doesn't
+      // fire immediately on a pick — just whenever the user next moves on, which is fine).
+      input.addEventListener("blur", () => maybeSuggestLaunchCommand(b));
+      return input;
+    } };
+}
+
+// Best-effort Launch-command auto-suggestion for a windowCycle/windowToggle binding, sourced from
+// GET /suggest-launch-command (server-side .desktop file scanning — see
+// linux/server/launch_command_suggester.py's own module docstring for the matching heuristic and
+// why it can't promise correctness). Never overwrites a Launch command the binding already has —
+// this only ever fills a field the user hasn't touched, the same "don't second-guess an explicit
+// choice" spirit as every self-initializing <select> elsewhere in this file, just for a plain
+// text field instead.
+async function maybeSuggestLaunchCommand(binding) {
+  if (binding.type !== "windowCycle" && binding.type !== "windowToggle") return;
+  if (binding.launchArgv && binding.launchArgv.length) return;
+  if (!binding.resourceClass) return;
+  let result;
+  try {
+    result = await apiGet("/suggest-launch-command?resourceClass=" + encodeURIComponent(binding.resourceClass));
+  } catch (e) {
+    return; // best-effort only — a failed lookup just leaves the field empty, same as before this existed
+  }
+  // Re-check after the await: the user may have typed a Launch command themselves, or changed
+  // resourceClass again, while this was in flight.
+  if (result.argv && result.argv.length && (!binding.launchArgv || !binding.launchArgv.length) && binding.resourceClass) {
+    binding.launchArgv = result.argv;
+    renderAll();
+  }
 }
 
 function listInput(binding, key, placeholder) {
@@ -562,7 +597,7 @@ const TYPE_COLUMNS = {
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
     resourceClassColumn(),
-    { label: "Launch command (optional — spawned if no window open)", extraClass: "grow", build: (b) => listInput(b, "launchArgv", "e.g. dolphin") },
+    { label: "Launch command (spawned if no window open — auto-suggested once resourceClass is filled in)", extraClass: "grow", build: (b) => listInput(b, "launchArgv", "e.g. dolphin") },
   ],
   // The only type whose Profile field offers "All profiles" — cycling across every open window
   // regardless of profile is meaningful specifically for this one, not for tabFocus/splitTab/

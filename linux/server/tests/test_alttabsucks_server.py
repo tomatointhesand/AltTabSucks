@@ -21,9 +21,11 @@ import unittest
 import http.client
 from pathlib import Path
 from http.server import ThreadingHTTPServer
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alttabsucks_server import AppState, make_handler, load_or_create_token  # noqa: E402
+import launch_command_suggester  # noqa: E402
 
 TOKEN = "test-token"
 EXT_ORIGIN = "chrome-extension://testextensionid"
@@ -478,6 +480,34 @@ class ServerTestCase(unittest.TestCase):
         status, _, _ = self.request("GET", "/hotkeys-config", token=None)
         self.assertEqual(status, 403)
         status, _, _ = self.request("POST", "/hotkeys-config", token=None, json_body={"bindings": []})
+        self.assertEqual(status, 403)
+
+    # ---- /suggest-launch-command ---------------------------------------------
+    # Patches launch_command_suggester.load_desktop_entries rather than touching this machine's
+    # real installed apps — same reasoning as AppState.deploy_command/hotkeys_config_path's own
+    # per-test overrides: deterministic, and never dependent on what happens to be on disk here.
+
+    def test_suggest_launch_command_returns_match(self):
+        entries = [launch_command_suggester.DesktopEntry("Kate", ["kate", "-b"], "kate")]
+        with patch.object(launch_command_suggester, "load_desktop_entries", return_value=entries):
+            status, _, body = self.request("GET", "/suggest-launch-command?resourceClass=org.kde.kate")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), {"argv": ["kate", "-b"]})
+
+    def test_suggest_launch_command_no_match_returns_null_argv(self):
+        with patch.object(launch_command_suggester, "load_desktop_entries", return_value=[]):
+            status, _, body = self.request("GET", "/suggest-launch-command?resourceClass=nothing-like-this")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), {"argv": None})
+
+    def test_suggest_launch_command_missing_resource_class_param(self):
+        with patch.object(launch_command_suggester, "load_desktop_entries", return_value=[]):
+            status, _, body = self.request("GET", "/suggest-launch-command")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), {"argv": None})
+
+    def test_suggest_launch_command_requires_auth(self):
+        status, _, _ = self.request("GET", "/suggest-launch-command?resourceClass=kate", token=None)
         self.assertEqual(status, 403)
 
     # ---- /hotkeys-ui -------------------------------------------------------
