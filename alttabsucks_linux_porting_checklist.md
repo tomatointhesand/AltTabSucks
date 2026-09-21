@@ -1470,6 +1470,96 @@ be approached differently than the Windows version was.
         very first post-launch check, `active=true` confirmed on a second press once the window
         already existed and a screenshot showing it genuinely in the foreground — not a broken
         mechanism, same timing characteristic already noted for Steam.
+- [x] **Follow-up: Bitwarden had the exact same gap, plus a real solution for it going forward —
+      auto-suggesting the launch command instead of requiring it typed in by hand** — reported
+      live ("same issue with the shelly shortcut" → "same issue with the bitwarden shortcut"),
+      then asked directly for a proper fix to the underlying pattern, not a third one-off patch.
+      - Bitwarden's own binding: `"launchArgv": []`, same shape as Shelly's, same fix
+        (`["bitwarden-desktop"]`, from `bitwarden.desktop`'s `Exec=`). Verifying it live surfaced a
+        real methodology gap of its own: the first "confirm it's actually closed" check
+        (`pgrep -a bitwarden`) came back empty even though Bitwarden was genuinely already
+        running (since Sep20) — `pgrep` matches against the kernel-truncated `comm` name, which
+        for an Electron app launched as `/usr/lib/electron39/electron /usr/lib/bitwarden/app.asar`
+        is "electron", not "bitwarden" at all, so a naive check silently missed it. Caught before
+        it produced a false "confirmed launch from scratch" — the fix's actual live verification
+        used `pkill -f`/`ps aux` (matching against full command lines, not truncated `comm`)
+        instead, genuinely closed it, and confirmed it genuinely relaunched.
+      - **Root cause, one level up**: every one of these three had a real, standard place its
+        correct launch command already lived — the system's own `.desktop` files
+        (`/usr/share/applications`), which every Linux launcher/dock/menu already reads for
+        exactly this purpose. Nothing in this codebase had ever looked there; a hotkey's Launch
+        command field was purely something a human had to already know (or go look up) and type
+        in by hand, with no visible consequence to leaving it blank until the exact moment the
+        app was actually closed and the hotkey silently did nothing.
+      - New `linux/server/launch_command_suggester.py`: parses `.desktop` files (own
+        `parse_desktop_entry`, unit-tested independent of any real filesystem) from the standard
+        XDG data directories, with a hardcoded fallback (`/usr/local/share:/usr/share`) plus
+        Flatpak export paths always checked regardless — confirmed live that
+        `XDG_DATA_DIRS`/`XDG_DATA_HOME` are simply unset in this server's actual `systemd --user`
+        environment on this machine, the same kind of environment-doesn't-propagate-the-way-
+        you'd-hope gap this project has hit more than once already (the `graphical-session.target`
+        entries above). `suggest_launch_command(resource_class, entries)` matches in priority
+        order: (1) exact `StartupWMClass` (case-insensitive), (2) the launch command's own binary
+        name matching resourceClass's last dot-segment, exactly or as a prefix in either
+        direction, guarded to both strings being ≥3 characters so a short one can't loosely
+        prefix-match half the installed system.
+      - **Two real, live-caught bugs in the matching heuristic itself, not just in the bindings it
+        was meant to fix** — exactly why this got verified against this machine's *real* installed
+        apps before being called done, not just its own synthetic unit tests:
+        - Querying `steam` returned `['steam', 'steam://rungameid/70']` — a *specific Half-Life
+          shortcut*, not the real launcher. Steam auto-generates one `.desktop` file per installed
+          game, and every single one shares the exact same binary name as the real
+          `steam.desktop` entry; a plain first-match-wins pass 2 could land on any of them,
+          purely by directory-scan order. Fixed by ranking candidates instead of first-match-wins:
+          fewest leftover argv tokens first (a bare launch command outranks one carrying a
+          specific deep-link/URI/target — exactly what marks a *specific*-shortcut rather than a
+          generic one).
+        - Querying `com.shellyorg.shelly` returned `['/bin/sh', '-c', 'sleep 3 && arch-update
+          --tray']` — a completely unrelated Arch update-notifier tray icon. Its binary is `sh`
+          (2 characters); `"shelly".startswith("sh")` is trivially true of nearly anything, so the
+          existing "resourceClass segment ≥3 chars" guard wasn't enough on its own — the *other*
+          string being compared needs the same floor. Fixed by requiring both strings ≥3
+          characters, not just the resourceClass segment.
+        - A **third** live-caught ambiguity, resolved without excluding anything outright: once
+          the length-guard fix above correctly ruled out the arch-update false match, Shelly's
+          *own* real background helper (`com.shellyorg.shelly-notifications.desktop`,
+          `Exec=/usr/bin/shelly-notifications`) still tied with the real `shelly-ui` entry — same
+          argv length, nothing left to rank on. Its one distinguishing field, `NoDisplay=true`,
+          was originally going to be treated as an outright exclusion filter, then deliberately
+          reconsidered: plenty of legitimately-launchable entries are hidden from menus without
+          being any less launchable, so excluding on it outright risked eliminating genuinely
+          correct matches elsewhere. Used as a ranking tiebreak instead (`NoDisplay=false` before
+          `NoDisplay=true`) — resolves this exact case without ever discarding an entry that might
+          still be the best available answer if nothing better exists.
+      - `GET /suggest-launch-command?resourceClass=...` (behind the same auth check as every other
+        endpoint) returns `{"argv": [...] | null}`; server-side, best-effort, scanned fresh per
+        request (no caching — `.desktop` files essentially never change mid-session, and this is
+        only ever hit interactively, never a hot path).
+      - `shared/hotkeys-ui.html`: `resourceClassColumn` (windowCycle/windowToggle only — the only
+        types with a Launch command field at all) now fires the suggestion lookup on `blur`, and
+        only ever fills the field when it's currently empty — never overwrites a value the user
+        already set, the same "don't second-guess an explicit choice" spirit as every self-
+        initializing `<select>` elsewhere in this file.
+      - Verified at every layer, not just the unit tests: 27 new `launch_command_suggester.py`
+        tests plus live spot-checks against this machine's real, installed `.desktop` files for
+        all 6 currently-configured `windowCycle` apps (confirmed each now resolves correctly,
+        including the two fixed real-world ambiguities); 4 new server tests for the endpoint
+        (patched `load_desktop_entries` rather than depending on what happens to be installed);
+        and — since this is genuinely new interactive client-side behavior, not just generated
+        text — a full headless DOM replay (jsdom, installed fresh into the scratchpad rather than
+        the repo) against the **real running server**: loaded the real served page, pasted the
+        real token exactly like a human would (`input` then `change`, matching the field's own
+        listeners), clicked the real "+ Add" button for App windows, typed a fresh
+        `com.shellyorg.shelly` resourceClass into the new row, dispatched `blur`, and confirmed
+        the real `/usr/bin/shelly-ui` suggestion actually landed in that row's Launch command
+        field on screen — not a mocked fetch, the genuine `GET /suggest-launch-command` round-trip
+        against the real server. (Playwright's own browser wasn't installed in this environment
+        and installing it was out of scope for one test; jsdom was already this project's
+        established technique for exactly this kind of headless client-side verification.)
+        Confirmed afterward the real saved `hotkeys.json` was untouched (the test only clicked
+        into the DOM, never Save) — 25 bindings before and after, no stray entry left behind. Swept
+        every remaining `windowCycle`/`windowToggle` binding by hand afterward and confirmed none
+        of the other four have the same missing-`launchArgv` gap.
 
 ---
 
