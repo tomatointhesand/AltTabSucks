@@ -1422,6 +1422,34 @@ be approached differently than the Windows version was.
         confirmed the live config byte-for-byte identical to before testing. Full Python suite
         green throughout, plus a `node --check` syntax pass on both `main.js` and the extracted
         `hotkeys-ui.html` inline script.
+- [x] **Steam's Cycle hotkey couldn't launch it from closed — a missing `launchArgv`, not a code
+      bug** — reported live ("the launch/cycle steam shortcut is not currently working to launch
+      steam from scratch"). Confirmed Steam wasn't running (`pgrep steam` empty), then found it
+      immediately in the generated JS: `manageAppWindows("steam", "cycle")` — a bare two-argument
+      call, no launch command at all, unlike every other `windowCycle` binding (e.g. Kate's
+      `manageAppWindows("org.kde.kate", "cycle", ["kate"])`). `manageAppWindows`'s own launch
+      branch is gated on `if (launchArgv)` — with it `undefined`, nothing-open silently no-ops,
+      exactly the reported symptom. Not a bug: the binding was simply saved without ever filling
+      in the "Launch command" field (present but left blank), most likely added at a time Steam
+      happened to already be running, when a missing launch command has no visible effect at all.
+      - Fix: `["steam"]` — confirmed `/usr/bin/steam` is directly on `PATH` on this machine, a
+        native binary, no Flatpak wrapper needed.
+      - Verified live end to end: confirmed Steam genuinely closed first, added `launchArgv` via
+        the same `POST /hotkeys-config` round-trip this whole session already uses for live
+        testing, confirmed the regenerated `hotkeys.js` now reads
+        `manageAppWindows("steam", "cycle", ["steam"])`, then fired the real deployed hotkey via
+        `kglobalaccel` — the actual Steam process came up (`pgrep` showing the real client/
+        webhelper/runtime processes) and its window appeared with the correct `steam` resourceClass
+        (confirmed via a direct KWin window probe, then a screenshot showing Steam's own Library
+        genuinely on screen). One honest wrinkle, not silently glossed over: the very first
+        post-launch check read `active=false` — Steam is a notably slow starter, and its window
+        can take longer to actually appear than `waitAndActivateLaunchedWindow`'s shared 8s
+        poll-then-activate window (the same mechanism already proven for faster-starting apps like
+        Kate/Discord) accounts for. A second hotkey press once the window already existed
+        confirmed the ordinary "already open, activate/cycle" path works correctly
+        (`active=true`), so nothing about *that* mechanism is actually broken — just a possible
+        gap specific to how long Steam itself takes to show up on a cold start, not something the
+        user asked to be tuned further here.
 
 ---
 

@@ -131,7 +131,8 @@
         "brave-browser"
       ],
       "enabled": true,
-      "profileName": "Personal"
+      "profileName": "__all__",
+      "launchProfileName": "Personal"
     },
     {
       "type": "windowCycle",
@@ -219,21 +220,28 @@
       "title": "steam",
       "key": "Ctrl+Alt+Shift+S",
       "enabled": true,
-      "resourceClass": "steam"
+      "resourceClass": "steam",
+      "launchArgv": [
+        "steam"
+      ]
     },
     {
       "type": "windowCycle",
       "title": "shelly",
       "key": "Ctrl+Alt+Shift+L",
       "enabled": true,
-      "resourceClass": "com.shellyorg.shelly"
+      "resourceClass": "com.shellyorg.shelly",
+      "launchArgv": []
     },
     {
       "type": "windowCycle",
       "title": "bitwarden",
       "key": "Ctrl+Alt+Shift+B",
       "enabled": true,
-      "resourceClass": "Bitwarden"
+      "resourceClass": "Bitwarden",
+      "launchArgv": [
+        "bitwarden"
+      ]
     },
     {
       "type": "tabFocus",
@@ -246,6 +254,17 @@
         "https://twitch.tv"
       ],
       "openUrl": "https://twitch.tv/atrioc"
+    },
+    {
+      "type": "tabFocus",
+      "title": "Claude web",
+      "key": "Ctrl+Shift+Meta+C",
+      "enabled": true,
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://claude.ai"
+      ],
+      "openUrl": "https://claude.ai"
     }
   ]
 }
