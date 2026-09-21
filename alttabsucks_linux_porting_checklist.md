@@ -1450,6 +1450,26 @@ be approached differently than the Windows version was.
         (`active=true`), so nothing about *that* mechanism is actually broken — just a possible
         gap specific to how long Steam itself takes to show up on a cold start, not something the
         user asked to be tuned further here.
+- [x] **Follow-up: Shelly's Cycle hotkey had the exact same missing-launch-command gap** —
+      reported live right after the Steam fix ("same issue with the shelly shortcut"). Not
+      identical in shape, worth actually checking rather than assuming: Steam's binding had no
+      `launchArgv` key at all, Shelly's had one but as an empty array (`"launchArgv": []`) — both
+      falsy in JS/Python, so both hit `manageAppWindows`'s `if (launchArgv)` gate the same way and
+      generated the same argument-less `manageAppWindows("com.shellyorg.shelly", "cycle")` call.
+      Confirmed via `pgrep` that the main Shelly app itself wasn't running (only its separate
+      `shelly-notifications` tray helper was, from a different `.desktop` file) — a real
+      launch-from-scratch gap, not a stale assumption.
+      - Fix: `["shelly-ui"]`, confirmed via `which shelly-ui` — the same binary name this
+        session's earlier resourceClass-typeahead work already surfaced as Shelly's
+        `resourceName` (`com.shellyorg.shelly` / `shelly-ui`), directly on `PATH`, no Flatpak
+        wrapper.
+      - Verified live end to end the same way as Steam's fix: `POST /hotkeys-config` round-trip,
+        confirmed regenerated `hotkeys.js`, real `kglobalaccel` press — the actual `shelly-ui`
+        process came up (`pgrep`) and its window appeared with the correct
+        `com.shellyorg.shelly` resourceClass. Same honest wrinkle as Steam: `active=false` on the
+        very first post-launch check, `active=true` confirmed on a second press once the window
+        already existed and a screenshot showing it genuinely in the foreground — not a broken
+        mechanism, same timing characteristic already noted for Steam.
 
 ---
 
