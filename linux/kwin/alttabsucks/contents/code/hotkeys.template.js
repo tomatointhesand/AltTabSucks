@@ -38,7 +38,7 @@ registerShortcut("ebay", "AltTabSucks: ebay",
     "Ctrl+Alt+Shift+P", function () { focusTab("brave-browser", "Personal", ["https://ebay.com"], "https://ebay.com"); });
 
 registerShortcut("Cycle personal", "AltTabSucks: Cycle personal",
-    "Ctrl+Shift+Alt+I", function () { cycleChromiumProfile("brave-browser", "Personal", "Personal"); });
+    "Ctrl+Shift+Alt+I", function () { cycleChromiumProfile("brave-browser", "__all__", "Personal"); });
 
 registerShortcut("discord", "AltTabSucks: discord",
     "Ctrl+Alt+Shift+D", function () { manageAppWindows("discord", "cycle", ["discord"]); });
@@ -62,13 +62,16 @@ registerShortcut("reddit", "AltTabSucks: reddit",
     "Ctrl+Alt+Shift+R", function () { focusTab("brave-browser", "Personal", ["https://reddit.com"], "https://reddit.com/r/sailing"); });
 
 registerShortcut("steam", "AltTabSucks: steam",
-    "Ctrl+Alt+Shift+S", function () { manageAppWindows("steam", "cycle"); });
+    "Ctrl+Alt+Shift+S", function () { manageAppWindows("steam", "cycle", ["steam"]); });
 
 registerShortcut("shelly", "AltTabSucks: shelly",
     "Ctrl+Alt+Shift+L", function () { manageAppWindows("com.shellyorg.shelly", "cycle"); });
 
 registerShortcut("bitwarden", "AltTabSucks: bitwarden",
-    "Ctrl+Alt+Shift+B", function () { manageAppWindows("Bitwarden", "cycle"); });
+    "Ctrl+Alt+Shift+B", function () { manageAppWindows("Bitwarden", "cycle", ["bitwarden"]); });
 
 registerShortcut("Twitch", "AltTabSucks: Twitch",
     "Ctrl+Shift+Meta+T", function () { focusTab("brave-browser", "Personal", ["https://twitch.tv"], "https://twitch.tv/atrioc"); });
+
+registerShortcut("Claude web", "AltTabSucks: Claude web",
+    "Ctrl+Shift+Meta+C", function () { focusTab("brave-browser", "Personal", ["https://claude.ai"], "https://claude.ai"); });
