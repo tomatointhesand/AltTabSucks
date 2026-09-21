@@ -231,7 +231,9 @@
       "key": "Ctrl+Alt+Shift+L",
       "enabled": true,
       "resourceClass": "com.shellyorg.shelly",
-      "launchArgv": []
+      "launchArgv": [
+        "shelly-ui"
+      ]
     },
     {
       "type": "windowCycle",
@@ -239,9 +241,7 @@
       "key": "Ctrl+Alt+Shift+B",
       "enabled": true,
       "resourceClass": "Bitwarden",
-      "launchArgv": [
-        "bitwarden"
-      ]
+      "launchArgv": []
     },
     {
       "type": "tabFocus",
