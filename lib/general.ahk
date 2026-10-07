@@ -110,11 +110,24 @@ OpenIssue(prefix) {
     Run(url "-" result.Value)
 }
 
+; Restarts the server task (installer.ps1 -Action restart waits until it answers), then reloads
+; this script — one key to apply code changes on either side. The extension re-pushes its tabs
+; as soon as it sees the server again; AHK re-pushes profiles on startup.
+RestartAltTabSucks() {
+    ToolTip("Restarting AltTabSucks…")
+    RunWait('pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "' A_ScriptDir '\installer.ps1" -Action restart',, "Hide")
+    Reload()
+}
+
 ; Parses app-hotkeys.ahk and returns a formatted hotkey reference string grouped
 ; by called function. Section headers are the function name itself — no hardcoded
 ; category list. A hotkey appears only if its function has a _Desc* handler.
 _BuildHotkeyRef() {
     content  := FileRead(A_ScriptDir "\lib\app-hotkeys.ahk", "UTF-8")
+    ; Hotkeys saved from the web UI, rewritten from _UiHotkey("key", "title", (*) => action) to key:: action
+    uiPath := A_ScriptDir "\lib\hotkeys-ui.generated.ahk"
+    if FileExist(uiPath)
+        content .= "`n" RegExReplace(FileRead(uiPath, "UTF-8"), 'm)^_UiHotkey\("(.+?)", ".*?", \(\*\) => (.*?)(, true)?\)$', "$1:: $2")
     lines    := StrSplit(content, "`n", "`r")
 
     profiles := Map()
@@ -136,7 +149,7 @@ _BuildHotkeyRef() {
                 inBlock := false
             continue
         }
-        if !RegExMatch(trimmed, "^([^\s:]+)::\s*(.*)", &hm)
+        if SubStr(trimmed, 1, 1) = ";" || !RegExMatch(trimmed, "^([^\s:]+)::\s*(.*)", &hm)
             continue
         combo  := hm[1]
         action := Trim(hm[2])
@@ -209,7 +222,7 @@ _HotkeyDesc(funcName, action, profiles) {
             return m[1]
     }
     if RegExMatch(funcName, "Cycle\w+Profile") {
-        if RegExMatch(action, "\((\w+)\)", &m) {
+        if RegExMatch(action, '\("?([^")]+)"?\)', &m) {   ; P1 variable or a literal "profile"
             pVar := m[1]
             return (profiles.Has(pVar) ? profiles[pVar] : pVar) . " (cycle)"
         }
@@ -224,5 +237,7 @@ _HotkeyDesc(funcName, action, profiles) {
         return "settings"
     if funcName = "ShowWindowSwitcher"
         return "window typeahead switcher"
+    if funcName = "Run" && RegExMatch(action, '^Run\("(.*)"\)$', &m)
+        return StrReplace(m[1], '``"', '"')
     return ""
-}
+}

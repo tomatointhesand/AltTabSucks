@@ -217,7 +217,7 @@ be approached differently than the Windows version was.
       binding against the actual "Personal" profile, confirmed `hotkeys.json`/`hotkeys.js`
       regenerated correctly, deployed via `./installer.sh install`, confirmed all three
       registered as real `kglobalaccel` shortcuts.
-  - [ ] **Follow-up, deliberately not done here**: wiring the same `shared/hotkeys-ui.html` into
+  - [x] **Done (Windows side)**: wiring the same `shared/hotkeys-ui.html` into
         `AltTabSucksServer.ps1` (static-file serving + regenerating `app-hotkeys.ahk` from the
         same `hotkeys.json` shape) — scoped as a separate step requiring explicit go-ahead, since
         it touches working Windows code rather than adding something new. `hotkeys_generator.py`

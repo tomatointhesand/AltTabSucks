@@ -12,6 +12,8 @@
     status    - Shows current task state.
     start     - Starts the task manually (if not already running).
     stop      - Stops the task and kills any orphaned AltTabSucksServer.ps1 processes.
+    restart   - stop + start, then waits (up to 15s) until the server answers. Used by the
+                Ctrl+Alt+Shift+' reload hotkey so server changes apply along with AHK ones.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File install-service.ps1
@@ -19,7 +21,7 @@
 #>
 
 param(
-    [ValidateSet("install", "uninstall", "status", "start", "stop")]
+    [ValidateSet("install", "uninstall", "status", "start", "stop", "restart")]
     [string]$Action = "install"
 )
 
@@ -41,6 +43,22 @@ $RepoRoot      = $PSScriptRoot
 $AhkScript     = Join-Path $RepoRoot "AltTabSucks.ahk"
 $StartupDir    = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $StartupScript = Join-Path $StartupDir "AltTabSucks.bat"
+
+if ($Action -eq "restart") {
+    & $PSCommandPath -Action stop
+    & $PSCommandPath -Action start
+    # Wait for the listener so callers (the AHK reload hotkey) don't race a half-started server.
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-Date) -lt $deadline) {
+        try {
+            Invoke-WebRequest "http://localhost:9876/hotkeys-ui" -UseBasicParsing -TimeoutSec 1 | Out-Null
+            Write-Host "Server is up."
+            exit 0
+        } catch { Start-Sleep -Milliseconds 250 }
+    }
+    Write-Error "Server didn't answer within 15s."
+    exit 1
+}
 
 switch ($Action) {
 

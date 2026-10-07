@@ -8,8 +8,9 @@
   /*
     Shared settings UI for AltTabSucks hotkey bindings — served by the local bridge server at
     GET /hotkeys-ui (see alttabsucks_server.py). "Shared" as in: this same file is meant to work
-    unmodified whether it's served by the Linux Python server or (eventually) a Windows
-    PowerShell one — see alttabsucks_linux_porting_checklist.md for that follow-up. Everything
+    unmodified whether it's served by the Linux Python server or the Windows PowerShell one
+    (Server/AltTabSucksServer.ps1) — GET /hotkeys-config's `platform` field drives the handful of
+    per-platform labels/columns (see applyPlatform). Everything
     here talks to the server it was served *from* (relative fetch() URLs — same-origin, no CORS
     config needed), never a hardcoded host/port.
 
@@ -36,7 +37,8 @@
     margin: 0; background: var(--bg); color: var(--text); padding: 24px;
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
-  .wrap { max-width: 1500px; margin: 0 auto; }
+  /* Wide enough to use a 21:9 screen, not just center a 16:9-sized column in it. */
+  .wrap { max-width: 3200px; margin: 0 auto; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
   h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
   .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 20px; }
@@ -84,9 +86,12 @@
      header above), so they're one line tall instead of two. */
   .binding { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 5px 4px; border-bottom: 1px solid var(--border); }
   .group .binding:last-child { border-bottom: none; }
-  .field { display: flex; flex-direction: column; gap: 3px; flex: 1 1 110px; min-width: 90px; }
+  /* Short fields (title, key, process) are capped so extra width goes to the .wide columns —
+     launch command / URLs / command, the values that actually run long. */
+  .field { display: flex; flex-direction: column; gap: 3px; flex: 1 1 110px; min-width: 90px; max-width: 240px; }
   .field label { font-size: 10px; margin-bottom: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .field.grow { flex: 2 1 170px; }
+  .field.grow { flex: 2 1 170px; max-width: 340px; }
+  .field.wide { flex: 5 1 240px; max-width: none; }
   /* .field's min-width: 90px was meant for real labeled inputs — left un-reset here, the
      icon-only fixed remove field was silently padded out to 90px minimum even though its
      content is a few px wide, wasting real width and contributing to it wrapping onto its own
@@ -110,7 +115,7 @@
      placeholder rendered at its bare label's content width, not 160px, before this fix). */
   .field.spacer-badge { flex: 0 0 34px; }
   .field.select-col { flex: 0 0 160px; } /* any per-type Profile column (a <select>, like Type used to be) */
-  .field.spacer-remove { flex: 0 0 34px; }
+  .field.spacer-remove { flex: 0 0 34px; margin-left: auto; } /* stays at the right edge on rows with no .wide column */
   /* Not wrapped in .field at all (see the drag handle's own render calls), so no .field.fixed
      to out-specify — a bare selector is fine here. */
   .spacer-handle { flex: 0 0 20px; }
@@ -149,7 +154,7 @@
   <div class="header">
     <div>
       <h1>AltTabSucks — Hotkeys</h1>
-      <div class="sub">Saving regenerates <code>hotkeys.js</code> and deploys it to the running KWin script automatically.</div>
+      <div class="sub" id="subtitle">Saving regenerates <code>hotkeys.js</code> and deploys it to the running KWin script automatically.</div>
       <div class="sub" id="browserInfo"></div>
     </div>
     <div class="token-row">
@@ -195,6 +200,14 @@ const GROUP_BY_TYPE = {};
 GROUPS.forEach((g) => g.types.forEach((t) => { GROUP_BY_TYPE[t] = g; }));
 
 let profiles = [];
+// Text that differs per platform — read lazily by the column builders and load(), overridden by
+// applyPlatform() once GET /hotkeys-config says which server this page was served from.
+let HINTS = {
+  resourceClass: "brave-browser, org.kde.dolphin, ...", launch: "e.g. dolphin",
+  command: "/path/to/installer.sh, reload-hotkeys",
+  browserConfigured: (b) => `Browser: ${b} — change with ./installer.sh configure (applies to every browser hotkey below, not per-row)`,
+  browserMissing: "No browser configured yet — run ./installer.sh configure, then Reload. Browser hotkeys below won't save until then.",
+};
 let runningResourceClasses = []; // [{resourceClass, resourceName}, ...] — see GET
                                   // /running-resource-classes; resourceName is search/display
                                   // trivia only, never the value a binding actually stores.
@@ -454,7 +467,7 @@ function textInput(binding, key, placeholder, suggest) {
 function resourceClassColumn() {
   return { label: "resourceClass", extraClass: "grow",
     build: (b) => {
-      const input = textInput(b, "resourceClass", "brave-browser, org.kde.dolphin, ...", true);
+      const input = textInput(b, "resourceClass", HINTS.resourceClass, true);
       // Launch-command auto-suggestion — only reachable from here since resourceClassColumn is
       // only ever used for windowCycle/windowToggle now (the only types with a Launch command
       // field at all). "blur" (not "input", which would fire once per keystroke) is the trigger:
@@ -597,7 +610,7 @@ const TYPE_COLUMNS = {
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
     resourceClassColumn(),
-    { label: "Launch command (spawned if no window open — auto-suggested once resourceClass is filled in)", extraClass: "grow", build: (b) => listInput(b, "launchArgv", "e.g. dolphin") },
+    { label: "Launch command (spawned if no window open — auto-suggested once resourceClass is filled in)", extraClass: "wide", build: (b) => listInput(b, "launchArgv", HINTS.launch) },
   ],
   // The only type whose Profile field offers "All profiles" — cycling across every open window
   // regardless of profile is meaningful specifically for this one, not for tabFocus/splitTab/
@@ -612,13 +625,13 @@ const TYPE_COLUMNS = {
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
     { label: "Profile", extraClass: "fixed select-col", build: (b) => profileSelect(b) },
-    { label: "URL pattern(s)", extraClass: "grow", build: (b) => listInput(b, "urlPatterns", "mail.google.com") },
-    { label: "Open URL (if no match)", extraClass: "grow", build: (b) => textInput(b, "openUrl", "https://mail.google.com") },
+    { label: "URL pattern(s)", extraClass: "wide", build: (b) => listInput(b, "urlPatterns", "mail.google.com") },
+    { label: "Open URL (if no match)", extraClass: "wide", build: (b) => textInput(b, "openUrl", "https://mail.google.com") },
   ],
   runCommand: [
     { label: "Title", extraClass: null, build: (b) => textInput(b, "title", "Cycle Browser") },
     { label: "Key sequence", extraClass: null, build: (b) => keyInput(b) },
-    { label: "Command (argv, no shell — one arg per line/comma)", extraClass: "grow", build: (b) => listInput(b, "argv", "/path/to/installer.sh, reload-hotkeys") },
+    { label: "Command (argv, no shell — one arg per line/comma)", extraClass: "wide", build: (b) => listInput(b, "argv", HINTS.command) },
   ],
 };
 // windowToggle behaves exactly like windowCycle field-wise, so it just reuses that spec — reusing
@@ -637,6 +650,28 @@ const SPLIT_MERGE_COLUMNS = [
 ];
 TYPE_COLUMNS.splitTab = SPLIT_MERGE_COLUMNS;
 TYPE_COLUMNS.mergeTabs = SPLIT_MERGE_COLUMNS;
+
+// Windows (Server/HotkeysGenerator.ps1 -> AHK) differs in a few places: windows are matched by
+// process name rather than resourceClass, split/merge detect the profile from the focused window
+// themselves (no Profile column), and "All profiles" cycling isn't ported, so Cycle browser
+// profile is just Title/Key/Profile. Idempotent — load() calls this on every Reload.
+function applyPlatform(platform) {
+  if (platform !== "windows") return;
+  document.getElementById("subtitle").innerHTML =
+    "Saving regenerates <code>lib/hotkeys-ui.generated.ahk</code>; AltTabSucks reloads itself to apply it. " +
+    "Hand-written hotkeys in <code>lib/app-hotkeys.ahk</code> keep working — just don't bind the same key in both places.";
+  Object.assign(HINTS, {
+    resourceClass: "code.exe, slack.exe, ...", launch: "C:\\path\\to\\app.exe, or shell:AppsFolder\\<AppId>",
+    command: "notepad.exe, C:\\notes.txt",
+    browserConfigured: (b) => `Browser: ${b} — change in Settings (Ctrl+Alt+Shift+,)`,
+    browserMissing: "No browser configured yet — AltTabSucks prompts for one on first launch (or set it in Settings).",
+  });
+  TYPE_COLUMNS.windowCycle[2] = Object.assign({}, TYPE_COLUMNS.windowCycle[2], { label: "Process" });
+  TYPE_COLUMNS.windowCycle[3] = Object.assign({}, TYPE_COLUMNS.windowCycle[3],
+    { label: "Launch command (if no window open — auto-suggested from a running instance)" });
+  TYPE_COLUMNS.profileCycle = SPLIT_MERGE_COLUMNS;
+  TYPE_COLUMNS.splitTab = TYPE_COLUMNS.mergeTabs = SPLIT_MERGE_COLUMNS.slice(0, 2);
+}
 
 function newBindingOfType(type) {
   const b = { type, title: "", key: "", enabled: true };
@@ -821,6 +856,7 @@ async function load() {
     ]);
     profiles = profilesResult;
     bindings = configResult.bindings || [];
+    applyPlatform(configResult.platform);
     renderAll();
     // The single configured browser (config.py's CHROMIUM_RESOURCE_CLASS) every profileCycle/
     // tabFocus/splitTab/mergeTabs binding below now targets — GET /hotkeys-config layers this on
@@ -829,10 +865,10 @@ async function load() {
     const browserInfo = document.getElementById("browserInfo");
     const browserResourceClass = configResult.browserResourceClass || "";
     if (browserResourceClass) {
-      browserInfo.textContent = `Browser: ${browserResourceClass} — change with ./installer.sh configure (applies to every browser hotkey below, not per-row)`;
+      browserInfo.textContent = HINTS.browserConfigured(browserResourceClass);
       browserInfo.classList.remove("warn");
     } else {
-      browserInfo.textContent = "No browser configured yet — run ./installer.sh configure, then Reload. Browser hotkeys below won't save until then.";
+      browserInfo.textContent = HINTS.browserMissing;
       browserInfo.classList.add("warn");
     }
     setStatus(`Loaded ${bindings.length} hotkey(s), ${profiles.length} known profile(s).`, false);
