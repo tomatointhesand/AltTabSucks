@@ -19,3 +19,5 @@ linux/kwin/alttabsucks/contents/code/hotkeys.json
 # Windows hotkeys UI: lib/hotkeys.json is the saved UI config, lib/hotkeys-ui.generated.ahk is generated from it
 lib/hotkeys.json
 lib/hotkeys-ui.generated.ahk
+# Backups written when static hotkeys are migrated into the hotkeys UI (contain real URLs/paths)
+lib/app-hotkeys.ahk.pre-ui-migration-*
