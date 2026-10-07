@@ -46,7 +46,7 @@ ManageAppWindows(processName, exePath := "", mode := "cycle") {
         if exePath is Func
             exePath()
         else if exePath != ""
-            Run(exePath)
+            ComObject("Shell.Application").ShellExecute(exePath)
         return
     }
 

@@ -75,7 +75,12 @@ Locking behavior:
 - On `manage-secrets.sh` lock, a temp trigger file is written and AHK timer polling clears cache immediately (cross-process signal).
 
 Windows + Git Bash note:
-- If `gopass` is not found in fresh shells, use the wrapper at `~/bin/gopass` (created during setup) or ensure `%LOCALAPPDATA%\gopass` is on Bash PATH.
+- Install gopass and GPG once: `winget install gopass.gopass && winget install GnuPG.GnuPG`
+- The gopass MSI does not add itself to PATH — create a Git Bash wrapper after install:
+  ```bash
+  mkdir -p ~/bin && printf '#!/bin/sh\nexec "$LOCALAPPDATA/gopass/gopass.exe" "$@"\n' > ~/bin/gopass && chmod +x ~/bin/gopass
+  ```
+- If `gopass` is not found in fresh shells, recreate the wrapper above.
 
 **Template workflow**: Edit `lib/app-hotkeys.ahk` freely — **never edit `lib/app-hotkeys.template.ahk` directly**, it is overwritten on every commit. The pre-commit hook (`hooks/pre-commit`) runs `dev-scripts/make-template.sh` automatically on every `git commit` or `git commit --amend`, regenerating both template files with URLs/paths/profile names redacted and staging them. To trigger template regeneration without other staged changes, amend the top commit: `git commit --amend --no-edit`. Run `bash dev-scripts/install-hooks.sh` once after cloning to activate the hook.
 

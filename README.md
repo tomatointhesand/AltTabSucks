@@ -148,6 +148,11 @@ winget install gopass.gopass
 winget install GnuPG.GnuPG
 ```
 
+> **Note:** The gopass MSI does not add itself to PATH. After installing, create a Git Bash wrapper:
+> ```bash
+> mkdir -p ~/bin && printf '#!/bin/sh\nexec "$LOCALAPPDATA/gopass/gopass.exe" "$@"\n' > ~/bin/gopass && chmod +x ~/bin/gopass
+> ```
+
 2. Initialize the password store and create secrets:
 
 ```bash
