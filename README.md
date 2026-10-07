@@ -85,6 +85,8 @@ On first launch AltTabSucks adds a set of suggested hotkeys (from `lib\hotkeys.t
 
 Open your browser and switch tabs once so the extension reports them, then try a few.
 
+**Upgrading with your own hotkeys in `lib\app-hotkeys.ahk`?** On startup AltTabSucks moves its single-line `FocusTab` / `CycleChromiumProfile` / `ManageAppWindows` / split / merge hotkeys into the Hotkeys UI instead (they replace any suggested hotkey on the same key). The originals are commented out with a `[migrated to Hotkeys UI]` marker and the file is backed up as `app-hotkeys.ahk.pre-ui-migration-<timestamp>`. A `#HotIf !WinActive(...)` block around them becomes `UI_HOTKEYS_SUPPRESS_WHEN`. Hotkeys that call your own functions or run multi-line blocks stay where they are.
+
 **To change them, press Ctrl+Alt+/** (or tray menu → Hotkeys UI), paste your auth token (`Server\token.txt`), and add or edit app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. Save writes `lib\hotkeys.json` and regenerates `lib\hotkeys-ui.generated.ahk` (both gitignored); AltTabSucks reloads itself within a second. Hand-written hotkeys in `app-hotkeys.ahk` keep working alongside; just don't bind the same key in both places (the static one wins). Set `UI_HOTKEYS_SUPPRESS_WHEN` (e.g. `"ahk_exe Moonlight.exe"`) in `app-hotkeys.ahk` to disable UI hotkeys while that window is active. Same page as the Linux port (`shared/hotkeys-ui.html`).
 
 ---

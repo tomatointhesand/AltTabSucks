@@ -42,7 +42,17 @@ $repoRoot        = Split-Path $PSScriptRoot -Parent
 $hotkeysUiPath   = Join-Path $repoRoot "shared\hotkeys-ui.html"
 $hotkeysJsonPath = Join-Path $repoRoot "lib\hotkeys.json"
 $hotkeysAhkPath  = Join-Path $repoRoot "lib\hotkeys-ui.generated.ahk"
+$appHotkeysPath  = Join-Path $repoRoot "lib\app-hotkeys.ahk"
 . (Join-Path $PSScriptRoot "HotkeysGenerator.ps1")
+. (Join-Path $PSScriptRoot "AppHotkeysMigration.ps1")
+
+# Writes hotkeys.json and regenerates the AHK file (generation first: throws on an invalid
+# binding before anything is written).
+function Save-HotkeysConfig($config) {
+    $ahk = ConvertTo-AhkHotkeys $config
+    Set-Content -Path $hotkeysJsonPath -Value (ConvertTo-Json -InputObject $config -Depth 10) -Encoding UTF8
+    Set-Content -Path $hotkeysAhkPath -Value $ahk -Encoding UTF8 -NoNewline
+}
 
 function Send-Body($res, [string]$out, [string]$contentType, [int]$status = 200) {
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($out)
@@ -291,9 +301,7 @@ try { while ($listener.IsListening) {
                 $reader.Close()
                 try {
                     $config = $body | ConvertFrom-Json
-                    $ahk    = ConvertTo-AhkHotkeys $config   # throws on an invalid binding
-                    Set-Content -Path $hotkeysJsonPath -Value (ConvertTo-Json -InputObject $config -Depth 10) -Encoding UTF8
-                    Set-Content -Path $hotkeysAhkPath -Value $ahk -Encoding UTF8 -NoNewline
+                    Save-HotkeysConfig $config
                     Send-Json $res @{
                         ok           = $true
                         bindingCount = @($config.bindings).Count
@@ -302,6 +310,30 @@ try { while ($listener.IsListening) {
                 } catch {
                     Send-Json $res @{ error = $_.Exception.Message } 400
                 }
+            }
+
+        } elseif ($method -eq "POST" -and $path -eq "/migrate-app-hotkeys") {
+            # AltTabSucks.ahk calls this on every startup; a no-op once app-hotkeys.ahk has nothing
+            # convertible left (see AppHotkeysMigration.ps1).
+            try {
+                $count = 0
+                if (Test-Path $appHotkeysPath) {
+                    $bytes = [IO.File]::ReadAllBytes($appHotkeysPath)
+                    $hadBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+                    $existing = if (Test-Path $hotkeysJsonPath) { (Get-Content $hotkeysJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json).bindings } else { @() }
+                    $m = Invoke-AppHotkeysMigration ([IO.File]::ReadAllText($appHotkeysPath)) $existing
+                    if ($m.Count) {
+                        $config = [PSCustomObject]@{ bindings = $m.Bindings }
+                        ConvertTo-AhkHotkeys $config | Out-Null   # validate before touching any file
+                        Copy-Item $appHotkeysPath "$appHotkeysPath.pre-ui-migration-$(Get-Date -Format yyyyMMdd-HHmmss)"
+                        [IO.File]::WriteAllText($appHotkeysPath, $m.Text, (New-Object Text.UTF8Encoding($hadBom)))
+                        Save-HotkeysConfig $config   # last: writing the generated file triggers the AHK reload
+                        $count = $m.Count
+                    }
+                }
+                Send-Json $res @{ migrated = $count }
+            } catch {
+                Send-Json $res @{ error = $_.Exception.Message } 400
             }
 
         } elseif ($method -eq "GET" -and $path -eq "/running-resource-classes") {
