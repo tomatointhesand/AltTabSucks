@@ -68,15 +68,24 @@ Open the extension **Options** and set:
 
 After the first install, everything starts automatically at logon. To reload the AHK script manually: `Ctrl+Alt+Shift+'`.
 
-### 4. Open lib\app-hotkeys.ahk
+### 4. Try the starter hotkeys, then make them yours
 
-1. Set the `P1` var to the same profile name as in the extension Options. Set `P2` for a second browser profile if you use one.
-1. Open your browser and switch tabs to hydrate the extension's local server.
-   - **Press Ctrl+Alt+Shift+/** to see a quick reference for all mapped hotkeys
-   - Press Ctrl+Alt+Shift+L to see a debug readout of your current tab state
-1. Edit hotkey triggers, add apps, URLs, etc. as desired.
+On first launch AltTabSucks adds a set of suggested hotkeys (from `lib\hotkeys.template.json`, using your browser's default profile) and shows a notification:
 
-**Or use the Hotkeys UI** — open **http://localhost:9876/hotkeys-ui** (also in the tray menu), paste your auth token (`Server\token.txt`), and add app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. Save writes `lib\hotkeys.json` and regenerates `lib\hotkeys-ui.generated.ahk` (both gitignored); AltTabSucks reloads itself within a second. Hand-written hotkeys in `app-hotkeys.ahk` keep working alongside; just don't bind the same key in both places (the static one wins). Set `UI_HOTKEYS_SUPPRESS_WHEN` (e.g. `"ahk_exe Moonlight.exe"`) in `app-hotkeys.ahk` to disable UI hotkeys while that window is active. Same page as the Linux port (`shared/hotkeys-ui.html`).
+| Hotkey | Does |
+|---|---|
+| Ctrl+Alt+/ | Open the Hotkeys config page |
+| Ctrl+Alt+Shift+B | Cycle your browser windows |
+| Ctrl+Alt+Shift+G / C / Y / M | Jump to (or open) Gmail / Calendar / YouTube / Maps |
+| Alt+X / Alt+Z | In the browser: split the tab into its own window / merge it back |
+| Ctrl+Alt+Shift+N | Show/hide Notepad |
+| Ctrl+Alt+Shift+Enter | Cycle Windows Terminal windows |
+| Ctrl+Alt+Shift+Down | Open Downloads |
+| Ctrl+Alt+Shift+/ | Quick reference of every hotkey |
+
+Open your browser and switch tabs once so the extension reports them, then try a few.
+
+**To change them, press Ctrl+Alt+/** (or tray menu → Hotkeys UI), paste your auth token (`Server\token.txt`), and add or edit app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. Save writes `lib\hotkeys.json` and regenerates `lib\hotkeys-ui.generated.ahk` (both gitignored); AltTabSucks reloads itself within a second. Hand-written hotkeys in `app-hotkeys.ahk` keep working alongside; just don't bind the same key in both places (the static one wins). Set `UI_HOTKEYS_SUPPRESS_WHEN` (e.g. `"ahk_exe Moonlight.exe"`) in `app-hotkeys.ahk` to disable UI hotkeys while that window is active. Same page as the Linux port (`shared/hotkeys-ui.html`).
 
 ---
 
