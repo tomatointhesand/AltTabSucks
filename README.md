@@ -76,6 +76,8 @@ After the first install, everything starts automatically at logon. To reload the
    - Press Ctrl+Alt+Shift+L to see a debug readout of your current tab state
 1. Edit hotkey triggers, add apps, URLs, etc. as desired.
 
+**Or use the Hotkeys UI** — open **http://localhost:9876/hotkeys-ui** (also in the tray menu), paste your auth token (`Server\token.txt`), and add app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. Save writes `lib\hotkeys.json` and regenerates `lib\hotkeys-ui.generated.ahk` (both gitignored); AltTabSucks reloads itself within a second. Hand-written hotkeys in `app-hotkeys.ahk` keep working alongside; just don't bind the same key in both places (the static one wins). Set `UI_HOTKEYS_SUPPRESS_WHEN` (e.g. `"ahk_exe Moonlight.exe"`) in `app-hotkeys.ahk` to disable UI hotkeys while that window is active. Same page as the Linux port (`shared/hotkeys-ui.html`).
+
 ---
 
 ## More Info

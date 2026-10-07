@@ -25,3 +25,8 @@ SWITCHER_GRID_PREVIEW := false
 
 ; When false, the window switcher is disabled and Alt+Tab falls through to Windows native.
 SWITCHER_ENABLED := false
+
+; WinTitle criteria (e.g. "ahk_exe Moonlight.exe") that disables every hotkey saved from the web
+; Hotkeys UI while it's the active window - the UI equivalent of #HotIf !WinActive(...).
+; Override in app-hotkeys.ahk.
+UI_HOTKEYS_SUPPRESS_WHEN := ""

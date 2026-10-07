@@ -15,3 +15,7 @@ linux/server/config.py
 # anywhere, since these two are never staged/tracked at all.
 linux/kwin/alttabsucks/contents/code/hotkeys.js
 linux/kwin/alttabsucks/contents/code/hotkeys.json
+*.pub.key
+# Windows hotkeys UI: lib/hotkeys.json is the saved UI config, lib/hotkeys-ui.generated.ahk is generated from it
+lib/hotkeys.json
+lib/hotkeys-ui.generated.ahk

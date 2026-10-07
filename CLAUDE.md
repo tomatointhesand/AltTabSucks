@@ -11,7 +11,7 @@ Supports **Chromium-based browsers** (Brave, Chrome, Edge, Opera) and **Firefox*
 ## Running & Reloading
 
 - **Run**: Double-click `AltTabSucks.ahk` in Windows Explorer
-- **Reload**: `Ctrl+Alt+Shift+'`
+- **Reload**: `Ctrl+Alt+Shift+'` — restarts the server task (`installer.ps1 -Action restart`, waits until it answers) then reloads AHK; the extension re-pushes tabs as soon as it reconnects. Hotkey changes saved from the web UI don't need this (AHK auto-reloads)
 - **Debug**: Right-click tray icon → "Window Spy"
 
 ## AltTabSucks Server
@@ -33,6 +33,7 @@ PowerShell HTTP server (`localhost:9876`) that bridges AHK ↔ browser extension
 - `lib/config.ahk` — browser paths config (**gitignored** — copy from `config.template.ahk` and fill in)
 - `lib/app-hotkeys.ahk` — new hotkeys go here (**gitignored** — contains real URLs/paths)
 - `lib/app-hotkeys.template.ahk` — sanitized version of above, tracked in git
+- `lib/hotkeys-ui.ahk` — runtime for the web Hotkeys UI (`GET /hotkeys-ui` serves `shared/hotkeys-ui.html`, shared with the Linux port). `POST /hotkeys-config` writes `lib/hotkeys.json` and regenerates `lib/hotkeys-ui.generated.ahk` (both gitignored) via `Server/HotkeysGenerator.ps1`; that file registers bindings with `Hotkey()` under a `HotIf` (browser-only for split/merge; all honor `UI_HOTKEYS_SUPPRESS_WHEN`), so a bad or duplicate binding is a tray warning rather than a script load failure, and a 1s file-stamp timer reloads the script after a save
 - `lib/utils.ahk` — stub loader that includes split utility modules
 - `lib/globals.ahk` — shared configuration globals
 - `lib/general.ahk` — general UI helpers and clipboard utilities

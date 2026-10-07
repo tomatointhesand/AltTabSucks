@@ -61,12 +61,17 @@ async function postTabs() {
   }
 }
 
+// True while the server is unreachable — so the first successful poll after a restart re-pushes
+// the full tab state right away instead of waiting for the next tab event or keepAlive (20s).
+let serverDown = false;
+
 async function pollSwitchQueue() {
   const { profileName = 'Default', authToken = '' } = await chrome.storage.local.get(['profileName', 'authToken']);
   try {
     const res = await fetch(`http://localhost:9876/switchtab?profile=${encodeURIComponent(profileName)}`, {
       headers: { 'X-AltTabSucks-Token': authToken }
     });
+    if (serverDown) { serverDown = false; postTabs(); }
     if (res.status === 200) {
       const cmd = await res.json();
       if (cmd && cmd.openUrl && /^https?:\/\//i.test(cmd.openUrl)) {
@@ -165,6 +170,7 @@ async function pollSwitchQueue() {
     }
   } catch {
     // server not running
+    serverDown = true;
   }
 }
 
