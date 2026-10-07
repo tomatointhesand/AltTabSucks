@@ -1,0 +1,19 @@
+{
+  "bindings": [
+    { "type": "windowToggle", "title": "Notepad", "key": "Ctrl+Alt+Shift+N", "resourceClass": "notepad.exe", "launchArgv": ["notepad.exe"] },
+    { "type": "windowCycle", "title": "Terminal", "key": "Ctrl+Alt+Shift+Return", "resourceClass": "WindowsTerminal.exe", "launchArgv": ["wt.exe"] },
+
+    { "type": "profileCycle", "title": "Browser windows", "key": "Ctrl+Alt+Shift+B", "profileName": "__all__", "launchProfileName": "__PROFILE__" },
+
+    { "type": "tabFocus", "title": "Hotkey config", "key": "Ctrl+Alt+/", "profileName": "__PROFILE__", "urlPatterns": ["localhost:9876/hotkeys-ui"], "openUrl": "http://localhost:9876/hotkeys-ui" },
+    { "type": "tabFocus", "title": "Gmail", "key": "Ctrl+Alt+Shift+G", "profileName": "__PROFILE__", "urlPatterns": ["mail.google.com"], "openUrl": "https://mail.google.com" },
+    { "type": "tabFocus", "title": "Calendar", "key": "Ctrl+Alt+Shift+C", "profileName": "__PROFILE__", "urlPatterns": ["calendar.google.com"], "openUrl": "https://calendar.google.com" },
+    { "type": "tabFocus", "title": "YouTube", "key": "Ctrl+Alt+Shift+Y", "profileName": "__PROFILE__", "urlPatterns": ["www.youtube.com"], "openUrl": "https://www.youtube.com" },
+    { "type": "tabFocus", "title": "Maps", "key": "Ctrl+Alt+Shift+M", "profileName": "__PROFILE__", "urlPatterns": ["google.com/maps"], "openUrl": "https://www.google.com/maps" },
+
+    { "type": "splitTab", "title": "Split tab into new window", "key": "Alt+X" },
+    { "type": "mergeTabs", "title": "Merge windows back", "key": "Alt+Z" },
+
+    { "type": "runCommand", "title": "Downloads folder", "key": "Ctrl+Alt+Shift+Down", "argv": ["explorer.exe", "shell:Downloads"] }
+  ]
+}
