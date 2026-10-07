@@ -1,21 +1,31 @@
 # AltTabSucks
 
-ATS is the alt-tab of the future: a keyboard shortcut based solution for app-specific window focus control, profile-aware URL-based browser tab focus control, and more. Supports Brave, Chrome, Edge, Opera, and Firefox at the moment.
+ATS is the alt-tab of the future: a keyboard shortcut based solution for app-specific window focus control, profile-aware URL-based browser tab focus control, and more.
 
 **Features:**
 - **App window management** — cycle or toggle any app's windows with a single hotkey; launch it if it isn't running
 - **Browser tab focus** — jump to a tab by URL pattern for a given browser profile; opens the URL if no matching tab exists
-- **Browser profile cycling** — cycle through all windows for a given browser profile
+- **Browser profile cycling** — cycle through all windows for a given browser profile, or across every profile at once
 - **Split/merge tab snapping** — tear the active tab into its own window and snap both halves side-by-side; merge them back with another hotkey
+- **Hotkeys config page** — a local web page (`http://localhost:9876/hotkeys-ui`) to add and edit all of the above, with a key recorder; saving applies immediately
 
-**Platforms:** Windows (below) and Linux/KDE Plasma 6 (Chromium-family browsers only for now —
-see **[linux/README.md](linux/README.md)** for the Linux install guide).
+**Platforms:**
+
+| | Windows | Linux (KDE Plasma 6, Wayland) |
+|---|---|---|
+| Browsers | Brave, Chrome, Edge, Opera, Firefox | Chromium-family (Brave, Chrome, Edge, Vivaldi, Chromium) |
+| Built on | AutoHotkey v2 + PowerShell server | KWin script + Python server |
+| Install guide | [Windows](#windows) (below) | [linux/README.md](linux/README.md) |
+
+Both use the same browser extension (`BrowserExtension/`) and the same hotkeys config page (`shared/hotkeys-ui.html`).
 
 ---
 
-## Quick Start
+## Windows
 
-### 1. Install prerequisites
+### Quick Start
+
+#### 1. Install prerequisites
 
 **PowerShell 7.6+** is required:
 
@@ -25,7 +35,7 @@ winget install Microsoft.PowerShell
 winget install Git.Git
 ```
 
-### 2. Clone the repo and run the installer
+#### 2. Clone the repo and run the installer
 
 ```powershell
 cd "$env:USERPROFILE\Downloads"
@@ -43,7 +53,7 @@ pwsh -ExecutionPolicy Bypass -File .\installer.ps1 -Action install
 ```
 </details>
 
-### 3. Install and configure the browser extension
+#### 3. Install and configure the browser extension
 
 <details>
 <summary>Chrome-like (Brave, Chrome, Edge, Opera)</summary>
@@ -66,9 +76,9 @@ Open the extension **Options** and set:
   - Firefox: see **about:profiles**
   - Chrome-like: the top-right Profile menu shows the active profile name
 
-After the first install, everything starts automatically at logon. To reload the AHK script manually: `Ctrl+Alt+Shift+'`.
+After the first install, everything starts automatically at logon. `Ctrl+Alt+Shift+'` restarts the server and reloads AltTabSucks (only needed after code changes — hotkey changes saved on the config page apply on their own).
 
-### 4. Try the starter hotkeys, then make them yours
+#### 4. Try the starter hotkeys, then make them yours
 
 On first launch AltTabSucks adds a set of suggested hotkeys (from `lib\hotkeys.template.json`, using your browser's default profile) and shows a notification:
 
@@ -87,11 +97,9 @@ Open your browser and switch tabs once so the extension reports them, then try a
 
 **Upgrading with your own hotkeys in `lib\app-hotkeys.ahk`?** On startup AltTabSucks moves its single-line `FocusTab` / `CycleChromiumProfile` / `ManageAppWindows` / split / merge hotkeys into the Hotkeys UI instead (they replace any suggested hotkey on the same key). The originals are commented out with a `[migrated to Hotkeys UI]` marker and the file is backed up as `app-hotkeys.ahk.pre-ui-migration-<timestamp>`. A `#HotIf !WinActive(...)` block around them becomes `UI_HOTKEYS_SUPPRESS_WHEN`. Hotkeys that call your own functions or run multi-line blocks stay where they are.
 
-**To change them, press Ctrl+Alt+/** (or tray menu → Hotkeys UI), paste your auth token (`Server\token.txt`), and add or edit app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. Save writes `lib\hotkeys.json` and regenerates `lib\hotkeys-ui.generated.ahk` (both gitignored); AltTabSucks reloads itself within a second. Hand-written hotkeys in `app-hotkeys.ahk` keep working alongside; just don't bind the same key in both places (the static one wins). Set `UI_HOTKEYS_SUPPRESS_WHEN` (e.g. `"ahk_exe Moonlight.exe"`) in `app-hotkeys.ahk` to disable UI hotkeys while that window is active. Same page as the Linux port (`shared/hotkeys-ui.html`).
+**To change them, press Ctrl+Alt+/** (or tray menu → Hotkeys UI), paste your auth token (`Server\token.txt`), and add or edit app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. Save writes `lib\hotkeys.json` and regenerates `lib\hotkeys-ui.generated.ahk` (both gitignored); AltTabSucks reloads itself within a second. Hand-written hotkeys in `app-hotkeys.ahk` keep working alongside; just don't bind the same key in both places (the static one wins). Set `UI_HOTKEYS_SUPPRESS_WHEN` (e.g. `"ahk_exe Moonlight.exe"`) in `app-hotkeys.ahk` to disable UI hotkeys while that window is active.
 
----
-
-## More Info
+### What the installer does
 
 `installer.ps1 -Action install` does four things:
 
@@ -102,20 +110,17 @@ Open your browser and switch tabs once so the extension reports them, then try a
 3. Disables the **Ctrl+Alt+Win+Shift** shortcut that opens Copilot/Office by redirecting the `ms-officeapp` protocol handler to a no-op (`rundll32`).
 4. Launches `AltTabSucks.ahk` immediately so the current session is live without a logon cycle.
 
----
-
-**Browser selection**
+### Browser selection
 
 On first launch (or after reinstalling), AltTabSucks scans for installed browsers and presents a choice dialog. Supported: **Brave, Chrome, Edge, Opera, Firefox**. The choice is saved to `lib/config.ahk` (gitignored). To switch browsers later, re-run the installer — it deletes `lib/config.ahk` so the choice dialog reappears on next launch.
 
----
-
-## Managing the server task
+### Managing the server task
 
 ```powershell
 .\installer.ps1 -Action status    # Check current state (Running / Ready / Disabled)
 .\installer.ps1 -Action start     # Start manually (if stopped)
 .\installer.ps1 -Action stop      # Stop task and kill orphaned processes
+.\installer.ps1 -Action restart   # stop + start, waits until the server answers (what Ctrl+Alt+Shift+' runs)
 .\installer.ps1 -Action uninstall # Remove task and startup script
 ```
 
@@ -125,6 +130,54 @@ To run the server manually without a task:
 
 ```powershell
 .\Server\startServer.ps1
+```
+
+### Troubleshooting
+
+**Task registers but does not reach Running state**
+
+Open Event Viewer: `eventvwr.msc` → **Windows Logs > Application**, or **Applications and Services Logs > Microsoft > Windows > TaskScheduler > Operational**.
+
+**Port 9876 already in use**
+
+```powershell
+.\installer.ps1 -Action stop
+# or find the PID manually:
+netstat -ano | findstr :9876
+# then: taskkill /PID <pid> /F
+```
+
+**Extension shows "server offline"**
+
+- Confirm the task is running: `.\installer.ps1 -Action status`
+- Check the extension Options page has the correct profile name set
+
+**Extension shows "server: error (403)"**
+
+Auth token mismatch. Retrieve the correct token and paste it into extension Options:
+
+```powershell
+Get-Content ".\Server\token.txt"
+```
+
+**Extension shows "server offline" but the task is Running**
+
+The port may be held by an orphaned process:
+
+```powershell
+.\installer.ps1 -Action restart
+```
+
+---
+
+## Linux (KDE Plasma 6)
+
+Same idea, rebuilt on a KWin script and a small Python server: a `systemd --user` service instead of Task Scheduler, no elevation needed, Chromium-family browsers only for now. Install, managing the service, and troubleshooting are all in **[linux/README.md](linux/README.md)**:
+
+```bash
+git clone https://github.com/tomatointhesand/AltTabSucks ~/git/alttabsucks
+cd ~/git/alttabsucks
+./installer.sh install
 ```
 
 ---
@@ -148,7 +201,7 @@ To regenerate manually without committing:
 
 Run `bash dev-scripts/install-hooks.sh` once after cloning to activate the hook.
 
-**Secure secrets (recommended)**
+**Secure secrets (recommended, Windows)**
 
 Store credentials outside source files using gopass (cross-platform, bash-based).
 
@@ -226,42 +279,3 @@ When locking via `manage-secrets.sh` option 6, gpg-agent is killed and a local l
 ```
 
 Requires Node.js (offered via `winget` if missing) and AMO credentials (prompted on first run, stored in `.amo-credentials`).
-
----
-
-## Troubleshooting
-
-**Task registers but does not reach Running state**
-
-Open Event Viewer: `eventvwr.msc` → **Windows Logs > Application**, or **Applications and Services Logs > Microsoft > Windows > TaskScheduler > Operational**.
-
-**Port 9876 already in use**
-
-```powershell
-.\installer.ps1 -Action stop
-# or find the PID manually:
-netstat -ano | findstr :9876
-# then: taskkill /PID <pid> /F
-```
-
-**Extension shows "server offline"**
-
-- Confirm the task is running: `.\installer.ps1 -Action status`
-- Check the extension Options page has the correct profile name set
-
-**Extension shows "server: error (403)"**
-
-Auth token mismatch. Retrieve the correct token and paste it into extension Options:
-
-```powershell
-Get-Content ".\Server\token.txt"
-```
-
-**Extension shows "server offline" but the task is Running**
-
-The port may be held by an orphaned process:
-
-```powershell
-.\installer.ps1 -Action stop
-.\installer.ps1 -Action start
-```
