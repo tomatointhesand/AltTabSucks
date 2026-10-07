@@ -131,19 +131,7 @@ CycleFirefoxProfile(profileName) {
         ; Server had no title data for this profile — fall back to all visible Firefox windows
         ; rather than launching a new instance. This handles the case where the extension
         ; hasn't posted yet or the profile name doesn't match exactly.
-        for hwnd in WinGetList(winFilter) {
-            try {
-                if !(WinGetStyle("ahk_id " hwnd) & 0x10000000)
-                    continue
-                if DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")
-                    continue
-                if WinGetTitle("ahk_id " hwnd) = ""
-                    continue
-            } catch {
-                continue
-            }
-            matchingWindows.Push(hwnd)
-        }
+        matchingWindows := _VisibleBrowserWindows(winFilter)
     }
 
     if matchingWindows.Length = 0 {
@@ -154,20 +142,7 @@ CycleFirefoxProfile(profileName) {
         return
     }
 
-    activeHwnd := WinExist("A")
-    currentIdx := 0
-    for i, hwnd in matchingWindows {
-        if hwnd = activeHwnd {
-            currentIdx := i
-            break
-        }
-    }
-    nextIdx    := Mod(currentIdx, matchingWindows.Length) + 1
-    targetHwnd := matchingWindows[nextIdx]
-
-    bgColor := SampleTitlebarColor(targetHwnd)
-    WinActivate("ahk_id " targetHwnd)
-    ShowProfileToast(targetHwnd, profileName, bgColor)
+    _ActivateNextWindow(matchingWindows, profileName)
 }
 
 ; Returns the first Firefox HWND whose title matches any of the given tab titles

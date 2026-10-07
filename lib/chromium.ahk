@@ -267,7 +267,22 @@ _InitChromiumState() {
 }
 _InitChromiumState()
 
-CycleChromiumProfile(profileName) {
+; profileName ALL_PROFILES cycles every open browser window regardless of profile; when none are
+; open it launches launchProfileName instead (a specific profile). Same sentinel as
+; shared/hotkeys-ui.html, Server/HotkeysGenerator.ps1 and the Linux port's main.js.
+global ALL_PROFILES := "__all__"
+
+CycleChromiumProfile(profileName, launchProfileName := "") {
+    if profileName = ALL_PROFILES {
+        winFilter := CHROMIUM_EXE = "" ? "ahk_class MozillaWindowClass ahk_exe firefox.exe"
+                                       : "ahk_class Chrome_WidgetWin_1 ahk_exe " . _chromiumExe
+        windows := _VisibleBrowserWindows(winFilter)
+        if windows.Length
+            _ActivateNextWindow(windows, "All profiles")
+        else if launchProfileName != ""
+            CycleChromiumProfile(launchProfileName)  ; nothing open: launch it like a single-profile cycle
+        return
+    }
     if CHROMIUM_EXE = "" {
         CycleFirefoxProfile(profileName)
         return
@@ -326,15 +341,7 @@ CycleChromiumProfile(profileName) {
         ; fall back to all visible Chromium windows rather than launching a new instance.
         ; If the server has data for other profiles but not this one, the profile is
         ; genuinely not open and we should launch it instead.
-        for hwnd in WinGetList(winFilter) {
-            if !(WinGetStyle("ahk_id " hwnd) & 0x10000000)
-                continue
-            if DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")
-                continue
-            if WinGetTitle("ahk_id " hwnd) = ""
-                continue
-            matchingWindows.Push(hwnd)
-        }
+        matchingWindows := _VisibleBrowserWindows(winFilter)
     }
 
     if matchingWindows.Length = 0 {
@@ -361,20 +368,48 @@ CycleChromiumProfile(profileName) {
         return
     }
 
+    _ActivateNextWindow(matchingWindows, profileName)
+}
+
+; Visible, unowned, titled top-level windows matching winFilter, sorted by HWND so the cycling
+; order stays stable while activating them reshuffles the z-order. Shared with firefox.ahk.
+_VisibleBrowserWindows(winFilter) {
+    hwndStr := ""
+    for hwnd in WinGetList(winFilter) {
+        try {
+            if !(WinGetStyle("ahk_id " hwnd) & 0x10000000)  ; WS_VISIBLE
+                continue
+            if DllCall("GetWindow", "Ptr", hwnd, "UInt", 4, "Ptr")  ; GW_OWNER
+                continue
+            if WinGetTitle("ahk_id " hwnd) = ""
+                continue
+        } catch {
+            continue  ; window closed mid-enumeration
+        }
+        hwndStr .= hwnd "`n"
+    }
+    windows := []
+    loop parse, Sort(hwndStr, "N"), "`n"
+        if A_LoopField != ""
+            windows.Push(Integer(A_LoopField))
+    return windows
+}
+
+; Activates the window after the active one in `windows` (wrapping; the first if none is active)
+; and shows a toast labelled `label`. Shared with firefox.ahk.
+_ActivateNextWindow(windows, label) {
     activeHwnd := WinExist("A")
     currentIdx := 0
-    for i, hwnd in matchingWindows {
+    for i, hwnd in windows {
         if hwnd = activeHwnd {
             currentIdx := i
             break
         }
     }
-    nextIdx := Mod(currentIdx, matchingWindows.Length) + 1
-    targetHwnd := matchingWindows[nextIdx]
-
+    targetHwnd := windows[Mod(currentIdx, windows.Length) + 1]
     bgColor := SampleTitlebarColor(targetHwnd)
     WinActivate("ahk_id " targetHwnd)
-    ShowProfileToast(targetHwnd, profileName, bgColor)
+    ShowProfileToast(targetHwnd, label, bgColor)
 }
 
 ; Called after launching a Chromium profile (CycleChromiumProfile path).

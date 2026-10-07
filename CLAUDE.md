@@ -159,6 +159,8 @@ All window filters use `"ahk_class Chrome_WidgetWin_1 ahk_exe " . _chromiumExe`.
 2. Cache hit (same `titlesKey` + valid HWNDs) → reuse list; miss → enumerate by window class+exe, match by title
 3. Cycle via `Mod(currentIdx, length) + 1`; sample titlebar color; `WinActivate`; show toast
 
+`CycleChromiumProfile(ALL_PROFILES, launchProfileName)` (`"__all__"`, same sentinel as the hotkeys UI and Linux port) cycles every visible browser window regardless of profile (Chromium or Firefox, via `_VisibleBrowserWindows` + `_ActivateNextWindow`); with none open it launches `launchProfileName`.
+
 ### Tab Focus (`lib/chromium.ahk`)
 `FocusTab(profileName, urlPatterns, openUrl)` dispatches to `FocusTabFirefox` when `CHROMIUM_EXE = ""`. Otherwise:
 - `urlPatterns` is a single string or an Array of strings; all matching tabs across all patterns are unioned and cycled together

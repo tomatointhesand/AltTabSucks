@@ -222,6 +222,8 @@ _HotkeyDesc(funcName, action, profiles) {
             return m[1]
     }
     if RegExMatch(funcName, "Cycle\w+Profile") {
+        if RegExMatch(action, '^\w+\("__all__", "([^"]*)"\)', &m)
+            return "all profiles (cycle; opens " . m[1] . " if none)"
         if RegExMatch(action, '\("?([^")]+)"?\)', &m) {   ; P1 variable or a literal "profile"
             pVar := m[1]
             return (profiles.Has(pVar) ? profiles[pVar] : pVar) . " (cycle)"
