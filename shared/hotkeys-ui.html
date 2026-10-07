@@ -135,7 +135,14 @@
   .status { font-size: 13px; margin-top: 10px; min-height: 18px; }
   .status.ok { color: var(--ok); }
   .status.err { color: var(--err); }
-  .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+  /* Sticky so Save (and its status) stays reachable while scrolling a long list; sits in normal
+     flow at the end of the page. */
+  .toolbar {
+    display: flex; gap: 10px; align-items: center; margin-top: 16px;
+    position: sticky; bottom: 0; z-index: 10; padding: 10px 0;
+    background: var(--bg); border-top: 1px solid var(--border);
+  }
+  .toolbar .status { margin-top: 0; }
   /* The resourceClass typeahead's suggestion box — plain page content (position: fixed,
      positioned in JS from the input's own getBoundingClientRect), not a native popup surface
      like <datalist>/<select>, specifically because those silently fail to paint at all on this
@@ -168,7 +175,6 @@
        appended to <body> on first use — nothing static needed here. -->
 
   <div class="toolbar">
-    <button id="add">+ Add hotkey</button>
     <button id="save" class="primary">Save</button>
     <span id="status" class="status"></span>
   </div>
@@ -810,10 +816,6 @@ function renderAll() {
   });
 }
 
-document.getElementById("add").addEventListener("click", () => {
-  bindings.push(newBindingOfType("windowCycle"));
-  renderAll();
-});
 
 document.getElementById("save").addEventListener("click", async () => {
   setStatus("Saving…", false);
