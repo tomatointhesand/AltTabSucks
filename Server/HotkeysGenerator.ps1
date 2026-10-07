@@ -69,8 +69,14 @@ function ConvertTo-AhkBinding($b) {
         }
         'profileCycle' {
             & $needProfile
-            if ($prof -eq $AllProfiles) { throw "binding '$title': 'All profiles' isn't supported on Windows yet" }
-            $call = "CycleChromiumProfile($(ConvertTo-AhkString $prof))"
+            if ($prof -eq $AllProfiles) {
+                # "All profiles" doesn't say which profile to open when nothing's running
+                $launch = "$($b.launchProfileName)".Trim()
+                if (-not $launch) { throw "binding '$title' cycles all profiles but has no launch profile set" }
+                $call = "CycleChromiumProfile(`"$AllProfiles`", $(ConvertTo-AhkString $launch))"
+            } else {
+                $call = "CycleChromiumProfile($(ConvertTo-AhkString $prof))"
+            }
         }
         'tabFocus' {
             & $needProfile

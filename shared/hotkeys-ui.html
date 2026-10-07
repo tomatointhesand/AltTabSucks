@@ -653,8 +653,7 @@ TYPE_COLUMNS.mergeTabs = SPLIT_MERGE_COLUMNS;
 
 // Windows (Server/HotkeysGenerator.ps1 -> AHK) differs in a few places: windows are matched by
 // process name rather than resourceClass, split/merge detect the profile from the focused window
-// themselves (no Profile column), and "All profiles" cycling isn't ported, so Cycle browser
-// profile is just Title/Key/Profile. Idempotent — load() calls this on every Reload.
+// themselves (no Profile column). Idempotent — load() calls this on every Reload.
 function applyPlatform(platform) {
   if (platform !== "windows") return;
   document.getElementById("subtitle").innerHTML =
@@ -669,7 +668,6 @@ function applyPlatform(platform) {
   TYPE_COLUMNS.windowCycle[2] = Object.assign({}, TYPE_COLUMNS.windowCycle[2], { label: "Process" });
   TYPE_COLUMNS.windowCycle[3] = Object.assign({}, TYPE_COLUMNS.windowCycle[3],
     { label: "Launch command (if no window open — auto-suggested from a running instance)" });
-  TYPE_COLUMNS.profileCycle = SPLIT_MERGE_COLUMNS;
   TYPE_COLUMNS.splitTab = TYPE_COLUMNS.mergeTabs = SPLIT_MERGE_COLUMNS.slice(0, 2);
 }
 
