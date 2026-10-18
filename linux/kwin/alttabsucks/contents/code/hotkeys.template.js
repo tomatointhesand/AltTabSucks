@@ -84,3 +84,9 @@ registerShortcut("Twitch", "AltTabSucks: Twitch",
 
 registerShortcut("Claude web", "AltTabSucks: Claude web",
     "Ctrl+Shift+Meta+C", function () { focusTab("brave-browser", "Personal", ["https://claude.ai"], "https://claude.ai"); });
+
+registerShortcut("calendar", "AltTabSucks: calendar",
+    "Ctrl+Alt+Shift+K", function () { focusTab("brave-browser", "Personal", ["https://calendar.google.com"], "https://calendar.google.com"); });
+
+registerShortcut("addresses / contacts", "AltTabSucks: addresses / contacts",
+    "Ctrl+Shift+Meta+A", function () { focusTab("brave-browser", "Personal", ["https://contacts.google.com"], "https://contacts.google.com"); });

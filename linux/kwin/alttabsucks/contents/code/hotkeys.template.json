@@ -267,6 +267,28 @@
         "https://claude.ai"
       ],
       "openUrl": "https://claude.ai"
+    },
+    {
+      "type": "tabFocus",
+      "title": "calendar",
+      "key": "Ctrl+Alt+Shift+K",
+      "enabled": true,
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://calendar.google.com"
+      ],
+      "openUrl": "https://calendar.google.com"
+    },
+    {
+      "type": "tabFocus",
+      "title": "addresses / contacts",
+      "key": "Ctrl+Shift+Meta+A",
+      "enabled": true,
+      "profileName": "Personal",
+      "urlPatterns": [
+        "https://contacts.google.com"
+      ],
+      "openUrl": "https://contacts.google.com"
     }
   ]
 }
