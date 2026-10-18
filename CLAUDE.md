@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AutoHotkey (AHK) automation scripts for Windows productivity. **Cannot be executed or tested on Linux/WSL** — scripts must be run on a Windows machine with AutoHotkey installed.
+AutoHotkey (AHK) automation scripts for Windows productivity. **The script itself can't run on Linux/WSL** — it needs a real Windows machine with AutoHotkey installed. Pure-logic tests (`tests/ahk/test-*.ahk`) are the exception: `bash dev-scripts/run-ahk-tests.sh` runs them under Wine on Linux (fetches a portable AutoHotkey v2 into its own Wine prefix on first run) or natively on Windows from Git Bash. Anything needing a real Windows shell — COM (`Shell.Application`), real windows, `WinActivate` — still has to be verified on Windows, so keep testable decision logic in its own pure file (see `lib/explorer-logic.ahk`).
 
 Supports **Chromium-based browsers** (Brave, Chrome, Edge, Opera) and **Firefox** for profile-aware tab control.
 
@@ -38,6 +38,8 @@ PowerShell HTTP server (`localhost:9876`) that bridges AHK ↔ browser extension
 - `lib/globals.ahk` — shared configuration globals
 - `lib/general.ahk` — general UI helpers and clipboard utilities
 - `lib/window-management.ahk` — window/app management helpers
+- `lib/explorer.ahk` — `FocusOrOpenFolder(path)` for folder hotkeys: activates an Explorer window/tab already showing the folder (switching tabs on Windows 11), launches it otherwise, and ignores repeat presses while a launch is still in flight. Use it instead of a bare `Run(folderPath)`, which opens a duplicate window on every press
+- `lib/explorer-logic.ahk` — its pure decision logic, tested by `tests/ahk/test-explorer.ahk`
 - `lib/settings.ahk` — settings GUI and config persistence
 - `lib/window-switcher.ahk` — typeahead window switcher with DWM preview
 - `lib/chromium.ahk` — Chromium profile cycling + tab focus; dispatches to Firefox equivalents when `CHROMIUM_EXE = ""`
