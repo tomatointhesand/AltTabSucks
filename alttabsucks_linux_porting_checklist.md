@@ -10,10 +10,10 @@ starts. Status: **Phase 1 done. Phase 2 in progress — window management, D-Bus
 CycleChromiumProfile/FocusTab all working for Chromium; Firefox equivalents + a check against the
 real BrowserExtension still remain.**
 
-**Deliberately out of scope for now** (see Deferred section at the bottom): the **secrets
-manager** and the **window switcher**. Both are explicitly deferred, not forgotten — do not pick
-either back up without checking in first, since the secrets manager in particular is planned to
-be approached differently than the Windows version was.
+**Deliberately out of scope for now** (see Deferred section at the bottom): the **window
+switcher**. Explicitly deferred, not forgotten — do not pick it back up without checking in first.
+(The **secrets manager** used to be listed here too; it has since been removed from the project
+entirely, Windows side included — see its entry in the Deferred section.)
 
 ## Implementation Phases
 
@@ -1670,11 +1670,16 @@ for work not yet started, kept close to the phase list rather than duplicated ac
 
 ## Deferred (not part of the active phases)
 
-### Secrets manager — deferred, revisit with a different approach
-Explicitly **not** being ported as designed. When this comes back, it'll be a different
-mechanism, not a straight AHK→Linux translation. Keeping the investigation notes below for
-whenever that redesign discussion happens, but none of this should be started without that
-discussion first:
+### Secrets manager — removed (2026-10-18), no longer deferred
+**Removed from the project entirely, Windows side included** — the user's call: never ended up
+used. `lib/secrets.ahk`, `lib/secret-bridge.sh` and `dev-scripts/manage-secrets.sh` are gone, along
+with `SendSecret` usages in the template and the gopass sections of `README.md`/`CLAUDE.md`. Side
+benefit: `secrets.ahk`'s top-level `_InitSecrets()` had been starting a 750ms polling timer and a
+workstation-lock session notification on every AltTabSucks launch, unused. The pre-commit hook's
+hardcoded-credential guard for `app-hotkeys.ahk`'s sensitive section was kept (only its message,
+which pointed at `SendSecret`, changed) since it's still useful leak protection on its own.
+Original investigation notes below kept only as history, in case something like this is ever
+wanted again:
 - `lib/secret-bridge.sh` → `gopass` is already bash and largely portable as-is
 - The AHK side (`lib/secrets.ahk`'s in-memory cache + lock-on-workstation-lock behavior) would
   need a Linux replacement process — e.g. a companion daemon listening for KDE's screen-lock

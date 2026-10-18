@@ -46,7 +46,7 @@ if [ -f "$REPO_ROOT/lib/app-hotkeys.ahk" ]; then
 
     if [ -n "$staged_sensitive_lines" ] && printf "%s\n" "$staged_sensitive_lines" | grep -Eiq 'Send\(".+"\)|\<(PuttyUser|Password|Pass|Token|ApiKey|Secret)\>[[:space:]]*:=[[:space:]]*"'; then
         echo "[pre-commit] Blocked: potential hardcoded secret detected in lib/app-hotkeys.ahk sensitive section."
-        echo "[pre-commit] Use SendSecret(<name>) and store values in SecretStore instead of literals."
+        echo "[pre-commit] Keep credentials out of app-hotkeys.ahk entirely rather than as literals."
         exit 1
     fi
 fi

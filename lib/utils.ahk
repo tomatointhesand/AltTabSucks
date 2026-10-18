@@ -2,7 +2,6 @@
 
 #Include globals.ahk
 #Include general.ahk
-#Include secrets.ahk
 #Include window-management.ahk
 #Include explorer.ahk
 #Include settings.ahk
