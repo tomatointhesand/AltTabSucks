@@ -51,8 +51,3 @@ SleepScreens() {
     Run("powershell.exe -ExecutionPolicy Bypass -File `" " psScript "`"",, "Hide")
 }
 
-UserName1 := "test.user"
-PasswordSecretName1 := "test.password"
-^!+=:: {
-	SendSecret(PasswordSecretName1)
-}

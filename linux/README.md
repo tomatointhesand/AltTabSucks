@@ -164,8 +164,6 @@ confirmations. Not yet:
 - **Firefox** — Windows' `lib/firefox.ahk` equivalents aren't ported. Only Chromium-family
   browsers work on Linux right now.
 - **Window switcher** (`lib/window-switcher*.ahk`'s typeahead Alt+Tab replacement) — not started.
-- **Secrets manager** (`lib/secrets.ahk`/gopass integration) — deliberately not ported as-is;
-  revisiting with a different approach later.
 - **Settings GUI** — no equivalent of `lib/settings.ahk`'s settings window; everything's
   configured via `config.py`/`hotkeys.js`/the Hotkeys UI page directly.
 
