@@ -200,6 +200,10 @@ To regenerate manually without committing:
 
 Run `bash dev-scripts/install-hooks.sh` once after cloning to activate the hook.
 
+**After pulling updates: local file migrations**
+
+`git pull` updates the code but never your own `lib/app-hotkeys.ahk` / `lib/config.ahk` (or their Linux counterparts). When an update removes or renames something those files use, [`MIGRATIONS.md`](MIGRATIONS.md) has an entry saying exactly what to change. Each entry is written so an agent can apply it: ask yours to "apply pending migrations from MIGRATIONS.md". `bash dev-scripts/pending-migrations.sh` lists what this clone hasn't applied yet. With the hooks installed (above), you get a reminder after every pull that brings new entries.
+
 **Packaging the Firefox extension**
 
 ```powershell

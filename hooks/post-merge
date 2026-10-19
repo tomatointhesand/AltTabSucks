@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# After a pull (merge), remind about pending local-file migrations — see MIGRATIONS.md.
+"$(git rev-parse --show-toplevel)/dev-scripts/pending-migrations.sh" --hook || true
