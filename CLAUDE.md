@@ -49,6 +49,8 @@ PowerShell HTTP server (`localhost:9876`) that bridges AHK ↔ browser extension
 
 **Gitignored local files**: `lib/config.ahk`, `lib/app-hotkeys.ahk`, and `Server/token.txt` are never committed.
 
+**Local file migrations**: when a change leaves those untracked files stale (a removed/renamed function or hotkey they call, a new required config value), add an entry to `MIGRATIONS.md` **in the same commit** — its "For authors" section has the format. When the user pulls, or asks to bring their local files up to date, follow its "For agents" section: `bash dev-scripts/pending-migrations.sh` lists what this clone hasn't applied yet. `hooks/post-merge`/`post-rewrite` print a reminder after a pull when something is pending.
+
 **Template workflow**: Edit `lib/app-hotkeys.ahk` freely — **never edit `lib/app-hotkeys.template.ahk` directly**, it is overwritten on every commit. The pre-commit hook (`hooks/pre-commit`) runs `dev-scripts/make-template.sh` automatically on every `git commit` or `git commit --amend`, regenerating both template files with URLs/paths/profile names redacted and staging them. To trigger template regeneration without other staged changes, amend the top commit: `git commit --amend --no-edit`. Run `bash dev-scripts/install-hooks.sh` once after cloning to activate the hook.
 
 **Template sanitization rules** (`dev-scripts/make-template.sh`): `https://` URLs → `"https://YOUR_URL"` (localhost URLs preserved as-is); Windows paths → `"C:\YOUR\PATH"`; profile name args in `FocusTab()`/`CycleChromiumProfile()`/`FocusTabFirefox()`/`CycleFirefoxProfile()` → `"YOUR_BROWSER_PROFILE"`. AHK comment lines (`;`) are skipped in `config.template.ahk` so example paths in comments are preserved.

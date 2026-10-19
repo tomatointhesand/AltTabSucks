@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# After `git pull --rebase` (post-merge doesn't fire for rebases), remind about pending local-file
+# migrations — see MIGRATIONS.md. $1 is "rebase" or "amend"; amends are skipped.
+[ "${1:-}" = "rebase" ] || exit 0
+"$(git rev-parse --show-toplevel)/dev-scripts/pending-migrations.sh" --hook || true
