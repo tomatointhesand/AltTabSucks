@@ -6,18 +6,20 @@ Server/token.txt
 lib/star-citizen.ahk
 __pycache__/
 linux/server/config.py
-# hotkeys.js/hotkeys.json are gitignored, same as lib/app-hotkeys.ahk on the Windows side — but
-# unlike lib/app-hotkeys.ahk, their templates (hotkeys.template.js/hotkeys.template.json) are an
-# *unsanitized* mirror of these, refreshed by dev-scripts/make-template.sh on every commit (see
-# hooks/pre-commit). A git pull always brings the real, working config-as-of-the-last-commit
-# along via the template, without git ever touching your own local hotkeys.js/hotkeys.json
-# directly — no merge conflicts, no risk of a pull clobbering local edits you haven't committed
-# anywhere, since these two are never staged/tracked at all.
+# hotkeys.js is gitignored, same as lib/app-hotkeys.ahk on the Windows side — but unlike
+# lib/app-hotkeys.ahk, its template (hotkeys.template.js) is an *unsanitized* mirror of it,
+# refreshed by dev-scripts/make-template.sh on every commit (see hooks/pre-commit). A git pull
+# always brings the real, working config-as-of-the-last-commit along via the template, without
+# git ever touching your own local hotkeys.js directly — no merge conflicts, no risk of a pull
+# clobbering local edits you haven't committed anywhere, since it's never staged/tracked at all.
 linux/kwin/alttabsucks/contents/code/hotkeys.js
-linux/kwin/alttabsucks/contents/code/hotkeys.json
 *.pub.key
-# Windows hotkeys UI: lib/hotkeys.json is the saved UI config, lib/hotkeys-ui.generated.ahk is generated from it
-lib/hotkeys.json
+# Hotkeys UI saves keep the previous file as .bak (real URLs/paths)
+linux/kwin/alttabsucks/contents/code/hotkeys.js.bak
+lib/app-hotkeys.ahk.bak
+# Left over from the earlier JSON-based Hotkeys UI (folded back into the files above once, then
+# renamed to *.folded-<timestamp>), and its old migration backups
+linux/kwin/alttabsucks/contents/code/hotkeys.json*
+lib/hotkeys.json*
 lib/hotkeys-ui.generated.ahk
-# Backups written when static hotkeys are migrated into the hotkeys UI (contain real URLs/paths)
 lib/app-hotkeys.ahk.pre-ui-migration-*

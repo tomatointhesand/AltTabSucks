@@ -36,22 +36,36 @@ $switchQueue = @{}
 # profile display names pushed by AHK at startup: ["Default", "Work", ...]
 $profileList = @()
 
-# Hotkeys UI (shared with the Linux port): page, saved config, and the AHK file generated from it.
-# AltTabSucks.ahk (lib/hotkeys-ui.ahk) reloads itself when the generated file changes.
-$repoRoot        = Split-Path $PSScriptRoot -Parent
-$hotkeysUiPath   = Join-Path $repoRoot "shared\hotkeys-ui.html"
-$hotkeysJsonPath = Join-Path $repoRoot "lib\hotkeys.json"
-$hotkeysAhkPath  = Join-Path $repoRoot "lib\hotkeys-ui.generated.ahk"
-$appHotkeysPath  = Join-Path $repoRoot "lib\app-hotkeys.ahk"
-. (Join-Path $PSScriptRoot "HotkeysGenerator.ps1")
-. (Join-Path $PSScriptRoot "AppHotkeysMigration.ps1")
+# Hotkeys UI (shared with the Linux port). lib/app-hotkeys.ahk is its single source of truth: the
+# page shows every recognizable hotkey line in it, and Save rewrites just those lines (see
+# AppHotkeys.ps1). AltTabSucks.ahk (lib/hotkeys-ui.ahk) reloads itself when the file changes.
+$repoRoot          = Split-Path $PSScriptRoot -Parent
+$hotkeysUiPath     = Join-Path $repoRoot "shared\hotkeys-ui.html"
+$appHotkeysPath    = Join-Path $repoRoot "lib\app-hotkeys.ahk"
+$starterHotkeys    = Join-Path $repoRoot "lib\hotkeys.template.json"
+# Left over from the earlier JSON-based Hotkeys UI; folded back into app-hotkeys.ahk once (POST /init-hotkeys)
+$legacyHotkeysJson = Join-Path $repoRoot "lib\hotkeys.json"
+$legacyGenerated   = Join-Path $repoRoot "lib\hotkeys-ui.generated.ahk"
+. (Join-Path $PSScriptRoot "AppHotkeys.ps1")
 
-# Writes hotkeys.json and regenerates the AHK file (generation first: throws on an invalid
-# binding before anything is written).
-function Save-HotkeysConfig($config) {
-    $ahk = ConvertTo-AhkHotkeys $config
-    Set-Content -Path $hotkeysJsonPath -Value (ConvertTo-Json -InputObject $config -Depth 10) -Encoding UTF8
-    Set-Content -Path $hotkeysAhkPath -Value $ahk -Encoding UTF8 -NoNewline
+function Read-AppHotkeysText {
+    if (Test-Path $appHotkeysPath) { [IO.File]::ReadAllText($appHotkeysPath) } else { "" }
+}
+# Identifies the exact file contents the page loaded, so a save can't silently overwrite a hand
+# edit made in between.
+function Get-AppHotkeysHash([string]$text) {
+    [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text)))
+}
+# Writes app-hotkeys.ahk, keeping the previous version as app-hotkeys.ahk.bak and the file's
+# existing BOM (or lack of one). Writing it is what triggers the AHK reload.
+function Save-AppHotkeysText([string]$text) {
+    $hadBom = $false
+    if (Test-Path $appHotkeysPath) {
+        $bytes = [IO.File]::ReadAllBytes($appHotkeysPath)
+        $hadBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+        Copy-Item $appHotkeysPath "$appHotkeysPath.bak" -Force
+    }
+    [IO.File]::WriteAllText($appHotkeysPath, $text, (New-Object Text.UTF8Encoding($hadBom)))
 }
 
 function Send-Body($res, [string]$out, [string]$contentType, [int]$status = 200) {
@@ -286,11 +300,16 @@ try { while ($listener.IsListening) {
             $res.OutputStream.Write($bytes, 0, $bytes.Length)
 
         } elseif ($method -eq "GET" -and $path -eq "/hotkeys-config") {
-            $hk = if (Test-Path $hotkeysJsonPath) { Get-Content $hotkeysJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json } else { [PSCustomObject]@{ bindings = @() } }
-            # Informational only, never written back (the page POSTs just {bindings}).
-            $hk | Add-Member -Force platform "windows"
-            $hk | Add-Member -Force browserResourceClass (Get-ConfiguredBrowser)
-            Send-Json $res $hk
+            $text = Read-AppHotkeysText
+            $parsed = Read-AppHotkeys $text
+            Send-Json $res @{
+                bindings             = @($parsed.Bindings)
+                invalid              = @($parsed.Invalid)   # shown as a warning; the next save removes them
+                fileHash             = Get-AppHotkeysHash $text
+                platform             = "windows"
+                browserResourceClass = Get-ConfiguredBrowser
+                sourceFile           = "lib/app-hotkeys.ahk"
+            }
 
         } elseif ($method -eq "POST" -and $path -eq "/hotkeys-config") {
             if ($req.ContentLength64 -lt 0 -or $req.ContentLength64 -gt 256KB) {
@@ -301,37 +320,49 @@ try { while ($listener.IsListening) {
                 $reader.Close()
                 try {
                     $config = $body | ConvertFrom-Json
-                    Save-HotkeysConfig $config
-                    Send-Json $res @{
-                        ok           = $true
-                        bindingCount = @($config.bindings).Count
-                        note         = "AltTabSucks reloads itself within a second to apply them."
+                    $text = Read-AppHotkeysText
+                    if ("$($config.fileHash)" -ne (Get-AppHotkeysHash $text)) {
+                        Send-Json $res @{ error = "app-hotkeys.ahk changed since this page loaded it. Reload the page and redo your change." } 409
+                    } else {
+                        $w = Write-AppHotkeys $text @($config.bindings)
+                        if ($w.Text -cne $text) { Save-AppHotkeysText $w.Text }
+                        Send-Json $res @{
+                            ok           = $true
+                            bindingCount = $w.Saved
+                            dropped      = @($w.Dropped)
+                            note         = $(if ($w.Text -cne $text) { "AltTabSucks reloads itself within a second to apply them." } else { "Nothing changed." })
+                        }
                     }
                 } catch {
                     Send-Json $res @{ error = $_.Exception.Message } 400
                 }
             }
 
-        } elseif ($method -eq "POST" -and $path -eq "/migrate-app-hotkeys") {
-            # AltTabSucks.ahk calls this on every startup; a no-op once app-hotkeys.ahk has nothing
-            # convertible left (see AppHotkeysMigration.ps1).
+        } elseif ($method -eq "POST" -and $path -eq "/init-hotkeys") {
+            # AltTabSucks.ahk calls this on every startup with {profile}. Either folds a leftover
+            # lib/hotkeys.json from the earlier JSON-based Hotkeys UI back into app-hotkeys.ahk
+            # (once - the JSON file is then renamed out of the way), or adds the starter set from
+            # lib/hotkeys.template.json to a file with no hotkeys yet (once - see Add-StarterHotkeys).
             try {
-                $count = 0
-                if (Test-Path $appHotkeysPath) {
-                    $bytes = [IO.File]::ReadAllBytes($appHotkeysPath)
-                    $hadBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
-                    $existing = if (Test-Path $hotkeysJsonPath) { (Get-Content $hotkeysJsonPath -Raw -Encoding UTF8 | ConvertFrom-Json).bindings } else { @() }
-                    $m = Invoke-AppHotkeysMigration ([IO.File]::ReadAllText($appHotkeysPath)) $existing
-                    if ($m.Count) {
-                        $config = [PSCustomObject]@{ bindings = $m.Bindings }
-                        ConvertTo-AhkHotkeys $config | Out-Null   # validate before touching any file
-                        Copy-Item $appHotkeysPath "$appHotkeysPath.pre-ui-migration-$(Get-Date -Format yyyyMMdd-HHmmss)"
-                        [IO.File]::WriteAllText($appHotkeysPath, $m.Text, (New-Object Text.UTF8Encoding($hadBom)))
-                        Save-HotkeysConfig $config   # last: writing the generated file triggers the AHK reload
-                        $count = $m.Count
-                    }
+                $reader = [System.IO.StreamReader]::new($req.InputStream, [System.Text.Encoding]::UTF8)
+                $body   = $reader.ReadToEnd()
+                $reader.Close()
+                $profile = "$(($body | ConvertFrom-Json).profile)"
+                $text = Read-AppHotkeysText
+                $result = @{ folded = 0; seeded = 0; dropped = @() }
+                if (Test-Path $legacyHotkeysJson) {
+                    $legacy = Get-Content $legacyHotkeysJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $f = Merge-LegacyHotkeysJson $text @($legacy.bindings)
+                    if ($f.Text -cne $text) { Save-AppHotkeysText $f.Text }
+                    Move-Item $legacyHotkeysJson "$legacyHotkeysJson.folded-$(Get-Date -Format yyyyMMdd-HHmmss)"
+                    if (Test-Path $legacyGenerated) { Remove-Item $legacyGenerated }
+                    $result.folded = $f.Count; $result.dropped = @($f.Dropped)
+                } elseif ($profile -and (Test-Path $starterHotkeys)) {
+                    $s = Add-StarterHotkeys $text (Get-Content $starterHotkeys -Raw -Encoding UTF8) $profile
+                    if ($s.Count) { Save-AppHotkeysText $s.Text }
+                    $result.seeded = $s.Count; $result.dropped = @($s.Dropped)
                 }
-                Send-Json $res @{ migrated = $count }
+                Send-Json $res $result
             } catch {
                 Send-Json $res @{ error = $_.Exception.Message } 400
             }

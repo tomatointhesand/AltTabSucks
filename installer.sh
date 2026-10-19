@@ -15,7 +15,7 @@
 # `reload-hotkeys` re-runs just install_kwin_script (rebuild + force-reload, no deps/config/
 # service touched) — not a special case, just what a "Reload Hotkeys" runCommand binding's argv
 # points at (see hotkeys_generator.py's runCommand docs and hotkeys.template.js), the Linux side
-# of AltTabSucks.ahk's own built-in `^!+'::Reload`. Picks up hotkeys.json edits saved via the
+# of AltTabSucks.ahk's own built-in `^!+'::Reload`. Picks up hotkeys.js edits, by hand or saved via the
 # hotkeys-ui page without a manual terminal step — run it by hand too, any time.
 
 set -euo pipefail
@@ -30,8 +30,6 @@ CONFIG_PATH="$REPO_ROOT/linux/server/config.py"
 CONFIG_TEMPLATE="$REPO_ROOT/linux/server/config.template.py"
 HOTKEYS_PATH="$KWIN_SCRIPT_DIR/contents/code/hotkeys.js"
 HOTKEYS_TEMPLATE="$KWIN_SCRIPT_DIR/contents/code/hotkeys.template.js"
-HOTKEYS_JSON_PATH="$KWIN_SCRIPT_DIR/contents/code/hotkeys.json"
-HOTKEYS_JSON_TEMPLATE="$KWIN_SCRIPT_DIR/contents/code/hotkeys.template.json"
 TOKEN_PATH="$REPO_ROOT/Server/token.txt"
 TOAST_SERVICE_SRC="$REPO_ROOT/linux/systemd/alttabsucks-toast.service"
 TOAST_SERVICE_NAME="alttabsucks-toast.service"
@@ -219,25 +217,29 @@ choose_browser() {
     # already-existing profileCycle/tabFocus/splitTab/mergeTabs binding's *deployed* hotkeys.js
     # would keep calling with the *old* browser's resourceClass until someone happened to open
     # the Hotkeys UI and hit Save at least once — not the one-click switch this is meant to be.
-    if [ -f "$HOTKEYS_JSON_PATH" ]; then
-        if python3 - "$REPO_ROOT" "$HOTKEYS_JSON_PATH" "$HOTKEYS_PATH" "$resource_class" <<'PYEOF'
-import json
+    if [ -f "$HOTKEYS_PATH" ]; then
+        if python3 - "$REPO_ROOT" "$HOTKEYS_PATH" "$resource_class" <<'PYEOF'
 import sys
 
-repo_root, hotkeys_json_path, hotkeys_js_path, browser_resource_class = sys.argv[1:5]
+repo_root, hotkeys_js_path, browser_resource_class = sys.argv[1:4]
 sys.path.insert(0, repo_root + "/linux/server")
 import hotkeys_generator
 
-with open(hotkeys_json_path, encoding="utf-8") as f:
-    config = json.load(f)
-js = hotkeys_generator.generate_hotkeys_js(config, browser_resource_class)
-with open(hotkeys_js_path, "w", encoding="utf-8") as f:
-    f.write(js)
+with open(hotkeys_js_path, encoding="utf-8") as f:
+    text = f.read()
+# Re-parse and rewrite: every recognized browser-scoped statement is regenerated with the new browser.
+result = hotkeys_generator.rewrite_hotkeys_js(
+    text, hotkeys_generator.parse_hotkeys_js(text)["bindings"], browser_resource_class)
+for d in result["dropped"]:
+    print(f"Removed invalid hotkey {d['title'] or d['key']!r}: {d['reason']}")
+if result["text"] != text:
+    with open(hotkeys_js_path, "w", encoding="utf-8") as f:
+        f.write(result["text"])
 PYEOF
         then
-            echo "Regenerated hotkeys.js from hotkeys.json with the new browser."
+            echo "Updated hotkeys.js to use the new browser."
         else
-            echo "WARNING: couldn't regenerate hotkeys.js from hotkeys.json automatically (see the" >&2
+            echo "WARNING: couldn't update hotkeys.js for the new browser automatically (see the" >&2
             echo "error above) — open the Hotkeys UI (http://localhost:9876/hotkeys-ui) and hit Save" >&2
             echo "at least once to pick up the new browser for your existing bindings." >&2
         fi
@@ -365,28 +367,7 @@ uninstall_toast_service() {
 # the hard way — see the checklist's Phase 2 notes); loadScript unload + reconfigure is what
 # actually forces a fresh load, so that's what's used here rather than relying on --upgrade alone.
 
-# hotkeys.json is the Hotkeys UI's (shared/hotkeys-ui.html, via GET/POST /hotkeys-config) source
-# of truth once anyone saves through it — same seed-once-and-never-touch-again contract as
-# hotkeys.js below, just for the structured side main.js never reads directly. Left unseeded, GET
-# /hotkeys-config silently falls back to an empty {"bindings": []} (state.hotkeys_config_path
-# .read_text() raising OSError, caught in alttabsucks_server.py) — so the UI shows no bindings at
-# all even when hotkeys.js has real ones concatenated into a working, deployed KWin script.
-# Independent of ensure_hotkeys' own hotkeys.js check below: either file can be missing on its own
-# (this is exactly how it was found missing once already — a fresh install only ever seeded
-# hotkeys.js, never hotkeys.json, until this function existed), so each gets its own existence
-# check rather than one gating the other.
-ensure_hotkeys_json() {
-    if [ -f "$HOTKEYS_JSON_PATH" ]; then
-        return
-    fi
-    cp "$HOTKEYS_JSON_TEMPLATE" "$HOTKEYS_JSON_PATH"
-    echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.json from hotkeys.template.json, so"
-    echo "the Hotkeys UI (http://localhost:9876/hotkeys-ui) reflects the same starting bindings as"
-    echo "hotkeys.js."
-}
-
 ensure_hotkeys() {
-    ensure_hotkeys_json
     if [ -f "$HOTKEYS_PATH" ]; then
         return
     fi
@@ -429,12 +410,11 @@ build_staged_kwin_package() {
         echo "// --- hotkeys.js (concatenated in by installer.sh) ---------------------------------------"
         cat "$HOTKEYS_PATH"
     } > "$staging/contents/code/main.js"
-    # hotkeys.js/hotkeys.template.js (and their JSON counterparts, the Hotkeys UI's source
-    # material — main.js never reads either .json file) are source material only, not part of
-    # the shipped script — drop them from the staged copy so there's exactly one script file KWin
-    # could ever load.
+    # hotkeys.js/hotkeys.template.js (plus hotkeys.js.bak, and any hotkeys.json left over from the
+    # earlier UI) are source material only, not part of the shipped script — drop them from the
+    # staged copy so there's exactly one script file KWin could ever load.
     rm -f "$staging/contents/code/hotkeys.js" "$staging/contents/code/hotkeys.template.js" \
-          "$staging/contents/code/hotkeys.json" "$staging/contents/code/hotkeys.template.json"
+          "$staging/contents/code/hotkeys.js.bak" "$staging/contents/code"/hotkeys*.json*
     echo "$staging"
 }
 

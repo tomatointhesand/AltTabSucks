@@ -26,12 +26,14 @@ server instances (own token, own store) instead of sharing process-wide state, a
 dbus_bridge.Bridge shares directly rather than looping back through HTTP.
 """
 
+import hashlib
 import json
 import secrets
 import base64
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs
@@ -48,11 +50,12 @@ SMALL_MAX_BODY = 4 * 1024         # 4 KB, matches PS1 (/profiles and /switchtab 
 HOTKEYS_CONFIG_MAX_BODY = 256 * 1024  # generous room for dozens of bindings
 DRAIN_CAP = 8 * 1024 * 1024       # hard ceiling for draining a rejected body off the socket
 
-# hotkeys.json/hotkeys.js live alongside main.js in the KWin script package — see
-# hotkeys_generator.py's module docstring for how they relate. hotkeys-ui.html is the shared
-# (cross-platform, eventually) static settings page GET /hotkeys-ui serves.
+# hotkeys.js lives alongside main.js in the KWin script package and is the Hotkeys UI's source of
+# truth — see hotkeys_generator.py's module docstring. hotkeys.json is left over from the earlier
+# UI, where it was; fold_legacy_hotkeys_json folds it back into hotkeys.js once, at startup.
+# hotkeys-ui.html is the shared (Linux + Windows) static settings page GET /hotkeys-ui serves.
 KWIN_CODE_DIR = REPO_ROOT / "linux" / "kwin" / "alttabsucks" / "contents" / "code"
-HOTKEYS_CONFIG_PATH = KWIN_CODE_DIR / "hotkeys.json"
+LEGACY_HOTKEYS_JSON_PATH = KWIN_CODE_DIR / "hotkeys.json"
 HOTKEYS_JS_PATH = KWIN_CODE_DIR / "hotkeys.js"
 HOTKEYS_UI_PATH = REPO_ROOT / "shared" / "hotkeys-ui.html"
 
@@ -110,9 +113,9 @@ class AppState:
                                                  # via `./installer.sh configure`, not per-binding.
         self.chromium_extra_flags: list[str] = []  # from config.py CHROMIUM_EXTRA_FLAGS
         # Real paths by default (see the module-level constants); overridable per-instance so
-        # tests can point these at a tmp dir instead of writing the real hotkeys.js/hotkeys.json
-        # on every /hotkeys-config POST test.
-        self.hotkeys_config_path: Path = HOTKEYS_CONFIG_PATH
+        # tests can point these at a tmp dir instead of writing the real hotkeys.js on every
+        # /hotkeys-config POST test.
+        self.legacy_hotkeys_json_path: Path = LEGACY_HOTKEYS_JSON_PATH
         self.hotkeys_js_path: Path = HOTKEYS_JS_PATH
         # Same overridability reasoning as the two paths above: POST /hotkeys-config runs this
         # after writing hotkeys.js, to actually deploy it — real installer.sh in production,
@@ -336,15 +339,14 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     lines.append("")
                 self._end_text(200, "\n".join(lines))
             elif path == "/hotkeys-config":
-                try:
-                    hk_config = json.loads(state.hotkeys_config_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError):
-                    hk_config = {"bindings": []}
-                # Informational only — never round-tripped back into the file. hotkeys-ui.html's
-                # save() always POSTs a fresh {bindings} object it builds itself, not whatever this
-                # GET handed back, so injecting a key here can't leak into storage and go stale.
-                # See hotkeys_generator's module docstring for why this is a single value instead
-                # of a per-binding field the way it used to be.
+                import hotkeys_generator
+                text = _read_hotkeys_js(state)
+                hk_config = hotkeys_generator.parse_hotkeys_js(text)
+                # Posted back by save() so it can't silently overwrite a hand edit made since.
+                hk_config["fileHash"] = _text_hash(text)
+                hk_config["sourceFile"] = "hotkeys.js"
+                # Informational only — see hotkeys_generator's module docstring for why this is a
+                # single configured value instead of a per-binding field the way it used to be.
                 hk_config["browserResourceClass"] = state.chromium_resource_class
                 self._end_json(200, hk_config)
             elif path == "/suggest-launch-command":
@@ -422,19 +424,19 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._end_json(400, {"error": "invalid JSON"})
                     return
                 import hotkeys_generator
-                try:
-                    js = hotkeys_generator.generate_hotkeys_js(config, state.chromium_resource_class)
-                except ValueError as e:
-                    # A bad binding (missing field, unknown type) — the UI should have caught
-                    # this client-side already, but never trust that alone; report it back
-                    # rather than writing a hotkeys.js that would fail to parse in KWin, where
-                    # errors are far harder to see (see the porting checklist's notes on how
-                    # silent a KWin script parse failure is).
-                    self._end_json(400, {"error": str(e)})
+                text = _read_hotkeys_js(state)
+                if config.get("fileHash") != _text_hash(text):
+                    self._end_json(409, {"error": "hotkeys.js changed since this page loaded it. "
+                                                  "Reload the page and redo your change."})
                     return
-                state.hotkeys_config_path.parent.mkdir(parents=True, exist_ok=True)
-                state.hotkeys_config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
-                state.hotkeys_js_path.write_text(js, encoding="utf-8")
+                bindings = config.get("bindings")
+                result = hotkeys_generator.rewrite_hotkeys_js(
+                    text, bindings if isinstance(bindings, list) else [], state.chromium_resource_class)
+                if result["text"] == text:
+                    self._end_json(200, {"ok": True, "bindingCount": result["saved"],
+                                         "dropped": result["dropped"], "note": "Nothing changed."})
+                    return
+                _write_hotkeys_js(state, result["text"])
 
                 # Deploy immediately rather than making Save a two-step "save, then separately
                 # remember to press Ctrl+Alt+Shift+' or run installer.sh" — same command that
@@ -446,12 +448,12 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 deployed = False
                 deploy_error = None
                 try:
-                    result = subprocess.run(
+                    proc = subprocess.run(
                         state.deploy_command, capture_output=True, text=True, timeout=15,
                     )
-                    deployed = result.returncode == 0
+                    deployed = proc.returncode == 0
                     if not deployed:
-                        deploy_error = (result.stderr or result.stdout or f"exit code {result.returncode}").strip()
+                        deploy_error = (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()
                 except (OSError, subprocess.TimeoutExpired) as e:
                     deploy_error = str(e)
 
@@ -464,7 +466,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
 
                 self._end_json(200, {
                     "ok": True,
-                    "bindingCount": len(config.get("bindings", [])),
+                    "bindingCount": result["saved"],
+                    "dropped": result["dropped"],
                     "deployed": deployed,
                     "note": note,
                 })
@@ -487,6 +490,49 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._end(404)
 
     return Handler
+
+
+def _read_hotkeys_js(state) -> str:
+    try:
+        return state.hotkeys_js_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+
+
+def _write_hotkeys_js(state, text: str):
+    """Writes hotkeys.js, keeping the previous version as hotkeys.js.bak (gitignored)."""
+    path = state.hotkeys_js_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.with_name(path.name + ".bak").write_bytes(path.read_bytes())
+    path.write_text(text, encoding="utf-8")
+
+
+def _text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def fold_legacy_hotkeys_json(state) -> dict | None:
+    """One-time switch from the earlier UI, where hotkeys.json was the source of truth and
+    hotkeys.js was regenerated from it: its bindings (disabled ones included, which hotkeys.js
+    never held) go back into hotkeys.js, and hotkeys.json is renamed out of the way so this only
+    ever runs once. No redeploy needed: the enabled set is exactly what hotkeys.js already had."""
+    legacy = state.legacy_hotkeys_json_path
+    if not legacy.exists():
+        return None
+    import hotkeys_generator
+    try:
+        bindings = json.loads(legacy.read_text(encoding="utf-8")).get("bindings") or []
+    except (OSError, json.JSONDecodeError, AttributeError):
+        bindings = []
+    text = _read_hotkeys_js(state)
+    result = hotkeys_generator.fold_legacy_hotkeys_json(text, bindings, state.chromium_resource_class)
+    if bindings and result["text"] != text:
+        _write_hotkeys_js(state, result["text"])
+    legacy.rename(legacy.with_name(legacy.name + ".folded-" + time.strftime("%Y%m%d-%H%M%S")))
+    for d in result["dropped"]:
+        print(f"hotkeys.json fold-in: dropped {d['title'] or d['key']!r}: {d['reason']}")
+    return result
 
 
 def _start_dbus_bridge(state):
@@ -534,6 +580,7 @@ def main():
     secret = load_or_create_token(TOKEN_PATH)
     state = AppState(secret)
     _load_chromium_config(state)
+    fold_legacy_hotkeys_json(state)
     _start_dbus_bridge(state)
     httpd = ThreadingHTTPServer(("127.0.0.1", PORT), make_handler(state))
     # Without this, server_close() joins every live worker thread before returning — so a single

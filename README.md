@@ -80,7 +80,7 @@ After the first install, everything starts automatically at logon. `Ctrl+Alt+Shi
 
 #### 4. Try the starter hotkeys, then make them yours
 
-On first launch AltTabSucks adds a set of suggested hotkeys (from `lib\hotkeys.template.json`, using your browser's default profile) and shows a notification:
+On first launch, if `lib\app-hotkeys.ahk` has no hotkeys yet, AltTabSucks adds a set of suggested ones to it (from `lib\hotkeys.template.json`, using your browser's default profile) and shows a notification:
 
 | Hotkey | Does |
 |---|---|
@@ -94,9 +94,9 @@ On first launch AltTabSucks adds a set of suggested hotkeys (from `lib\hotkeys.t
 
 Open your browser and switch tabs once so the extension reports them, then try a few.
 
-**Upgrading with your own hotkeys in `lib\app-hotkeys.ahk`?** On startup AltTabSucks moves its single-line `FocusTab` / `CycleChromiumProfile` / `ManageAppWindows` / split / merge hotkeys into the Hotkeys UI instead (they replace any suggested hotkey on the same key). The originals are commented out with a `[migrated to Hotkeys UI]` marker and the file is backed up as `app-hotkeys.ahk.pre-ui-migration-<timestamp>`. A `#HotIf !WinActive(...)` block around them becomes `UI_HOTKEYS_SUPPRESS_WHEN`. Hotkeys that call your own functions or run multi-line blocks stay where they are.
+**To change them, press Ctrl+Alt+/** (or tray menu → Hotkeys UI), paste your auth token (`Server\token.txt`), and add or edit app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. The page shows the hotkeys in `lib\app-hotkeys.ahk` itself: every single-line hotkey it recognizes, whether you wrote it by hand or saved it from the page. Saving rewrites just those lines, leaves the rest of the file alone (your own functions, multi-line hotkeys, comments) and keeps the previous version as `app-hotkeys.ahk.bak`; AltTabSucks then reloads itself within a second. Editing the file by hand works too. A change that wouldn't load is reported in a notification instead of reloading.
 
-**To change them, press Ctrl+Alt+/** (or tray menu → Hotkeys UI), paste your auth token (`Server\token.txt`), and add or edit app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. Save writes `lib\hotkeys.json` and regenerates `lib\hotkeys-ui.generated.ahk` (both gitignored); AltTabSucks reloads itself within a second. Hand-written hotkeys in `app-hotkeys.ahk` keep working alongside; just don't bind the same key in both places (the static one wins). Set `UI_HOTKEYS_SUPPRESS_WHEN` (e.g. `"ahk_exe Moonlight.exe"`) in `app-hotkeys.ahk` to disable UI hotkeys while that window is active.
+The config heals itself: a hotkey that's no longer valid (for example after an update removes or changes an action) is flagged on the page and removed on the next save, and a save drops and reports anything invalid or any key bound twice instead of writing it. Upgrading from the earlier version, where the page saved to `lib\hotkeys.json`: those hotkeys are moved back into `app-hotkeys.ahk` on the first start.
 
 ### What the installer does
 
@@ -199,10 +199,6 @@ To regenerate manually without committing:
 ```
 
 Run `bash dev-scripts/install-hooks.sh` once after cloning to activate the hook.
-
-**After pulling updates: local file migrations**
-
-`git pull` updates the code but never your own `lib/app-hotkeys.ahk` / `lib/config.ahk` (or their Linux counterparts). When an update removes or renames something those files use, [`MIGRATIONS.md`](MIGRATIONS.md) has an entry saying exactly what to change. Each entry is written so an agent can apply it: ask yours to "apply pending migrations from MIGRATIONS.md". `bash dev-scripts/pending-migrations.sh` lists what this clone hasn't applied yet. With the hooks installed (above), you get a reminder after every pull that brings new entries.
 
 **Packaging the Firefox extension**
 

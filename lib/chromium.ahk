@@ -269,7 +269,7 @@ _InitChromiumState()
 
 ; profileName ALL_PROFILES cycles every open browser window regardless of profile; when none are
 ; open it launches launchProfileName instead (a specific profile). Same sentinel as
-; shared/hotkeys-ui.html, Server/HotkeysGenerator.ps1 and the Linux port's main.js.
+; shared/hotkeys-ui.html, Server/AppHotkeys.ps1 and the Linux port's main.js.
 global ALL_PROFILES := "__all__"
 
 CycleChromiumProfile(profileName, launchProfileName := "") {

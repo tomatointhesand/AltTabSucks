@@ -14,11 +14,13 @@
     here talks to the server it was served *from* (relative fetch() URLs — same-origin, no CORS
     config needed), never a hardcoded host/port.
 
-    Data model: this page is the source of truth once you save from it — GET /hotkeys-config
-    loads the current linux/kwin/alttabsucks/contents/code/hotkeys.json, POST regenerates
-    hotkeys.js from whatever you save here. Hand-editing hotkeys.js directly still works if you
-    never open this page, but once you save here, hand edits to hotkeys.js will be overwritten by
-    the next save (see hotkeys_generator.py's module docstring).
+    Data model: the hotkeys file itself is the source of truth — linux/kwin/alttabsucks/contents/
+    code/hotkeys.js on Linux (linux/server/hotkeys_generator.py), lib/app-hotkeys.ahk on Windows
+    (Server/AppHotkeys.ps1). GET /hotkeys-config parses every recognizable hotkey statement in it
+    (plus `invalid`: recognizable ones that no longer validate); POST rewrites just those
+    statements, leaving everything else in the file alone, drops (and reports as `dropped`)
+    bindings that don't validate, and refuses with 409 if the file changed since `fileHash` was
+    read. So hand edits and UI saves can be mixed freely.
   */
   :root {
     --bg: #0b0e14; --panel: #131722; --border: #232838;
@@ -132,7 +134,7 @@
   .drag-handle:hover { color: var(--text); }
   .drag-handle:active { cursor: grabbing; }
   .binding.dragging { opacity: 0.4; }
-  .status { font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .status { font-size: 13px; margin-top: 10px; min-height: 18px; white-space: pre-line; }
   .status.ok { color: var(--ok); }
   .status.err { color: var(--err); }
   /* Sticky so Save (and its status) stays reachable while scrolling a long list; sits in normal
@@ -218,6 +220,8 @@ let runningResourceClasses = []; // [{resourceClass, resourceName}, ...] — see
                                   // /running-resource-classes; resourceName is search/display
                                   // trivia only, never the value a binding actually stores.
 let bindings = [];
+let fileHash = null;   // from GET /hotkeys-config, posted back so a save can't clobber a hand edit
+let sourceFile = "hotkeys.js";
 let draggedIndex = null; // set by a drag-handle's dragstart, read by another binding's drop
 
 function el(tag, attrs, children) {
@@ -657,14 +661,15 @@ const SPLIT_MERGE_COLUMNS = [
 TYPE_COLUMNS.splitTab = SPLIT_MERGE_COLUMNS;
 TYPE_COLUMNS.mergeTabs = SPLIT_MERGE_COLUMNS;
 
-// Windows (Server/HotkeysGenerator.ps1 -> AHK) differs in a few places: windows are matched by
+// Windows (Server/AppHotkeys.ps1 -> lib/app-hotkeys.ahk) differs in a few places: windows are matched by
 // process name rather than resourceClass, split/merge detect the profile from the focused window
 // themselves (no Profile column). Idempotent — load() calls this on every Reload.
 function applyPlatform(platform) {
   if (platform !== "windows") return;
   document.getElementById("subtitle").innerHTML =
-    "Saving regenerates <code>lib/hotkeys-ui.generated.ahk</code>; AltTabSucks reloads itself to apply it. " +
-    "Hand-written hotkeys in <code>lib/app-hotkeys.ahk</code> keep working — just don't bind the same key in both places.";
+    "Shows the hotkeys in <code>lib/app-hotkeys.ahk</code>; saving rewrites just those lines (everything else in " +
+    "the file is left alone, and the previous version is kept as <code>app-hotkeys.ahk.bak</code>). " +
+    "AltTabSucks reloads itself to apply it.";
   Object.assign(HINTS, {
     resourceClass: "code.exe, slack.exe, ...", launch: "C:\\path\\to\\app.exe, or shell:AppsFolder\\<AppId>",
     command: "notepad.exe, C:\\notes.txt",
@@ -808,7 +813,7 @@ function renderAll() {
   // little vertical space but was a real dead end once per-row type reassignment was removed
   // (see the group's own +Add above): deleting a section's last binding took its whole section,
   // +Add button included, with it, leaving no way back to that group short of hand-editing
-  // hotkeys.json. Reported live: deleting the sole "Run command" binding made the entire Run
+  // the hotkeys file. Reported live: deleting the sole "Run command" binding made the entire Run
   // Command section vanish.
   GROUPS.forEach((group) => {
     const groupBindings = bindings.filter((b) => group.types.includes(b.type));
@@ -823,14 +828,20 @@ document.getElementById("save").addEventListener("click", async () => {
     const res = await fetch("/hotkeys-config", {
       method: "POST",
       headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
-      body: JSON.stringify({ bindings }),
+      body: JSON.stringify({ bindings, fileHash }),
     });
     const result = await res.json();
+    // 409: the file was edited (by hand, or another tab) since this page loaded it.
+    if (res.status === 409) { setStatus("Not saved: " + result.error, true); return; }
     if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
     // deployed:false isn't a fetch/network failure (the save itself succeeded, res.ok is true)
     // but it does mean the server's own installer.sh reload-hotkeys attempt failed — worth the
     // status line's error styling so a deploy problem doesn't read as identical to full success.
-    setStatus(`Saved ${result.bindingCount} hotkey(s). ${result.note || ""}`, result.deployed === false);
+    const dropped = result.dropped || [];
+    let msg = `Saved ${result.bindingCount} hotkey(s). ${result.note || ""}`;
+    if (dropped.length) msg += `\nRemoved ${dropped.length} invalid hotkey(s):\n` + dropped.map(describeProblem).join("\n");
+    // Re-read what was actually written (dropped rows gone, new rows now carry their file position).
+    await load({ msg, isError: result.deployed === false || dropped.length > 0 });
   } catch (e) {
     setStatus("Save failed: " + e.message, true);
   }
@@ -848,7 +859,14 @@ document.addEventListener("keydown", (e) => {
   document.getElementById("save").click();
 });
 
-async function load() {
+// "Ctrl+Alt+Shift+M (Gmail): reason" — shared by the save report and load's invalid-line warning.
+function describeProblem(p) {
+  const name = [p.key, p.title && p.title !== p.key ? `(${p.title})` : ""].filter(Boolean).join(" ");
+  return `  ${p.line ? `line ${p.line}: ` : ""}${name || p.text || "?"}: ${p.reason}`;
+}
+
+// after: {msg, isError} to show instead of the "Loaded ..." line (used right after a save).
+async function load(after) {
   try {
     const [profilesResult, configResult] = await Promise.all([
       apiGet("/profiles"),
@@ -856,6 +874,8 @@ async function load() {
     ]);
     profiles = profilesResult;
     bindings = configResult.bindings || [];
+    fileHash = configResult.fileHash || null;
+    sourceFile = configResult.sourceFile || sourceFile;
     applyPlatform(configResult.platform);
     renderAll();
     // The single configured browser (config.py's CHROMIUM_RESOURCE_CLASS) every profileCycle/
@@ -871,7 +891,13 @@ async function load() {
       browserInfo.textContent = HINTS.browserMissing;
       browserInfo.classList.add("warn");
     }
-    setStatus(`Loaded ${bindings.length} hotkey(s), ${profiles.length} known profile(s).`, false);
+    const invalid = configResult.invalid || [];
+    let msg = after ? after.msg : `Loaded ${bindings.length} hotkey(s), ${profiles.length} known profile(s).`;
+    if (invalid.length) {
+      msg += `\n${invalid.length} hotkey(s) in ${sourceFile} aren't valid any more and will be removed on the next save:\n` +
+        invalid.map(describeProblem).join("\n");
+    }
+    setStatus(msg, (after && after.isError) || invalid.length > 0);
   } catch (e) {
     setStatus("Load failed (check your token, and that the server is running): " + e.message, true);
     return;
@@ -879,7 +905,7 @@ async function load() {
   // Separate, best-effort fetch: main.js only pushes this every 10s (see its own comment), so a
   // very-first load right after install could still race an empty list — that's fine, it just
   // means the typeahead has nothing to suggest until the next push, not a reason to fail the
-  // whole page load the way a missing token/hotkeys.json genuinely should above.
+  // whole page load the way a missing token genuinely should above.
   await refreshRunningResourceClasses();
 }
 
@@ -913,8 +939,8 @@ tokenInput.addEventListener("input", (e) => {
   actualToken = e.target.value.trim();
   localStorage.setItem("atsToken", actualToken);
 });
-tokenInput.addEventListener("change", load);
-document.getElementById("reload").addEventListener("click", load);
+tokenInput.addEventListener("change", () => load());
+document.getElementById("reload").addEventListener("click", () => load());
 
 load();
 </script>
