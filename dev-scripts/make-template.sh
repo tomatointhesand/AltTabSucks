@@ -66,11 +66,11 @@ else
   echo "Skipped: $root/config.template.ahk (config.ahk not present)"
 fi
 
-# Linux: hotkeys.js/hotkeys.json → hotkeys.template.js/hotkeys.template.json
+# Linux: hotkeys.js → hotkeys.template.js
 # Deliberately *unsanitized* — a real, working example (this repo's own live config) instead of
 # generic "YOUR_BROWSER_RESOURCE_CLASS" placeholders, so a `git pull` always brings something
-# that actually works. hotkeys.js/hotkeys.json themselves stay gitignored either way (see
-# .gitignore's own comment) — only these two templates are ever tracked.
+# that actually works. hotkeys.js itself stays gitignored either way (see .gitignore's own
+# comment) — only the template is ever tracked.
 linux_root="$(cd "$(dirname "$0")/.." && pwd)/linux/kwin/alttabsucks/contents/code"
 
 if [ -f "$linux_root/hotkeys.js" ]; then
@@ -87,12 +87,4 @@ if [ -f "$linux_root/hotkeys.js" ]; then
   echo "Written: $linux_root/hotkeys.template.js (unsanitized)"
 else
   echo "Skipped: $linux_root/hotkeys.template.js (hotkeys.js not present)"
-fi
-
-# No banner here — unlike hotkeys.template.js, this has to stay valid JSON (no comments allowed).
-if [ -f "$linux_root/hotkeys.json" ]; then
-  cp "$linux_root/hotkeys.json" "$linux_root/hotkeys.template.json"
-  echo "Written: $linux_root/hotkeys.template.json (unsanitized)"
-else
-  echo "Skipped: $linux_root/hotkeys.template.json (hotkeys.json not present)"
 fi

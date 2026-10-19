@@ -77,29 +77,28 @@ Open the extension's **Options** page and set:
 
 ### 3. Add your hotkeys
 
-`hotkeys.js`/`hotkeys.json` are gitignored, same as `lib/app-hotkeys.ahk` on Windows — but unlike
-that AHK file, their templates (`hotkeys.template.js`/`hotkeys.template.json`) are an
-**unsanitized** mirror of them, refreshed automatically on every commit (see `hooks/pre-commit`).
-For the meantime, that means a real, working example — this repo's own actual hotkey config as
-of the last commit, not generic placeholders — is what `installer.sh` seeds a missing
-`hotkeys.js`/`hotkeys.json` from (each independently, whichever one is actually missing) on
-install/reload-hotkeys, without `hotkeys.js`/`hotkeys.json` themselves ever being tracked (so a
-`git pull` never touches your own local edits to them). Since a `git pull` only updates the
-tracked templates, not your gitignored copies, the two can drift out of sync with each other —
-e.g. `hotkeys.js` seeded from an older template than `hotkeys.json` was, or one of the pair
-hand-refreshed from its template without the other — so if the Hotkeys UI stops matching what's
-actually deployed, or a pulled template gained new bindings you want, refresh both by hand from
-their templates and run `./installer.sh reload-hotkeys`:
+`hotkeys.js` is gitignored, same as `lib/app-hotkeys.ahk` on Windows — but unlike that AHK file,
+its template (`hotkeys.template.js`) is an **unsanitized** mirror of it, refreshed automatically
+on every commit (see `hooks/pre-commit`). That means a real, working example — this repo's own
+actual hotkey config as of the last commit, not generic placeholders — is what `installer.sh`
+seeds a missing `hotkeys.js` from on install/reload-hotkeys, without `hotkeys.js` itself ever
+being tracked (so a `git pull` never touches your own local edits to it). To pick up bindings a
+pulled template gained, copy the ones you want across, or start over from it:
 ```bash
 cp linux/kwin/alttabsucks/contents/code/hotkeys.template.js linux/kwin/alttabsucks/contents/code/hotkeys.js
-cp linux/kwin/alttabsucks/contents/code/hotkeys.template.json linux/kwin/alttabsucks/contents/code/hotkeys.json
 ./installer.sh reload-hotkeys
 ```
 Two ways to edit them:
 
 **The Hotkeys UI (recommended)** — with the server running, open
-**`http://localhost:9876/hotkeys-ui`**, paste your auth token, and edit bindings there. Saving
-regenerates `hotkeys.js` and redeploys the KWin script automatically — no terminal step needed.
+**`http://localhost:9876/hotkeys-ui`**, paste your auth token, and edit bindings there. The page
+shows the `registerShortcut(...)` statements in `hotkeys.js` it recognizes, hand-written or not;
+saving rewrites just those (everything else in the file is left alone, the previous version is
+kept as `hotkeys.js.bak`) and redeploys the KWin script automatically — no terminal step needed.
+It heals itself: a statement that no longer validates is flagged and removed on the next save, and
+a save drops and reports invalid bindings or reused titles/keys instead of writing them. (Upgrading
+from the version that saved to `hotkeys.json`: the server moves those bindings into `hotkeys.js`
+once, on its first start, and renames `hotkeys.json` aside.)
 Bindings are grouped by type (app window cycling/toggling, browser profile cycling, tab focus,
 split/merge, run-command). Only app window cycling/toggling bindings have their own `resourceClass`
 field, since those can target any app (Kate, Discord, a game, ...) — it offers a live typeahead
@@ -148,7 +147,7 @@ as the Windows uninstaller leaving `token.txt`) — remove them by hand for a cl
 re-runs the browser picker, writes the new browser's window `resourceClass` into `config.py`'s
 `CHROMIUM_RESOURCE_CLASS` — the single value every browser profile cycling/tab focus/split/merge
 binding uses (see the Hotkeys UI section above) — and, if you already have hotkeys set up,
-immediately regenerates `hotkeys.js` from `hotkeys.json` with it, so every existing browser-scoped
+immediately rewrites the bindings in `hotkeys.js` with it, so every existing browser-scoped
 binding switches at once rather than needing an extra trip through the Hotkeys UI first. Run
 `./installer.sh install` (or `reload-hotkeys`) afterward to actually deploy it, same as any other
 hotkeys change.

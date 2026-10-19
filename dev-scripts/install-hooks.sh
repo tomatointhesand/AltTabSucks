@@ -14,4 +14,12 @@ for hook in "$REPO_ROOT/hooks/"*; do
     echo "Installed: .git/hooks/$name"
 done
 
+# Hooks this repo used to ship (pending-migrations reminders); removed from hooks/ since.
+for old in post-merge post-rewrite; do
+    if [ -f "$REPO_ROOT/.git/hooks/$old" ] && grep -q "pending-migrations" "$REPO_ROOT/.git/hooks/$old"; then
+        rm "$REPO_ROOT/.git/hooks/$old"
+        echo "Removed: .git/hooks/$old"
+    fi
+done
+
 echo "Done."

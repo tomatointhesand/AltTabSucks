@@ -1,39 +1,22 @@
 ; hotkeys-ui.ahk - runtime side of the web hotkeys UI (http://localhost:9876/hotkeys-ui).
-; On Save the server regenerates lib/hotkeys-ui.generated.ahk from lib/hotkeys.json
-; (Server/HotkeysGenerator.ps1); that file calls _UiHotkey() once per binding.
+; lib/app-hotkeys.ahk is the UI's source of truth: the server parses its recognizable single-line
+; hotkeys for the page and rewrites just those lines on Save (Server/AppHotkeys.ps1). This file
+; reloads the script when app-hotkeys.ahk changes.
 
-; Registered with Hotkey() at startup rather than as static :: hotkeys, so a bad or duplicate
-; binding shows a tray warning instead of failing the whole script load. browserOnly limits it
-; to when a browser window is active (split/merge).
-_UiHotkey(keys, title, fn, browserOnly := false) {
-    HotIf(browserOnly ? _UiBrowserActive : _UiHotkeysAllowed)
-    try Hotkey(keys, fn, "On")
-    catch as e
-        TrayTip(title " (" keys "): " e.Message, "AltTabSucks: UI hotkey not registered", "Iconx")
-    HotIf()
-}
-_UiHotkeysAllowed(*) => UI_HOTKEYS_SUPPRESS_WHEN = "" || !WinActive(UI_HOTKEYS_SUPPRESS_WHEN)
-_UiBrowserActive(*) => _UiHotkeysAllowed() && (WinActive("ahk_class Chrome_WidgetWin_1") || WinActive("ahk_class MozillaWindowClass"))
-
-; Startup, via the server (which validates and regenerates hotkeys-ui.generated.ahk the same way
-; a UI save does; the watcher below then reloads to apply the result):
-;  1. Move convertible static hotkeys from app-hotkeys.ahk into the UI — a no-op once none are left.
-;  2. First run with nothing migrated and no lib\hotkeys.json: seed suggested hotkeys from
-;     lib\hotkeys.template.json, with __PROFILE__ filled in by the browser's default profile.
+; Startup, via the server: folds a leftover lib\hotkeys.json from the earlier JSON-based UI back
+; into app-hotkeys.ahk, or on a file with no hotkeys yet adds the starter set from
+; lib\hotkeys.template.json with __PROFILE__ filled in by the browser's default profile. Each
+; happens once; the watcher below then reloads to apply the result.
 _InitUiHotkeys(attempt := 1) {
-    tpl := A_ScriptDir "\lib\hotkeys.template.json"
     try {
-        resp := _UiServerPost("/migrate-app-hotkeys", "")
+        resp := _UiServerPost("/init-hotkeys", '{"profile":"' JsonEscape(_DefaultBrowserProfile()) '"}')
         if resp = ""
-            return  ; migration failed (already reported) — don't seed over unmigrated hotkeys
-        if RegExMatch(resp, '"migrated":\s*(\d+)', &m) && m[1] > 0 {
-            TrayTip("Moved " m[1] " hotkeys from app-hotkeys.ahk into the Hotkeys UI. Press Ctrl+Alt+/ to view and edit them.", "AltTabSucks")
             return
-        }
-        if FileExist(A_ScriptDir "\lib\hotkeys.json") || !FileExist(tpl) || (profile := _DefaultBrowserProfile()) = ""
-            return  ; already set up, or no browser configured yet (try again next launch)
-        if _UiServerPost("/hotkeys-config", StrReplace(FileRead(tpl, "UTF-8"), "__PROFILE__", JsonEscape(profile))) != ""
-            TrayTip("Suggested hotkeys added. Press Ctrl+Alt+/ to view and edit them.", "AltTabSucks")
+        dropped := RegExMatch(resp, '"dropped":\[[^\]]+\]') ? " Some couldn't be added - see the Hotkeys UI save report." : ""
+        if RegExMatch(resp, '"folded":\s*(\d+)', &m) && m[1] > 0
+            TrayTip("Moved " m[1] " Hotkeys UI bindings into app-hotkeys.ahk." dropped " Press Ctrl+Alt+/ to view and edit them.", "AltTabSucks")
+        else if RegExMatch(resp, '"seeded":\s*(\d+)', &m) && m[1] > 0
+            TrayTip("Suggested hotkeys added to app-hotkeys.ahk." dropped " Press Ctrl+Alt+/ to view and edit them.", "AltTabSucks")
     } catch {
         if attempt < 10  ; server may still be starting
             SetTimer(() => _InitUiHotkeys(attempt + 1), -3000)
@@ -64,15 +47,32 @@ _DefaultBrowserProfile() {
 }
 SetTimer(_InitUiHotkeys, -3000)
 
-; Reload when a UI save rewrites the generated file.
+; Reload when app-hotkeys.ahk changes (a UI save or a hand edit) - but only once the whole script
+; validates. Reload() into a file with an error would stop every hotkey behind an error dialog;
+; instead the running script keeps going and the error is shown until the file is fixed.
 _UiHotkeysStamp() {
-    path := A_ScriptDir "\lib\hotkeys-ui.generated.ahk"
+    path := A_ScriptDir "\lib\app-hotkeys.ahk"
     return FileExist(path) ? FileGetTime(path) "|" FileGetSize(path) : ""
 }
 _UiHotkeysWatch() {
     global _uiHotkeysLastStamp
-    if _UiHotkeysStamp() != _uiHotkeysLastStamp
+    if (stamp := _UiHotkeysStamp()) = _uiHotkeysLastStamp
+        return
+    _uiHotkeysLastStamp := stamp
+    if (err := _ValidateScript()) = ""
         Reload()
+    else
+        TrayTip(SubStr(err, 1, 250), "AltTabSucks: app-hotkeys.ahk not reloaded", "Iconx")
+}
+; Load-checks the script in a separate process (/Validate doesn't touch this running instance).
+; Returns its error text, or "" if it would load.
+_ValidateScript() {
+    errFile := A_Temp "\AltTabSucks-validate.txt"
+    try FileDelete(errFile)
+    code := RunWait(A_ComSpec ' /c ""' A_AhkPath '" /ErrorStdOut=UTF-8 /Validate "' A_ScriptFullPath '" 2> "' errFile '""', , "Hide")
+    err := FileExist(errFile) ? Trim(FileRead(errFile, "UTF-8"), "`r`n ") : ""
+    try FileDelete(errFile)
+    return code = 0 ? "" : (err != "" ? err : "exit code " code)
 }
 _uiHotkeysLastStamp := _UiHotkeysStamp()
 SetTimer(_UiHotkeysWatch, 1000)

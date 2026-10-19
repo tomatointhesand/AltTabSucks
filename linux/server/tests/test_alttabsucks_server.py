@@ -35,11 +35,11 @@ PAGE_ORIGIN = "https://evil.example.com"
 class ServerTestCase(unittest.TestCase):
     def setUp(self):
         self.state = AppState(TOKEN)
-        # Never let a test write the real repo's hotkeys.json/hotkeys.js — see
-        # AppState.hotkeys_config_path/hotkeys_js_path's docstring for why these are
+        # Never let a test write the real repo's hotkeys.js/hotkeys.json — see
+        # AppState.legacy_hotkeys_json_path/hotkeys_js_path's comment for why these are
         # per-instance overridable rather than bare module constants.
         self._hotkeys_tmpdir = tempfile.TemporaryDirectory()
-        self.state.hotkeys_config_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.json"
+        self.state.legacy_hotkeys_json_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.json"
         self.state.hotkeys_js_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.js"
         # Never let a test invoke the real installer.sh (which would touch the real KWin script
         # installation) — see AppState.deploy_command's docstring. "true" is a real subprocess
@@ -351,93 +351,104 @@ class ServerTestCase(unittest.TestCase):
 
     # ---- /hotkeys-config -------------------------------------------------
 
-    def test_hotkeys_config_get_defaults_to_empty_bindings_when_no_file_yet(self):
+    def get_config(self):
         status, _, body = self.request("GET", "/hotkeys-config")
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body), {"bindings": [], "browserResourceClass": "brave-browser"})
+        return json.loads(body)
+
+    def save(self, bindings, file_hash=None):
+        """POSTs bindings the way the page does: with the fileHash from a fresh GET."""
+        if file_hash is None:
+            file_hash = self.get_config()["fileHash"]
+        status, _, body = self.request("POST", "/hotkeys-config", json_body={"bindings": bindings, "fileHash": file_hash})
+        return status, json.loads(body)
+
+    def test_hotkeys_config_get_defaults_to_empty_bindings_when_no_file_yet(self):
+        config = self.get_config()
+        self.assertEqual(config["bindings"], [])
+        self.assertEqual(config["invalid"], [])
+        self.assertEqual(config["browserResourceClass"], "brave-browser")
+        self.assertEqual(config["sourceFile"], "hotkeys.js")
 
     def test_hotkeys_config_get_reflects_configured_browser_resource_class(self):
         # Informational only (see the handler's own comment) — reflects whatever config.py
-        # currently says, not anything read from hotkeys.json itself.
+        # currently says, not anything read from hotkeys.js itself.
         self.state.chromium_resource_class = "google-chrome"
-        status, _, body = self.request("GET", "/hotkeys-config")
-        self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)["browserResourceClass"], "google-chrome")
+        self.assertEqual(self.get_config()["browserResourceClass"], "google-chrome")
 
-    def test_hotkeys_config_post_writes_config_and_generates_js(self):
-        config = {"bindings": [
+    def test_hotkeys_config_get_parses_hand_written_hotkeys_js(self):
+        self.state.hotkeys_js_path.write_text(
+            "// mine\n"
+            'registerShortcut("Kate", "AltTabSucks: Kate", "Alt+K", function () { manageAppWindows("org.kde.kate", "cycle"); });\n'
+            'registerShortcut("Bad", "AltTabSucks: Bad", "Alt+B", function () { focusTab("b", "P", [], "u"); });\n')
+        config = self.get_config()
+        self.assertEqual([b["title"] for b in config["bindings"]], ["Kate"])
+        self.assertEqual([(i["title"], i["line"]) for i in config["invalid"]], [("Bad", 3)])
+
+    def test_hotkeys_config_post_generates_js(self):
+        status, result = self.save([
             {"type": "windowToggle", "title": "Toggle File Manager", "key": "Ctrl+Alt+Shift+E",
              "resourceClass": "org.kde.dolphin", "launchArgv": ["dolphin"]},
-        ]}
-        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        ])
         self.assertEqual(status, 200)
-        result = json.loads(body)
         self.assertTrue(result["ok"])
         self.assertEqual(result["bindingCount"], 1)
-
-        self.assertEqual(json.loads(self.state.hotkeys_config_path.read_text()), config)
+        self.assertEqual(result["dropped"], [])
         js = self.state.hotkeys_js_path.read_text()
         self.assertIn('manageAppWindows("org.kde.dolphin", "toggle", ["dolphin"]);', js)
 
     def test_hotkeys_config_get_after_post_returns_what_was_saved(self):
-        # No resourceClass field at all — profileCycle no longer has one of its own (see
-        # hotkeys_generator's module docstring); the configured browser (setUp's
-        # chromium_resource_class) is what makes this generate successfully.
-        config = {"bindings": [
-            {"type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P",
-             "profileName": "Work"},
-        ]}
-        self.request("POST", "/hotkeys-config", json_body=config)
-        status, _, body = self.request("GET", "/hotkeys-config")
-        self.assertEqual(status, 200)
-        # What's on disk round-trips exactly (asserted separately, via hotkeys_config_path, in
-        # test_hotkeys_config_post_writes_config_and_generates_js) — the GET response layers
-        # browserResourceClass on top, so compare that way rather than requiring an exact match.
-        result = json.loads(body)
-        self.assertEqual(result["bindings"], config["bindings"])
-        self.assertEqual(result["browserResourceClass"], "brave-browser")
+        binding = {"type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P", "profileName": "Work"}
+        self.save([binding])
+        (saved,) = self.get_config()["bindings"]
+        self.assertEqual({k: saved[k] for k in binding}, binding)
+
+    def test_hotkeys_config_post_keeps_hand_written_text(self):
+        self.state.hotkeys_js_path.write_text("function mine() {}\n")
+        self.save([{"type": "windowCycle", "title": "Kate", "key": "Alt+K", "resourceClass": "kate"}])
+        js = self.state.hotkeys_js_path.read_text()
+        self.assertTrue(js.startswith("function mine() {}\n"))
+        self.assertEqual(self.state.hotkeys_js_path.with_name("hotkeys.js.bak").read_text(), "function mine() {}\n")
+
+    def test_hotkeys_config_post_stale_file_hash_is_409_and_writes_nothing(self):
+        stale = self.get_config()["fileHash"]
+        self.state.hotkeys_js_path.write_text("// edited by hand meanwhile\n")
+        status, result = self.save([], file_hash=stale)
+        self.assertEqual(status, 409)
+        self.assertIn("changed", result["error"])
+        self.assertEqual(self.state.hotkeys_js_path.read_text(), "// edited by hand meanwhile\n")
 
     def test_hotkeys_config_post_profile_cycle_uses_configured_browser_not_a_binding_field(self):
         self.state.chromium_resource_class = "google-chrome"
-        config = {"bindings": [
-            {"type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P",
-             "profileName": "Work"},
-        ]}
-        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        status, _ = self.save([{"type": "profileCycle", "title": "Cycle Work", "key": "Ctrl+Alt+Shift+P", "profileName": "Work"}])
         self.assertEqual(status, 200)
-        js = self.state.hotkeys_js_path.read_text()
-        self.assertIn('cycleChromiumProfile("google-chrome", "Work", "Work");', js)
+        self.assertIn('cycleChromiumProfile("google-chrome", "Work", "Work");', self.state.hotkeys_js_path.read_text())
 
-    def test_hotkeys_config_post_browser_scoped_binding_fails_when_no_browser_configured(self):
+    def test_hotkeys_config_post_browser_scoped_binding_dropped_when_no_browser_configured(self):
         self.state.chromium_resource_class = ""
-        config = {"bindings": [
+        status, result = self.save([
             {"type": "tabFocus", "title": "Gmail", "key": "Ctrl+Alt+Shift+G", "profileName": "Personal",
              "urlPatterns": ["mail.google.com"], "openUrl": "https://mail.google.com"},
-        ]}
-        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
-        self.assertEqual(status, 400)
-        self.assertIn("run ./installer.sh configure", json.loads(body)["error"])
-        # Same "reject without writing anything" contract as any other invalid binding.
-        self.assertFalse(self.state.hotkeys_config_path.exists())
-        self.assertFalse(self.state.hotkeys_js_path.exists())
+        ])
+        self.assertEqual(status, 200)
+        self.assertEqual(result["bindingCount"], 0)
+        self.assertIn("run ./installer.sh configure", result["dropped"][0]["reason"])
 
     def test_hotkeys_config_post_window_cycle_unaffected_by_missing_browser_config(self):
         # windowCycle/windowToggle still take their own resourceClass field — genuinely unrelated
         # to whether a browser is configured at all.
         self.state.chromium_resource_class = ""
-        config = {"bindings": [
-            {"type": "windowCycle", "title": "Kate", "key": "Ctrl+Alt+Shift+N", "resourceClass": "org.kde.kate"},
-        ]}
-        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
-        self.assertEqual(status, 200)
+        status, result = self.save([{"type": "windowCycle", "title": "Kate", "key": "Ctrl+Alt+Shift+N", "resourceClass": "org.kde.kate"}])
+        self.assertEqual((status, result["dropped"]), (200, []))
 
-    def test_hotkeys_config_post_invalid_binding_rejected_without_writing_anything(self):
-        config = {"bindings": [{"type": "tabFocus", "title": "Broken"}]}  # missing required fields
-        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
-        self.assertEqual(status, 400)
-        self.assertIn("error", json.loads(body))
-        self.assertFalse(self.state.hotkeys_config_path.exists())
-        self.assertFalse(self.state.hotkeys_js_path.exists())
+    def test_hotkeys_config_post_invalid_binding_dropped_and_reported(self):
+        status, result = self.save([
+            {"type": "tabFocus", "title": "Broken"},  # missing required fields
+            {"type": "windowCycle", "title": "Kate", "key": "Alt+K", "resourceClass": "kate"},
+        ])
+        self.assertEqual(status, 200)
+        self.assertEqual([d["title"] for d in result["dropped"]], ["Broken"])
+        self.assertEqual([b["title"] for b in self.get_config()["bindings"]], ["Kate"])
 
     def test_hotkeys_config_post_invalid_json_rejected(self):
         status, _, body = self.request("POST", "/hotkeys-config", raw_body="not json",
@@ -445,46 +456,57 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("error", json.loads(body))
 
-    def test_hotkeys_config_post_deploys_on_success(self):
+    def test_hotkeys_config_post_deploys_on_change(self):
         # self.state.deploy_command is ["true"] (see setUp) — a real subprocess, exit 0.
-        config = {"bindings": []}
-        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        status, result = self.save([{"type": "windowCycle", "title": "X", "key": "Alt+X", "resourceClass": "y"}])
         self.assertEqual(status, 200)
-        result = json.loads(body)
         self.assertTrue(result["deployed"])
         self.assertIn("Deployed", result["note"])
 
+    def test_hotkeys_config_post_without_changes_skips_the_deploy(self):
+        self.state.deploy_command = ["false"]
+        self.save([{"type": "windowCycle", "title": "X", "key": "Alt+X", "resourceClass": "y"}])
+        status, result = self.save(self.get_config()["bindings"])
+        self.assertEqual(status, 200)
+        self.assertEqual(result["note"], "Nothing changed.")
+
     def test_hotkeys_config_post_reports_deploy_failure_without_losing_the_save(self):
         self.state.deploy_command = ["false"]  # real subprocess, exit 1, no output
-        config = {"bindings": [
-            {"type": "windowCycle", "title": "X", "key": "Ctrl+Alt+Shift+X", "resourceClass": "y"},
-        ]}
-        status, _, body = self.request("POST", "/hotkeys-config", json_body=config)
+        status, result = self.save([{"type": "windowCycle", "title": "X", "key": "Ctrl+Alt+Shift+X", "resourceClass": "y"}])
         self.assertEqual(status, 200)  # the save itself still succeeded
-        result = json.loads(body)
         self.assertFalse(result["deployed"])
         self.assertIn("deploy failed", result["note"])
-        # hotkeys.json/hotkeys.js were still written — a deploy failure doesn't roll those back.
-        self.assertEqual(json.loads(self.state.hotkeys_config_path.read_text()), config)
-        self.assertTrue(self.state.hotkeys_js_path.exists())
+        # hotkeys.js was still written — a deploy failure doesn't roll it back.
+        self.assertIn('"X"', self.state.hotkeys_js_path.read_text())
 
     def test_hotkeys_config_post_reports_deploy_command_not_found(self):
         self.state.deploy_command = ["/no/such/binary-xyz"]
-        status, _, body = self.request("POST", "/hotkeys-config", json_body={"bindings": []})
+        status, result = self.save([{"type": "windowCycle", "title": "X", "key": "Alt+X", "resourceClass": "y"}])
         self.assertEqual(status, 200)
-        result = json.loads(body)
         self.assertFalse(result["deployed"])
         self.assertIn("deploy failed", result["note"])
+
+    def test_legacy_hotkeys_json_is_folded_into_hotkeys_js_once(self):
+        from alttabsucks_server import fold_legacy_hotkeys_json
+        self.state.legacy_hotkeys_json_path.write_text(json.dumps({"bindings": [
+            {"type": "windowCycle", "title": "Kate", "key": "Alt+K", "resourceClass": "kate"},
+            {"type": "windowCycle", "title": "Off", "key": "Alt+O", "resourceClass": "o", "enabled": False},
+        ]}))
+        fold_legacy_hotkeys_json(self.state)
+        self.assertEqual([(b["title"], b["enabled"]) for b in self.get_config()["bindings"]], [("Kate", True), ("Off", False)])
+        self.assertFalse(self.state.legacy_hotkeys_json_path.exists())
+        self.assertEqual(len(list(Path(self._hotkeys_tmpdir.name).glob("hotkeys.json.folded-*"))), 1)
+        self.assertIsNone(fold_legacy_hotkeys_json(self.state))
 
     def test_hotkeys_config_requires_auth(self):
         status, _, _ = self.request("GET", "/hotkeys-config", token=None)
         self.assertEqual(status, 403)
-        status, _, _ = self.request("POST", "/hotkeys-config", token=None, json_body={"bindings": []})
+        status, _, _ = self.request("POST", "/hotkeys-config", token=None, json_body={"bindings": [], "fileHash": ""})
         self.assertEqual(status, 403)
 
     # ---- /suggest-launch-command ---------------------------------------------
     # Patches launch_command_suggester.load_desktop_entries rather than touching this machine's
-    # real installed apps — same reasoning as AppState.deploy_command/hotkeys_config_path's own
+    # real installed apps — same reasoning as AppState.deploy_command/hotkeys_js_path's own
     # per-test overrides: deterministic, and never dependent on what happens to be on disk here.
 
     def test_suggest_launch_command_returns_match(self):

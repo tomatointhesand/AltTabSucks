@@ -1,6 +1,7 @@
 ; app-hotkeys.ahk - General application hotkeys
-; App-window, browser tab/profile, split/merge, and folder hotkeys now live in the web Hotkeys UI
-; (http://localhost:9876/hotkeys-ui -> lib/hotkeys.json). Keep hotkeys here that call AHK functions.
+; The web Hotkeys UI (Ctrl+Alt+/, http://localhost:9876/hotkeys-ui) shows and edits the single-line
+; app-window / tab-focus / profile-cycle / split / merge / run hotkeys in this file, and rewrites
+; just those lines on Save. Everything else here is left as you wrote it.
 
 ; Key notation: `^`=Ctrl, `!`=Alt, `+`=Shift, `#`=Win
 ;--- BEGIN SENSITIVE ---
@@ -24,8 +25,7 @@ P2 := "Profile 1" ; Brave profile 2
 
 ; --- BEGIN COMMON ---
 
-; Suppress all hotkeys when Moonlight is streaming (UI hotkeys honor this too)
-UI_HOTKEYS_SUPPRESS_WHEN := "ahk_exe Moonlight.exe"
+; Suppress all hotkeys when Moonlight is streaming
 #HotIf !WinActive("ahk_exe Moonlight.exe")
 
 ; --- Utilities --- (UNIVERSAL)
