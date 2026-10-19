@@ -28,6 +28,5 @@ FIREFOX_PROFILE_INI := ""
 #Include *i lib\SC.ahk ; SC automation (scoped to SC window) — optional
 
 A_TrayMenu.Insert("1&", "Settings", (*) => ShowSettingsGui())
-A_TrayMenu.Insert("2&", "Hotkey Reference", (*) => ShowTextGui("Hotkey Reference", _BuildHotkeyRef(), 1250, 45))
-A_TrayMenu.Insert("3&", "Hotkeys UI", (*) => Run("http://localhost:9876/hotkeys-ui"))
-A_TrayMenu.Insert("4&")
+A_TrayMenu.Insert("2&", "Hotkeys UI", (*) => Run("http://localhost:9876/hotkeys-ui"))
+A_TrayMenu.Insert("3&")

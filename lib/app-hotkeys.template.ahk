@@ -37,9 +37,6 @@ UI_HOTKEYS_SUPPRESS_WHEN := "ahk_exe Moonlight.exe"
 ^!+Esc::   SleepScreens()
 ^!+,::     ShowSettingsGui()
 
-; --- Hotkey quick reference (auto-generated from this file) ---
-^!+/:: ShowTextGui("Hotkey Reference", _BuildHotkeyRef(), 1250, 45)
-
 ; --- Debug: show AltTabSucks profile/window state ---
 ^!+l:: ShowAltTabSucksDebug()
 
