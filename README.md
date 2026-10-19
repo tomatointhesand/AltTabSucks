@@ -91,7 +91,6 @@ On first launch AltTabSucks adds a set of suggested hotkeys (from `lib\hotkeys.t
 | Ctrl+Alt+Shift+N | Show/hide Notepad |
 | Ctrl+Alt+Shift+Enter | Cycle Windows Terminal windows |
 | Ctrl+Alt+Shift+Down | Open Downloads |
-| Ctrl+Alt+Shift+/ | Quick reference of every hotkey |
 
 Open your browser and switch tabs once so the extension reports them, then try a few.
 
