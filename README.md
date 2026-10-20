@@ -8,12 +8,13 @@ ATS is the alt-tab of the future: a keyboard shortcut based solution for app-spe
 - **Browser profile cycling** — cycle through all windows for a given browser profile, or across every profile at once
 - **Split/merge tab snapping** — tear the active tab into its own window and snap both halves side-by-side; merge them back with another hotkey
 - **Hotkeys config page** — a local web page (`http://localhost:9876/hotkeys-ui`) to add and edit all of the above, with a key recorder; saving applies immediately
+- **Typeahead window switcher** (Windows) — an optional Alt+Tab replacement: type to filter open windows by app or title, with a live preview. Off by default; turn it on in Settings (Ctrl+Alt+Shift+,)
 
 **Platforms:**
 
 | | Windows | Linux (KDE Plasma 6, Wayland) |
 |---|---|---|
-| Browsers | Brave, Chrome, Edge, Opera, Firefox | Chromium-family (Brave, Chrome, Edge, Vivaldi, Chromium) |
+| Browsers | Brave, Chrome, Edge, Vivaldi, Opera / Opera GX, Firefox | Chromium-family (Brave, Chrome, Edge, Vivaldi, Chromium) |
 | Built on | AutoHotkey v2 + PowerShell server | KWin script + Python server |
 | Install guide | [Windows](#windows) (below) | [linux/README.md](linux/README.md) |
 
@@ -100,18 +101,19 @@ The config heals itself: a hotkey that's no longer valid (for example after an u
 
 ### What the installer does
 
-`installer.ps1 -Action install` does four things:
+`installer.ps1 -Action install`:
 
 1. Registers a Task Scheduler task named **AltTabSucks** that runs `AltTabSucksServer.ps1`:
    - Starts automatically at logon (runs hidden, no console window)
    - Runs with elevated privileges so `HttpListener` can bind to port 9876
 2. Writes `AltTabSucks.bat` to your `shell:startup` folder so `AltTabSucks.ahk` launches automatically on future logons.
-3. Disables the **Ctrl+Alt+Win+Shift** shortcut that opens Copilot/Office by redirecting the `ms-officeapp` protocol handler to a no-op (`rundll32`).
-4. Launches `AltTabSucks.ahk` immediately so the current session is live without a logon cycle.
+3. Creates `lib\app-hotkeys.ahk` from the template if you don't have one yet, and deletes `lib\config.ahk` so the browser is detected again on the next launch (see below).
+4. Disables the **Ctrl+Alt+Win+Shift** shortcut that opens Copilot/Office by redirecting the `ms-officeapp` protocol handler to a no-op (`rundll32`).
+5. Launches `AltTabSucks.ahk` immediately so the current session is live without a logon cycle.
 
 ### Browser selection
 
-On first launch (or after reinstalling), AltTabSucks scans for installed browsers and presents a choice dialog. Supported: **Brave, Chrome, Edge, Opera, Firefox**. The choice is saved to `lib/config.ahk` (gitignored). To switch browsers later, re-run the installer — it deletes `lib/config.ahk` so the choice dialog reappears on next launch.
+On first launch (or after reinstalling), AltTabSucks scans for installed browsers and presents a choice dialog. Supported: **Brave, Chrome, Edge, Vivaldi, Opera / Opera GX, Firefox**. The choice is saved to `lib/config.ahk` (gitignored). To switch browsers later, re-run the installer — it deletes `lib/config.ahk` so the choice dialog reappears on next launch.
 
 ### Managing the server task
 
@@ -120,7 +122,7 @@ On first launch (or after reinstalling), AltTabSucks scans for installed browser
 .\installer.ps1 -Action start     # Start manually (if stopped)
 .\installer.ps1 -Action stop      # Stop task and kill orphaned processes
 .\installer.ps1 -Action restart   # stop + start, waits until the server answers (what Ctrl+Alt+Shift+' runs)
-.\installer.ps1 -Action uninstall # Remove task and startup script
+.\installer.ps1 -Action uninstall # Stop the server, remove task and startup script
 ```
 
 You can also manage it in **Task Scheduler** (`taskschd.msc`) under **Task Scheduler Library > AltTabSucks**.
@@ -185,11 +187,11 @@ cd ~/git/alttabsucks
 
 **Triggering template regeneration**
 
-The pre-commit hook (`hooks/pre-commit`) runs `dev-scripts/make-template.sh` automatically on every commit, keeping templates in sync. After editing `lib/app-hotkeys.ahk`:
+The pre-commit hook (`hooks/pre-commit`) runs `dev-scripts/make-template.sh` automatically on every commit, keeping the templates in sync with your gitignored local files: `lib/app-hotkeys.template.ahk` and `lib/config.template.ahk` (sanitized: URLs, paths and profile names redacted) and, on Linux, `hotkeys.template.js` (an unsanitized copy, checked for anything that looks like a credential). After editing `lib/app-hotkeys.ahk`:
 
 ```bash
 git commit --amend --no-edit
-# Hook fires, regenerates both templates, stages them into the amend automatically.
+# Hook fires, regenerates the templates, stages them into the amend automatically.
 ```
 
 To regenerate manually without committing:
@@ -199,6 +201,19 @@ To regenerate manually without committing:
 ```
 
 Run `bash dev-scripts/install-hooks.sh` once after cloning to activate the hook.
+
+**Running the tests**
+
+Everything runs from a Linux checkout; the Windows parts run under Wine, portable PowerShell, or a local Windows 11 VM.
+
+| Suite | Command | Covers |
+|---|---|---|
+| Linux server, toast | `python3 -m unittest discover -s linux/server/tests` and `-s linux/toast/tests` | The Python server and its endpoints, `hotkeys.js` parsing/rewriting (`hotkeys_generator.py`), launch-command suggestions, profile discovery, toast colors |
+| AHK logic | `bash dev-scripts/run-ahk-tests.sh` | Pure AHK decision logic (`tests/ahk/`, e.g. which Explorer window a folder hotkey should use). Runs under Wine on Linux, fetching a portable AutoHotkey v2 into its own Wine prefix on first use; natively from Git Bash on Windows |
+| Windows server logic | `bash dev-scripts/run-ps-tests.sh` | `Server/AppHotkeys.ps1`: parsing and rewriting `app-hotkeys.ahk` (`tests/ps/`). Uses `pwsh` if installed, else fetches portable PowerShell 7 on first use |
+| Real Windows | `bash dev-scripts/run-windows-tests.sh` | The two suites above natively, the PowerShell one under both Windows PowerShell 5.1 (what the server runs on) and 7, plus end-to-end tests on a Windows desktop: install and first-run dialogs, the Hotkeys UI and its page in Edge, tab focus / profile cycling / split / merge through the extension, Explorer folder hotkeys, uninstall. Needs a one-time VM setup: [tests/windows/README.md](tests/windows/README.md) |
+
+Things that need a real Windows shell (COM, real windows, `WinActivate`) only show up in the last one, so keep testable decision logic in its own pure file (like `lib/explorer-logic.ahk`) where the faster suites can reach it.
 
 **Packaging the Firefox extension**
 
