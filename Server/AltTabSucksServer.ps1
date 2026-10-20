@@ -54,7 +54,11 @@ function Read-AppHotkeysText {
 # Identifies the exact file contents the page loaded, so a save can't silently overwrite a hand
 # edit made in between.
 function Get-AppHotkeysHash([string]$text) {
-    [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text)))
+    # Create().ComputeHash, not SHA256.HashData/Convert.ToHexString: the server runs under Windows
+    # PowerShell 5.1 (Server/launch-hidden.vbs), whose .NET Framework has neither.
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text)) | ForEach-Object { $_.ToString("X2") }) }
+    finally { $sha.Dispose() }
 }
 # Writes app-hotkeys.ahk, keeping the previous version as app-hotkeys.ahk.bak and the file's
 # existing BOM (or lack of one). Writing it is what triggers the AHK reload.
@@ -91,6 +95,7 @@ function Get-ConfiguredBrowser {
 }
 
 try { while ($listener.IsListening) {
+    $res = $null
     try {
         $async = $listener.BeginGetContext($null, $null)
         while (-not $async.AsyncWaitHandle.WaitOne(500)) {
@@ -385,7 +390,12 @@ try { while ($listener.IsListening) {
 
         $res.OutputStream.Close()
     } catch {
-        # swallow errors from dropped connections
+        # Swallow errors from dropped connections - but a handler that threw must still answer,
+        # or the client waits forever for a response that never comes.
+        if ($res) {
+            try { $res.StatusCode = 500 } catch {}
+            try { $res.OutputStream.Close() } catch {}
+        }
     }
 } } finally {
     $listener.Stop()
