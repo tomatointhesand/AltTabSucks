@@ -56,7 +56,10 @@ if [ "$PLATFORM" = wine ]; then
 else
     AHK_EXE="${AHK_EXE:-/c/Program Files/AutoHotkey/v2/AutoHotkey64.exe}"
     [ -f "$AHK_EXE" ] || { echo "AutoHotkey64.exe not found at '$AHK_EXE' — set AHK_EXE." >&2; exit 1; }
-    run_ahk() { timeout "$TIMEOUT_SECS" "$AHK_EXE" /ErrorStdOut "$(cygpath -w "$1")" "$(cygpath -w "$2")" 2>"$3"; }
+    # MSYS_NO_PATHCONV: Git Bash otherwise rewrites the /ErrorStdOut switch into a path
+    # ("C:/Program Files/Git/ErrorStdOut"), which AutoHotkey then tries to run as the script and
+    # shows a "file not found" dialog that blocks until clicked. The paths are already cygpath -w'd.
+    run_ahk() { MSYS_NO_PATHCONV=1 timeout "$TIMEOUT_SECS" "$AHK_EXE" /ErrorStdOut "$(cygpath -w "$1")" "$(cygpath -w "$2")" 2>"$3"; }
 fi
 
 shopt -s nullglob
