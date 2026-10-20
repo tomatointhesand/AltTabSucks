@@ -16,6 +16,11 @@ $Work    = Join-Path $env:TEMP "alttabsucks-e2e"
 $AppHk   = Join-Path $Repo "lib\app-hotkeys.ahk"
 New-Item $Work -ItemType Directory -Force | Out-Null
 
+# A fixed token instead of the random one the server would generate on its first start: the VM
+# snapshot's Edge has the extension configured with this one, and every run is a fresh install.
+$TestToken = "alttabsucks-vm-test"
+Set-Content (Join-Path $Repo "Server\token.txt") $TestToken -NoNewline -Encoding ASCII
+
 $script:Passed = 0; $script:Failed = 0
 function Check([bool]$ok, [string]$name, [string]$detail = "") {
     if ($ok) { $script:Passed++; Write-Host "PASS  $name" }
@@ -65,7 +70,7 @@ function Invoke-Api([string]$method, [string]$path, $body = $null) {
     if ($null -ne $body) { $p.Body = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $body -Depth 10 -Compress)); $p.ContentType = "application/json" }
     try {
         $r = Invoke-WebRequest @p
-        [PSCustomObject]@{ Status = [int]$r.StatusCode; Json = ($r.Content | ConvertFrom-Json) }
+        [PSCustomObject]@{ Status = [int]$r.StatusCode; Json = $(try { $r.Content | ConvertFrom-Json } catch { $r.Content }) }  # /debugtabs is plain text
     } catch [System.Net.WebException] {
         $resp = $_.Exception.Response
         $text = if ($resp) { (New-Object IO.StreamReader($resp.GetResponseStream())).ReadToEnd() } else { $_.Exception.Message }
@@ -83,7 +88,7 @@ try {
     $task = Get-ScheduledTask -TaskName "AltTabSucks" -ErrorAction SilentlyContinue
     Check ($null -ne $task) "installer registers the AltTabSucks scheduled task" (Get-Content $installLog -Raw -ErrorAction SilentlyContinue)
     Check (Wait-Until { (Invoke-WebRequest "$Server/hotkeys-ui" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200 } 30) "server answers on :9876"
-    Check (Test-Path (Join-Path $Repo "Server\token.txt")) "server generated token.txt"
+    Check ((Get-Token) -eq $TestToken) "server keeps an existing token.txt"
     Check (Test-Path $AppHk) "installer created lib\app-hotkeys.ahk from the template"
 
     Check (Wait-Until { (Get-Content $driverOut -Raw) -match "answered both" } 60) "first launch asks for a browser, then about the default browser" (Get-Content $driverOut -Raw -ErrorAction SilentlyContinue)
@@ -99,6 +104,12 @@ try {
     Check (Wait-Until { ($p = Get-AltTabSucks) -and $p.ProcessId -ne $ats.ProcessId } 15) "  ...and reloads to apply them"
     Start-Sleep -Seconds 3
     $ats = Get-AltTabSucks
+
+    # ---- browser extension ------------------------------------------------------------------
+    # The VM's "browser" snapshot has Edge with the extension loaded unpacked from
+    # C:\alttabsucks\BrowserExtension (so it runs this working tree's code) and $TestToken set.
+    Start-OnDesktop "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" "about:blank" | Out-Null
+    Check (Wait-Until { (Invoke-Api GET "/debugtabs").Json -match "=== Profile 1 ===" } 30) "the extension in Edge connects to a freshly installed server" ((Invoke-Api GET "/debugtabs").Json)
 
     # ---- Hotkeys UI round trip ----------------------------------------------------------------
     $get = Invoke-API GET "/hotkeys-config"
@@ -153,6 +164,10 @@ try {
     $mash = @{}; foreach ($l in (Get-Content $mashOut -ErrorAction SilentlyContinue)) { $k, $v = $l -split '=', 2; if ($v) { $mash[$k] = $v } }
     Check ($mash["after_mash"] -eq "1") "mashing a folder hotkey opens exactly one Explorer window" "got $($mash['after_mash'])"
     Check ($mash["after_second_press"] -eq "1") "  ...and a later press focuses it instead of opening another" "got $($mash['after_second_press'])"
+    # ---- uninstall ------------------------------------------------------------------------------
+    & $Pwsh -NoProfile -ExecutionPolicy Bypass -File "$Repo\installer.ps1" -Action uninstall | Out-Null
+    Check (-not (Get-ScheduledTask -TaskName "AltTabSucks" -ErrorAction SilentlyContinue)) "uninstall removes the scheduled task"
+    Check (Wait-Until { -not (Get-NetTCPConnection -LocalPort 9876 -State Listen -ErrorAction SilentlyContinue) } 10) "  ...and stops the server"
 } finally {
     Remove-E2eTasks
     Write-Host "`n$script:Passed passed, $script:Failed failed"
