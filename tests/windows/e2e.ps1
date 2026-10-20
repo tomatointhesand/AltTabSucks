@@ -38,7 +38,8 @@ function Wait-Until([scriptblock]$cond, [int]$seconds) {
 # Runs exe on the interactive desktop (session of the logged-on user) and returns right away.
 function Start-OnDesktop([string]$exe, [string]$arguments, [string]$workDir = $Repo) {
     $name = "alttabsucks-e2e-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
-    $action = New-ScheduledTaskAction -Execute $exe -Argument $arguments -WorkingDirectory $workDir
+    $action = if ($arguments) { New-ScheduledTaskAction -Execute $exe -Argument $arguments -WorkingDirectory $workDir }
+              else { New-ScheduledTaskAction -Execute $exe -WorkingDirectory $workDir }
     # Not "$env:USERDOMAIN\$env:USERNAME": over SSH USERDOMAIN is "WORKGROUP", not the machine.
     $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
@@ -154,6 +155,64 @@ try {
     $again = Invoke-API POST "/init-hotkeys" @{ profile = "Default" }
     Check ($again.Json.folded -eq 0 -and $again.Json.seeded -eq 0) "  ...only once"
     Check (Wait-Until { (Get-AltTabSucks) -ne $null } 15) "AltTabSucks is still running after all that"
+
+    # ---- tab focus hotkeys (FocusTab through the extension in Edge) ---------------------------
+    # Two bindings added through the API, on local pages so nothing depends on the internet:
+    # F9 matches either of two pages (several matching tabs -> cycles), F8 matches a page that
+    # isn't open (-> opens it). Keys are pressed on the desktop by press.ahk.
+    $cfg = Invoke-Api GET "/hotkeys-config"
+    $tabBindings = @($cfg.Json.bindings | Where-Object { $_ }) + @(
+        [PSCustomObject]@{ type = "tabFocus"; title = "E2E tabs"; key = "Ctrl+Alt+Shift+F9"; enabled = $true; profileName = "Profile 1"
+                           urlPatterns = @("localhost:9876/hotkeys-ui", "localhost:9876/debugtabs"); openUrl = "http://localhost:9876/hotkeys-ui" }
+        [PSCustomObject]@{ type = "tabFocus"; title = "E2E missing tab"; key = "Ctrl+Alt+Shift+F8"; enabled = $true; profileName = "Profile 1"
+                           urlPatterns = @("localhost:9876/profiles"); openUrl = "http://localhost:9876/profiles" })
+    $ats = Get-AltTabSucks
+    $save = Invoke-Api POST "/hotkeys-config" @{ bindings = $tabBindings; fileHash = $cfg.Json.fileHash }
+    Check ($save.Status -eq 200 -and @($save.Json.dropped).Count -eq 0) "tab focus hotkeys can be added through the API" "HTTP $($save.Status): $($save.Json | ConvertTo-Json -Compress -Depth 5)"
+    Wait-Until { ($p = Get-AltTabSucks) -and $p.ProcessId -ne $ats.ProcessId } 15 | Out-Null
+    Start-Sleep -Seconds 3
+
+    function Get-ActiveTabUrl {  # the active tab of Edge's focused window, as the extension reports it
+        $wins = @((Invoke-Api GET "/tabs").Json."Profile 1")
+        $w = @($wins | Where-Object { $_.focused }) + @($wins) | Select-Object -First 1
+        "$((@($w.tabs) | Where-Object { $_.active } | Select-Object -First 1).url)"
+    }
+    function Open-Tab([string]$url) { Invoke-Api POST "/switchtab" @{ profile = "Profile 1"; openUrl = $url } | Out-Null }
+    function Press([string]$keys, [string]$fromExe = "") {
+        $o = Join-Path $Work "press.txt"
+        Remove-Item $o -ErrorAction SilentlyContinue
+        $argLine = "`"$Here\press.ahk`" `"$o`" `"$keys`"" + $(if ($fromExe) { " `"$fromExe`"" } else { "" })
+        Start-OnDesktop $Ahk $argLine | Out-Null
+        Wait-Until { (Get-Content $o -Raw) -match "active=" } 30 | Out-Null
+        $r = @{}; foreach ($l in (Get-Content $o -ErrorAction SilentlyContinue)) { $k, $v = $l -split '=', 2; $r[$k] = $v }
+        $r
+    }
+
+    Open-Tab "http://localhost:9876/hotkeys-ui"
+    Wait-Until { (Get-ActiveTabUrl) -match "hotkeys-ui" } 15 | Out-Null
+    Open-Tab "http://localhost:9876/activetitles"   # a page neither hotkey matches
+    Check (Wait-Until { (Get-ActiveTabUrl) -notmatch "hotkeys-ui" } 15) "setup: another tab is active" (Get-ActiveTabUrl)
+
+    Start-OnDesktop "notepad.exe" "" | Out-Null
+    $r = Press "^!+{F9}" "Notepad.exe"
+    Check ($r["before"] -match "notepad") "  (pressed from Notepad)" "before=$($r['before']) $($r['error'])"
+    Check ($r["active"] -eq "msedge.exe") "a tab focus hotkey pressed in another app brings Edge to the front" "active=$($r['active'])"
+    Check (Wait-Until { (Get-ActiveTabUrl) -match "localhost:9876/hotkeys-ui" } 10) "  ...on the matching tab" (Get-ActiveTabUrl)
+
+    Open-Tab "http://localhost:9876/activetitles"
+    Wait-Until { (Get-ActiveTabUrl) -notmatch "hotkeys-ui" } 10 | Out-Null
+    $r = Press "^!+{F9}"
+    Check (Wait-Until { (Get-ActiveTabUrl) -match "localhost:9876/hotkeys-ui" } 10) "pressed inside Edge, it switches to the matching tab" "$(Get-ActiveTabUrl), active window $($r['active'])"
+
+    Open-Tab "http://localhost:9876/debugtabs"
+    Wait-Until { (Get-ActiveTabUrl) -match "debugtabs" } 10 | Out-Null
+    $seen = @()
+    foreach ($i in 1..2) { Press "^!+{F9}" | Out-Null; Start-Sleep -Milliseconds 500; $seen += (Get-ActiveTabUrl) }
+    Check (($seen -match "hotkeys-ui").Count -eq 1 -and ($seen -match "debugtabs").Count -eq 1) "with two matching tabs, repeated presses cycle between them" ($seen -join " -> ")
+
+    $r = Press "^!+{F8}"
+    Check (Wait-Until { (Get-ActiveTabUrl) -match "localhost:9876/profiles" } 10) "with no matching tab, it opens the URL in a new tab" "$(Get-ActiveTabUrl), active window $($r['active'])"
+    Get-Process Notepad -ErrorAction SilentlyContinue | Stop-Process -Force
 
     # ---- folder hotkeys don't open duplicate Explorer windows --------------------------------
     $folder = Join-Path $Work "folder-under-test"
