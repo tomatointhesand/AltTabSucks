@@ -165,7 +165,8 @@ try {
         [PSCustomObject]@{ type = "tabFocus"; title = "E2E tabs"; key = "Ctrl+Alt+Shift+F9"; enabled = $true; profileName = "Profile 1"
                            urlPatterns = @("localhost:9876/hotkeys-ui", "localhost:9876/debugtabs"); openUrl = "http://localhost:9876/hotkeys-ui" }
         [PSCustomObject]@{ type = "tabFocus"; title = "E2E missing tab"; key = "Ctrl+Alt+Shift+F8"; enabled = $true; profileName = "Profile 1"
-                           urlPatterns = @("localhost:9876/profiles"); openUrl = "http://localhost:9876/profiles" })
+                           urlPatterns = @("localhost:9876/profiles"); openUrl = "http://localhost:9876/profiles" }
+        [PSCustomObject]@{ type = "profileCycle"; title = "E2E cycle profile"; key = "Ctrl+Alt+Shift+F7"; enabled = $true; profileName = "Profile 1" })
     $ats = Get-AltTabSucks
     $save = Invoke-Api POST "/hotkeys-config" @{ bindings = $tabBindings; fileHash = $cfg.Json.fileHash }
     Check ($save.Status -eq 200 -and @($save.Json.dropped).Count -eq 0) "tab focus hotkeys can be added through the API" "HTTP $($save.Status): $($save.Json | ConvertTo-Json -Compress -Depth 5)"
@@ -213,6 +214,85 @@ try {
     $r = Press "^!+{F8}"
     Check (Wait-Until { (Get-ActiveTabUrl) -match "localhost:9876/profiles" } 10) "with no matching tab, it opens the URL in a new tab" "$(Get-ActiveTabUrl), active window $($r['active'])"
     Get-Process Notepad -ErrorAction SilentlyContinue | Stop-Process -Force
+
+    # ---- split / merge, and cycling browser windows -------------------------------------------
+    # Through the starter hotkeys: Alt+X split, Alt+Z merge, Ctrl+Alt+Shift+B all browser windows;
+    # plus the single-profile Ctrl+Alt+Shift+F7 added above.
+    $starter = @((Invoke-Api GET "/hotkeys-config").Json.bindings | Where-Object { $_ })
+    Check ((@($starter | Where-Object { $_.type -eq "splitTab" -and $_.key -eq "Alt+X" }).Count -eq 1) -and
+           (@($starter | Where-Object { $_.type -eq "mergeTabs" -and $_.key -eq "Alt+Z" }).Count -eq 1) -and
+           (@($starter | Where-Object { $_.type -eq "profileCycle" -and $_.key -eq "Ctrl+Alt+Shift+B" -and $_.profileName -eq "__all__" }).Count -eq 1)) `
+        "the starter set has split, merge and cycle-all-browser-windows hotkeys"
+
+    function Get-EdgeWindows { @((Invoke-Api GET "/tabs").Json."Profile 1" | Where-Object { $_ }) }
+    function Get-TabCount { (@(Get-EdgeWindows | ForEach-Object { @($_.tabs) }) | Measure-Object).Count }
+    function Get-EdgeRects([hashtable]$r) {  # press.ahk's "edge=hwnd:x,y,w,h;..." -> objects
+        @("$($r['edge'])" -split ';' | Where-Object { $_ } | ForEach-Object {
+            $h, $rect = $_ -split ':'; $x, $y, $w, $hh = $rect -split ','
+            [PSCustomObject]@{ Hwnd = $h; X = [int]$x; W = [int]$w } })
+    }
+    # @(...).Count throughout: in 5.1 a function returning one object hands back the object itself,
+    # and a lone PSCustomObject has no .Count.
+    Check (@(Get-EdgeWindows).Count -eq 1) "setup: one Edge window" "$(@(Get-EdgeWindows).Count) windows"
+    $tabsBefore = Get-TabCount
+    $focused = @(Get-EdgeWindows)[0]
+    $splitTabId = (@($focused.tabs) | Where-Object { $_.active } | Select-Object -First 1).id
+
+    $r = Press "!x"
+    Check (Wait-Until { @(Get-EdgeWindows).Count -eq 2 } 10) "Alt+X splits the active tab into its own window" "$(@(Get-EdgeWindows).Count) windows"
+    $splitWin = @(Get-EdgeWindows | Where-Object { @($_.tabs).Count -eq 1 -and @($_.tabs)[0].id -eq $splitTabId })
+    Check ($splitWin.Count -eq 1) "  ...holding just that tab"
+    $r = Press ""
+    $rects = Get-EdgeRects $r
+    $half = [int]$r["screen"] * 0.6
+    Check ($rects.Count -eq 2 -and @($rects | Where-Object { $_.W -lt $half }).Count -eq 2 -and [Math]::Abs($rects[0].X - $rects[1].X) -gt 100) `
+        "  ...and snaps the two windows side by side" "screen $($r['screen']): $($r['edge'])"
+
+    $a = Press "^!+b"; $b = Press "^!+b"
+    Check ($a["active"] -eq "msedge.exe" -and $b["active"] -eq "msedge.exe" -and $a["hwnd"] -ne $b["hwnd"]) `
+        "Ctrl+Alt+Shift+B cycles between the browser windows" "$($a['active']) $($a['hwnd']) -> $($b['active']) $($b['hwnd'])"
+    $a = Press "^!+{F7}"; $b = Press "^!+{F7}"
+    Check ($a["active"] -eq "msedge.exe" -and $b["active"] -eq "msedge.exe" -and $a["hwnd"] -ne $b["hwnd"]) `
+        "a single-profile cycle hotkey cycles that profile's windows" "$($a['active']) $($a['hwnd']) -> $($b['active']) $($b['hwnd'])"
+    Start-OnDesktop "notepad.exe" "" | Out-Null
+    $r = Press "^!+{F7}" "Notepad.exe"
+    Check ($r["before"] -match "notepad" -and $r["active"] -eq "msedge.exe") "  ...and brings the browser forward from another app" "before=$($r['before']) active=$($r['active'])"
+    Get-Process Notepad -ErrorAction SilentlyContinue | Stop-Process -Force
+
+    $r = Press "!z"
+    Check (Wait-Until { @(Get-EdgeWindows).Count -eq 1 } 10) "Alt+Z merges the split tab back" "$(@(Get-EdgeWindows).Count) windows"
+    Check ((Get-TabCount) -eq $tabsBefore) "  ...with every tab kept" "$tabsBefore before, $(Get-TabCount) after"
+
+    # ---- hotkeys launch Edge when it isn't running ---------------------------------------------
+    function Close-Edge {
+        # Invoke-, not Start-OnDesktop: wait for taskkill itself to finish. Otherwise, with Edge already
+        # closed, the wait below passes at once and the still-pending taskkill fires a moment later,
+        # killing the Edge the next hotkey launches. No /F: a normal close, no "restore pages?".
+        Invoke-OnDesktop "taskkill.exe" "/IM msedge.exe" 30
+        Wait-Until { -not (Get-Process msedge -ErrorAction SilentlyContinue) } 30
+    }
+    function Wait-EdgeInFront([int]$seconds) {
+        Wait-Until { (Press "")["active"] -eq "msedge.exe" } $seconds
+    }
+    function Get-Diag {  # why a launch didn't happen
+        $r = Press ""
+        "AltTabSucks running: $([bool](Get-AltTabSucks)); msedge processes: $(@(Get-Process msedge -ErrorAction SilentlyContinue).Count); " +
+        "front: $($r['active']) '$($r['title'])'; popups: $($r['guis'])"
+    }
+    Check (Close-Edge) "setup: Edge closed"
+    Press "^!+{F9}" | Out-Null
+    Check (Wait-Until { (Get-ActiveTabUrl) -match "localhost:9876/hotkeys-ui" } 30) "a tab focus hotkey with Edge closed launches it and opens the page" "$(Get-ActiveTabUrl); $(Get-Diag)"
+    Check (Wait-EdgeInFront 15) "  ...in front"
+
+    Check (Close-Edge) "setup: Edge closed again"
+    Press "^!+{F7}" | Out-Null
+    Check (Wait-Until { Get-Process msedge -ErrorAction SilentlyContinue } 15) "a profile cycle hotkey with Edge closed launches that profile" (Get-Diag)
+    Check (Wait-EdgeInFront 20) "  ...in front"
+
+    Check (Close-Edge) "setup: Edge closed again"
+    Press "^!+b" | Out-Null
+    Check (Wait-Until { Get-Process msedge -ErrorAction SilentlyContinue } 15) "Ctrl+Alt+Shift+B with no browser open launches the default profile" (Get-Diag)
+    Check (Wait-EdgeInFront 20) "  ...in front"
 
     # ---- folder hotkeys don't open duplicate Explorer windows --------------------------------
     $folder = Join-Path $Work "folder-under-test"
