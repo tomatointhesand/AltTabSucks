@@ -102,7 +102,10 @@ try {
     # The template has no UI-recognizable hotkeys, so _InitUiHotkeys (3s after start) adds the
     # starter set from lib\hotkeys.template.json, and the watcher reloads to apply it.
     Check (Wait-Until { (Get-Content $AppHk -Raw) -match "\[Hotkeys UI\] starter hotkeys added" } 30) "first start adds the starter hotkeys to app-hotkeys.ahk"
-    Check (Wait-Until { ($p = Get-AltTabSucks) -and $p.ProcessId -ne $ats.ProcessId } 15) "  ...and reloads to apply them"
+    # Not "the process ID changed": the reload can happen before $ats was read. The running script
+    # must have started after the starter hotkeys were written.
+    Check (Wait-Until { ($p = Get-AltTabSucks) -and $p.CreationDate -ge (Get-Item $AppHk).LastWriteTime.AddSeconds(-1) } 15) "  ...and reloads to apply them" `
+        "process started $((Get-AltTabSucks).CreationDate), file written $((Get-Item $AppHk).LastWriteTime)"
     Start-Sleep -Seconds 3
     $ats = Get-AltTabSucks
 
@@ -293,6 +296,85 @@ try {
     Press "^!+b" | Out-Null
     Check (Wait-Until { Get-Process msedge -ErrorAction SilentlyContinue } 15) "Ctrl+Alt+Shift+B with no browser open launches the default profile" (Get-Diag)
     Check (Wait-EdgeInFront 20) "  ...in front"
+
+    # ---- the Hotkeys page itself, in Edge --------------------------------------------------------
+    # Drives shared/hotkeys-ui.html like a user (typing into fields, clicking buttons) through Edge's
+    # DevTools protocol (cdp.ps1), in a throwaway Edge profile: remote debugging doesn't work on
+    # the default one.
+    . (Join-Path $Here "cdp.ps1")
+    $cdpPort = 9229
+    Start-OnDesktop "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" `
+        "--remote-debugging-port=$cdpPort --user-data-dir=`"$Work\edge-cdp`" --no-first-run --no-default-browser-check http://localhost:9876/hotkeys-ui" | Out-Null
+    Connect-Cdp $cdpPort "*localhost:9876/hotkeys-ui*" 30
+    # Edge lists the tab under its URL while still navigating; until then it holds a blank
+    # placeholder document that isn't allowed localStorage.
+    Wait-Until { (Invoke-Js 'location.origin + " " + document.readyState') -eq "http://localhost:9876 complete" } 20 | Out-Null
+    # Page helpers, prefixed to each script: a row by its title, a row's text inputs, typing, status.
+    # Assignments rather than const: every evaluation runs in the page's global scope, so these are
+    # re-run before each script. statusEl, not status: window.status is a built-in string property.
+    $js = @'
+row = (t) => [...document.querySelectorAll(".binding")].find(r => { const i = r.querySelector("input[type=text]"); return i && i.value === t; });
+inputs = (r) => [...r.querySelectorAll("input[type=text]")];
+type = (i, v) => { i.value = v; i.dispatchEvent(new Event("input", { bubbles: true })); };
+statusEl = () => document.getElementById("status");
+addTo = (group) => document.querySelector(`button.group-add-btn[title='Add a "${group}" hotkey']`).click();
+blankRow = () => [...document.querySelectorAll(".binding")].find(r => inputs(r).every(i => !i.value));
+
+'@
+    function Page([string]$script) { Invoke-Js ($js + $script) }
+    function Wait-Status([string]$pattern, [int]$seconds = 15) { Wait-Until { (Page 'statusEl().textContent') -match $pattern } $seconds }
+    function Save-Page { Page 'document.getElementById("save").click(); true' | Out-Null }
+
+    Page "localStorage.setItem('atsToken', '$TestToken'); location.reload(); true" | Out-Null
+    Start-Sleep -Seconds 1
+    Wait-Until { (Invoke-Js 'document.readyState') -eq "complete" } 20 | Out-Null
+    Check (Wait-Status "^Loaded \d+ hotkey") "the Hotkeys page loads with the token" (Page 'statusEl().textContent')
+    $apiCount = @((Invoke-Api GET "/hotkeys-config").Json.bindings | Where-Object { $_ }).Count
+    Check ((Page 'document.querySelectorAll(".binding").length') -eq $apiCount) "  ...showing every hotkey in app-hotkeys.ahk" "page $(Page 'document.querySelectorAll(".binding").length'), API $apiCount"
+
+    Page 'type(inputs(row("Gmail"))[0], "Gmail (renamed on the page)"); true' | Out-Null
+    Save-Page
+    Check (Wait-Status "^Saved \d+ hotkey") "editing a title and clicking Save saves" (Page 'statusEl().textContent')
+    Check ((Get-Content $AppHk -Raw) -match "; Gmail \(renamed on the page\)") "  ...into app-hotkeys.ahk"
+    Check ((Page 'statusEl().className') -notmatch "err") "  ...reported as a success"
+
+    Start-Sleep -Seconds 2
+    Page 'row("Gmail (renamed on the page)").querySelector(".remove-btn").click(); true' | Out-Null
+    Save-Page
+    Wait-Status "^Saved" | Out-Null
+    Check ((Get-Content $AppHk -Raw) -notmatch "Gmail \(renamed on the page\)") "removing a row (X) and saving deletes the line"
+
+    Start-Sleep -Seconds 2
+    Page 'addTo("Run command"); const r = blankRow(); const [t, k, cmd] = inputs(r); type(t, "Added on the page"); k.focus(); k.dispatchEvent(new KeyboardEvent("keydown", { key: "F2", ctrlKey: true, altKey: true, shiftKey: true, bubbles: true })); type(cmd, "notepad.exe"); k.value' | Out-Null
+    Check ((Page 'inputs(row("Added on the page"))[1].value') -eq "Ctrl+Alt+Shift+F2") "the key recorder records Ctrl+Alt+Shift+F2" (Page 'inputs(row("Added on the page"))[1].value')
+    Save-Page
+    Wait-Status "^Saved" | Out-Null
+    Check ((Get-Content $AppHk -Raw) -match '\^!\+F2:: Run\("notepad\.exe"\)\s+; Added on the page') "  ...and a new Run command row saves as a hotkey line" ((Get-Content $AppHk) -match "Added on the page" -join " | ")
+
+    Start-Sleep -Seconds 2
+    Page 'addTo("Run command"); type(inputs(blankRow())[0], "Half filled in"); true' | Out-Null
+    Save-Page
+    Check (Wait-Status "Removed 1 invalid hotkey") "saving an incomplete row reports it as dropped" (Page 'statusEl().textContent')
+    Check ((Page 'statusEl().textContent') -match "Half filled in" -and (Page 'statusEl().className') -match "err") "  ...by name, as a warning" (Page 'statusEl().textContent')
+    Check (-not (Page 'Boolean(row("Half filled in"))')) "  ...and the page reloads without it"
+
+    Start-Sleep -Seconds 2
+    Add-Content $AppHk '^!+F3:: FocusTab("Profile 1", [], "https://example.com")  ; Broken in the file'
+    Page 'document.getElementById("reload").click(); true' | Out-Null
+    Check (Wait-Status "aren't valid any more") "an invalid hotkey in the file is flagged on load" (Page 'statusEl().textContent')
+    Check ((Page 'statusEl().textContent') -match "Broken in the file") "  ...by name"
+    Save-Page
+    Wait-Status "^Saved" | Out-Null
+    Check ((Get-Content $AppHk -Raw) -notmatch "Broken in the file") "  ...and the next save removes it"
+
+    Start-Sleep -Seconds 2
+    Add-Content $AppHk "; edited by hand while the page was open"
+    Page 'type(inputs(row("Added on the page"))[0], "Renamed after a hand edit"); true' | Out-Null
+    Save-Page
+    Check (Wait-Status "^Not saved") "saving after the file was edited elsewhere is refused on the page" (Page 'statusEl().textContent')
+    $text = Get-Content $AppHk -Raw
+    Check ($text -match "edited by hand while the page was open" -and $text -notmatch "Renamed after a hand edit") "  ...leaving the hand edit intact"
+    Disconnect-Cdp
 
     # ---- folder hotkeys don't open duplicate Explorer windows --------------------------------
     $folder = Join-Path $Work "folder-under-test"
