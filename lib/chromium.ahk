@@ -558,10 +558,15 @@ FocusTab(profileName, urlPatterns, openUrl) {
         }
     }
 
+    ; The server keeps a browser's last tab list after it closes (the extension can't report its
+    ; own exit), so with no browser window open any match would be a dead tab: skip the lookup
+    ; and fall through to launching the browser below.
+    browserOpen := _VisibleBrowserWindows(winFilter).Length > 0
+
     ; Query /findtab once per pattern; union results preserving each pattern's sort order.
     matchLines := []
     seen := Map()
-    for pattern in cleanPatterns {
+    for pattern in (browserOpen ? cleanPatterns : []) {
         try {
             http := ComObject("WinHttp.WinHttpRequest.5.1")
             http.Open("GET", "http://localhost:9876/findtab?profile=" . profileName . "&url=" . pattern, false)
