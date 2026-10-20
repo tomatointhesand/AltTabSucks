@@ -2,21 +2,23 @@
 # Runs the test suites on real Windows, in the Windows 11 test VM, from Linux:
 #   1. tests/ahk (dev-scripts/run-ahk-tests.sh, natively)
 #   2. tests/ps under Windows PowerShell 5.1 (what the server actually runs on) and PowerShell 7
-#   3. tests/windows/e2e.ps1 - fresh install, first-run dialogs, Hotkeys UI save -> reload,
-#      broken edit -> no reload, hotkeys.json fold-in, folder hotkeys vs real Explorer
+#   3. tests/windows/e2e.ps1 - a fresh install with its first-run dialogs, starter hotkeys, the
+#      Hotkeys UI (API and the page itself in Edge) with save -> reload and broken edit -> no
+#      reload, the hotkeys.json fold-in, tab focus / profile cycling / split / merge through the
+#      extension in Edge, launching Edge when it's closed, folder hotkeys vs real Explorer, uninstall
 #
 # Usage: dev-scripts/run-windows-tests.sh [--no-reset]
-#   By default the VM is rolled back to its "clean" snapshot first, so the e2e tests always see a
-#   fresh install; --no-reset reuses the running VM (unit tests only are safe to repeat that way).
+#   By default the VM is rolled back to its "browser" snapshot first, so the e2e tests always see
+#   a fresh install; --no-reset reuses the running VM and skips e2e (unit suites only).
 #
-# Needs the VM helper from the VM setup (default ~/VMs/win11, override with $ALTTABSUCKS_WIN_VM):
-#   win11 start|stop|reset|ssh|sync - see that script. The working tree (tracked + untracked,
-#   minus gitignored files) is copied to C:\alttabsucks in the VM, so uncommitted changes are tested.
+# Needs the test VM (one-time setup: tests/windows/README.md), driven by dev-scripts/windows-vm.sh
+# (override with $ALTTABSUCKS_WIN_VM). The working tree (tracked + untracked, minus gitignored
+# files) is copied to C:\alttabsucks in the VM, so uncommitted changes are tested.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VM="${ALTTABSUCKS_WIN_VM:-$HOME/VMs/win11}"
+VM="${ALTTABSUCKS_WIN_VM:-$REPO_ROOT/dev-scripts/windows-vm.sh}"
 [ -x "$VM" ] || { echo "VM helper not found at $VM (set ALTTABSUCKS_WIN_VM)." >&2; exit 1; }
 
 reset=1
