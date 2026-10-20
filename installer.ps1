@@ -192,11 +192,13 @@ start "" "$RepoRoot\AltTabSucks.ahk"
     }
 
     "uninstall" {
+        # stop, not just Stop-ScheduledTask: the task only runs wscript.exe, and the server's own
+        # powershell.exe outlives it, leaving the port held after an uninstall.
+        & $PSCommandPath -Action stop
         $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         if (-not $existing) {
             Write-Host "'$TaskName' task is not registered."
         } else {
-            Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
             Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
             Write-Host "Task removed."
         }
