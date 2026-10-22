@@ -95,4 +95,4 @@ registerShortcut("Search browser tabs", "AltTabSucks: Search browser tabs",
     "Ctrl+Alt+Shift+A", function () { showTabSearch("brave-browser"); });
 
 registerShortcut("Restart AltTabSucks", "AltTabSucks: Restart AltTabSucks",
-    "Ctrl+Alt+Shift+'", function () { runCommandWithToast("Restart AltTabSucks", ["YOUR_REPO_ROOT/installer.sh", "restart"]); });
+    "Ctrl+Alt+\"", function () { runCommandWithToast("Restart AltTabSucks", ["YOUR_REPO_ROOT/installer.sh", "restart"]); });

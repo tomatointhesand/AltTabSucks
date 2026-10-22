@@ -107,6 +107,27 @@ def _js_array_of_strings(values) -> str:
 _NO_BROWSER_CONFIGURED = "no browser configured — run ./installer.sh configure to set one"
 
 
+# US layout: the character Shift turns each key into.
+_SHIFTED = dict(zip("`1234567890-=[]\\;',./", '~!@#$%^&*()_+{}|:"<>?'))
+
+
+def normalize_key(key: str) -> str:
+    """The key the way kglobalaccel on Wayland matches it. Shift plus a digit or punctuation key
+    arrives as the character Shift produces, without the Shift: pressing Ctrl+Alt+Shift+' is seen
+    as Ctrl+Alt+" (confirmed live), so a shortcut registered as Ctrl+Alt+Shift+' or as
+    Ctrl+Alt+Shift+" (what the Hotkeys page records, from KeyboardEvent.key) never fires.
+    Letters keep their Shift: Ctrl+Alt+Shift+A works as registered."""
+    parts = [p for p in re.split(r"\+(?=.)", key.strip()) if p]
+    if len(parts) < 2 or "Shift" not in parts[:-1]:
+        return key.strip()
+    k = parts[-1]
+    if k in _SHIFTED:
+        k = _SHIFTED[k]
+    elif k not in _SHIFTED.values():
+        return key.strip()
+    return "+".join([m for m in parts[:-1] if m != "Shift"] + [k])
+
+
 def generate_binding_js(binding: dict, browser_resource_class: str = "") -> str:
     """Returns one registerShortcut(...) statement for a single binding dict. `browser_resource_class`
     is the single configured browser's resourceClass (config.py's CHROMIUM_RESOURCE_CLASS, read by
@@ -117,7 +138,7 @@ def generate_binding_js(binding: dict, browser_resource_class: str = "") -> str:
     /hotkeys-config), but this stays strict rather than silently emitting broken JS."""
     kind = binding.get("type")
     title = (binding.get("title") or "").strip()
-    key = (binding.get("key") or "").strip()
+    key = normalize_key(binding.get("key") or "")
     # See this module's own docstring for why these two are treated differently.
     window_manage = kind in ("windowCycle", "windowToggle")
     resource_class = (binding.get("resourceClass") or "").strip() if window_manage \
@@ -211,8 +232,9 @@ def _group(kind) -> str:
 
 
 def _key_identity(key: str) -> str:
-    """"Ctrl+Shift+Alt+I" and "Ctrl+Alt+Shift+I" are the same shortcut to kglobalaccel."""
-    parts = [p for p in re.split(r"\+(?=.)", key.strip()) if p]
+    """"Ctrl+Shift+Alt+I" and "Ctrl+Alt+Shift+I" are the same shortcut to kglobalaccel, and so are
+    Ctrl+Alt+Shift+' and Ctrl+Alt+" (see normalize_key)."""
+    parts = [p for p in re.split(r"\+(?=.)", normalize_key(key)) if p]
     if not parts:
         return ""
     return "+".join(sorted(p.lower() for p in parts[:-1]) + [parts[-1].lower()])
