@@ -596,8 +596,19 @@ class ServerTestCase(unittest.TestCase):
     def test_closing_a_tab_keeps_the_popup_open(self):
         self.state.tab_search.begin()
         self.post("/tab-search/action", {"kind": "close", "profile": "Personal", "tabId": 12})
-        self.assertEqual(self.poll_as_extension(), {"closeTab": 12})
+        self.assertEqual(self.poll_as_extension(), {"closeTabs": [12]})
         self.assertEqual(self.state.tab_search.take(), "")
+
+    def test_quick_closes_and_a_following_switch_are_all_delivered(self):
+        # Before: one command slot per profile, so these overwrote each other within the
+        # extension's 50ms poll - the tab vanished from the popup but stayed open.
+        self.state.tab_search.begin()
+        self.post("/tab-search/action", {"kind": "close", "profile": "Personal", "tabId": 12})
+        self.post("/tab-search/action", {"kind": "close", "profile": "Personal", "tabId": 13})
+        self.post("/tab-search/action", {"kind": "tab", "profile": "Personal", "windowId": 1, "tabId": 14})
+        self.assertEqual(self.poll_as_extension(), {"closeTabs": [12, 13]})
+        self.assertEqual(self.poll_as_extension(), {"windowId": 1, "tabId": 14})
+        self.assertIsNone(self.poll_as_extension())
 
     def test_recently_closed_is_restored_in_a_running_browser(self):
         self.state.tab_search.begin()

@@ -252,8 +252,12 @@ async function pollSwitchQueue() {
           const tab = await chrome.tabs.create({ url: cmd.newTabUrl });
           if (chrome.windows) await chrome.windows.update(tab.windowId, { focused: true });
         } catch {}
-      } else if (cmd && Number.isInteger(cmd.closeTab) && cmd.closeTab > 0) {
-        try { await chrome.tabs.remove(cmd.closeTab); } catch {}
+      } else if (cmd && Array.isArray(cmd.closeTabs)) {
+        // Every tab closed from the tab search popup since the last poll (Ctrl+W).
+        const ids = cmd.closeTabs.filter(id => Number.isInteger(id) && id > 0);
+        try { if (ids.length) await chrome.tabs.remove(ids); } catch {
+          for (const id of ids) { try { await chrome.tabs.remove(id); } catch {} }  // one already gone
+        }
       } else if (cmd &&
           Number.isInteger(cmd.tabId)    && cmd.tabId    > 0 &&
           Number.isInteger(cmd.windowId) && cmd.windowId > 0) {
