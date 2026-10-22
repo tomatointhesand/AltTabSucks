@@ -8,7 +8,9 @@
 # is the hotkey layer here (no separate "launch AHK at login" step exists on this side either —
 # the KWin script runs inside the always-running compositor once installed).
 #
-# Usage: ./installer.sh [install|uninstall|status|start|stop|configure|reload-hotkeys]  (default: install)
+# Usage: ./installer.sh [install|uninstall|status|start|stop|restart|configure|reload-hotkeys]  (default: install)
+# `restart` restarts the server and toast daemon, then redeploys the KWin script — everything a
+# code change needs; the Linux side of AltTabSucks.ahk's Ctrl+Alt+Shift+' (bind it as a runCommand).
 # `configure` re-runs just the interactive browser wizard (choose_browser) to regenerate
 # linux/server/config.py without touching the service or KWin script — install runs it
 # automatically too, but only the first time (an existing config.py is left alone otherwise).
@@ -577,16 +579,54 @@ do_reload_hotkeys() {
     install_kwin_script
 }
 
+# Usually run from a Ctrl+Alt+Shift+' runCommand binding. That binding's own result toast never
+# shows (the server reporting it is what gets restarted), so this shows one itself at the end.
+do_restart() {
+    systemctl --user restart "$SERVICE_NAME"
+    echo "Restarted $SERVICE_NAME."
+    if [ -f "$TOAST_SERVICE_DEST" ]; then
+        systemctl --user restart "$TOAST_SERVICE_NAME"
+        echo "Restarted $TOAST_SERVICE_NAME."
+    fi
+    local ok=1 detail="server, toast daemon and hotkeys reloaded"
+    if ! python3 - <<'PYEOF2'
+import time, urllib.request
+deadline = time.time() + 15
+while time.time() < deadline:
+    try:
+        urllib.request.urlopen("http://127.0.0.1:9876/hotkeys-ui", timeout=1).close()
+        raise SystemExit(0)
+    except OSError:
+        time.sleep(0.25)
+raise SystemExit(1)
+PYEOF2
+    then
+        ok=0; detail="the server didn't answer within 15s — see: journalctl --user -u $SERVICE_NAME"
+        echo "$detail" >&2
+    fi
+    install_kwin_script
+    # The toast daemon was just restarted; give it a moment to claim its D-Bus name.
+    for _ in $(seq 1 20); do
+        gdbus call --session --dest com.github.tomatointhesand.AltTabSucksToast \
+            --object-path /com/github/tomatointhesand/AltTabSucksToast \
+            --method com.github.tomatointhesand.AltTabSucksToast.ShowCommandResult \
+            '"Restart AltTabSucks"' "$ok" "\"$detail\"" 0 0 0 0 0 >/dev/null 2>&1 && break
+        sleep 0.25
+    done
+    [ "$ok" = 1 ]
+}
+
 case "$ACTION" in
     install)         do_install ;;
     uninstall)       do_uninstall ;;
     status)          do_status ;;
     start)           do_start ;;
     stop)            do_stop ;;
+    restart)         do_restart ;;
     configure)       do_configure ;;
     reload-hotkeys)  do_reload_hotkeys ;;
     *)
-        echo "Usage: $0 [install|uninstall|status|start|stop|configure|reload-hotkeys]"
+        echo "Usage: $0 [install|uninstall|status|start|stop|restart|configure|reload-hotkeys]"
         exit 1
         ;;
 esac

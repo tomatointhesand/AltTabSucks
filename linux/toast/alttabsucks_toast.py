@@ -184,6 +184,12 @@ class ToastWindow:
         self._position_and_show(win_x, win_y, win_w, win_h, duration_ms, pad_w=48, pad_h=40)
 
     def _position_and_show(self, win_x, win_y, win_w, win_h, duration_ms, pad_w, pad_h):
+        if win_w <= 0 or win_h <= 0:
+            # No window to center on (e.g. installer.sh restart's own result): the first monitor.
+            monitors = Gdk.Display.get_default().get_monitors()
+            if monitors.get_n_items():
+                geo = monitors.get_item(0).get_geometry()
+                win_x, win_y, win_w, win_h = geo.x, geo.y, geo.width, geo.height
         monitor = self._find_monitor(win_x, win_y)
         if monitor is not None:
             Gtk4LayerShell.set_monitor(self.win, monitor)

@@ -315,9 +315,13 @@ class Bridge(dbus.service.Object):
         # this codebase has exercised callDBus with a multi-value D-Bus return yet, so this sticks
         # to the already-proven single-string-parsed-by-the-caller pattern (see parseTabLine in
         # main.js) rather than being the first thing to assume that works.
+        #
+        # In its own scope (scoped_argv), like launched apps: a command that restarts the server
+        # (installer.sh restart, the Ctrl+Alt+Shift+' binding) would otherwise be killed halfway
+        # by that very restart. Its reply then never arrives, so that command reports itself.
         try:
             result = subprocess.run(
-                [str(a) for a in argv], capture_output=True, text=True, timeout=15,
+                scoped_argv([str(a) for a in argv]), capture_output=True, text=True, timeout=15,
             )
             output = ((result.stdout or "") + (result.stderr or "")).strip()
             return f"{result.returncode}\n{output[:4000]}"

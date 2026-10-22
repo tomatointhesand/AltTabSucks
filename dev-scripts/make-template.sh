@@ -71,7 +71,8 @@ fi
 # generic "YOUR_BROWSER_RESOURCE_CLASS" placeholders, so a `git pull` always brings something
 # that actually works. hotkeys.js itself stays gitignored either way (see .gitignore's own
 # comment) — only the template is ever tracked.
-linux_root="$(cd "$(dirname "$0")/.." && pwd)/linux/kwin/alttabsucks/contents/code"
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+linux_root="$repo_root/linux/kwin/alttabsucks/contents/code"
 
 if [ -f "$linux_root/hotkeys.js" ]; then
   {
@@ -80,9 +81,10 @@ if [ -f "$linux_root/hotkeys.js" ]; then
     echo "// a real, working example instead of generic placeholders. hotkeys.js itself stays"
     echo "// gitignored (a \`git pull\` never touches your own local edits to it); copy this file to"
     echo "// hotkeys.js and edit it to match your own setup. See linux/README.md and the porting"
-    echo "// checklist for what each binding type does."
+    echo "// checklist for what each binding type does. YOUR_REPO_ROOT stands for this clone's path"
+    echo "// (installer.sh fills it in when it creates hotkeys.js from this file)."
     echo
-    cat "$linux_root/hotkeys.js"
+    sed "s|$repo_root|YOUR_REPO_ROOT|g" "$linux_root/hotkeys.js"
   } > "$linux_root/hotkeys.template.js"
   echo "Written: $linux_root/hotkeys.template.js (unsanitized)"
 else
