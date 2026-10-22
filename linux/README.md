@@ -117,10 +117,11 @@ toast daemon and the KWin script (`installer.sh restart`, the Linux equivalent o
 `runCommand` binding, editable or removable like any other; if it's missing from your
 `hotkeys.js`, add a "Run command" hotkey with the command `/path/to/your/clone/installer.sh,
 restart`. Hotkey commands and the apps hotkeys launch run in their own systemd scopes, so
-restarting the server never takes them down with it. If your keyboard can't sense
-Shift+apostrophe held together (a real hardware limitation on some keyboards' key matrices, not
-a bug — shows up as the hotkey silently never firing), rebind it to something without Shift,
-e.g. `Ctrl+Alt+'`.
+restarting the server never takes them down with it. In `hotkeys.js` it reads `Ctrl+Alt+"`:
+on Wayland, KDE matches Shift plus a digit or punctuation key as the character Shift produces,
+without the Shift, so Ctrl+Alt+Shift+' arrives as Ctrl+Alt+". Saving converts keys to that form
+automatically (`normalize_key` in `hotkeys_generator.py`); a hand-written `Ctrl+Alt+Shift+'`
+would never fire. Letters keep their Shift: Ctrl+Alt+Shift+A works as written.
 
 ---
 

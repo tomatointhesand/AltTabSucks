@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hotkeys_generator import (  # noqa: E402
     DISABLED_MARKER, HEADER, LEGACY_HEADER, fold_legacy_hotkeys_json, generate_binding_js,
-    parse_hotkeys_js, rewrite_hotkeys_js,
+    normalize_key, parse_hotkeys_js, rewrite_hotkeys_js,
 )
 
 
@@ -191,6 +191,30 @@ class GenerateBindingJsTestCase(unittest.TestCase):
             generate_binding_js({
                 "type": "somethingElse", "title": "X", "key": "Ctrl+Alt+Shift+B", "resourceClass": "x",
             })
+
+
+class NormalizeKeyTestCase(unittest.TestCase):
+    """KDE on Wayland sees Shift+punctuation as the shifted character, without Shift."""
+
+    def test_shift_with_punctuation_becomes_the_shifted_character(self):
+        self.assertEqual(normalize_key("Ctrl+Alt+Shift+'"), 'Ctrl+Alt+"')
+        self.assertEqual(normalize_key('Ctrl+Alt+Shift+"'), 'Ctrl+Alt+"')  # what the page records
+        self.assertEqual(normalize_key("Ctrl+Shift+1"), "Ctrl+!")
+        self.assertEqual(normalize_key("Meta+Shift+/"), "Meta+?")
+
+    def test_letters_and_other_keys_are_unchanged(self):
+        for key in ("Ctrl+Alt+Shift+A", "Ctrl+Alt+Shift+F5", "Alt+X", "Ctrl+Alt+'", "Ctrl+Alt++"):
+            self.assertEqual(normalize_key(key), key)
+
+    def test_generated_statement_uses_it(self):
+        js = generate_binding_js({"type": "windowCycle", "title": "R", "key": "Ctrl+Alt+Shift+'", "resourceClass": "x"})
+        self.assertIn('"Ctrl+Alt+\\""', js)
+
+    def test_both_spellings_clash(self):
+        text = rewrite_hotkeys_js("", [
+            {"type": "windowCycle", "title": "A", "key": "Ctrl+Alt+Shift+'", "resourceClass": "a"},
+            {"type": "windowCycle", "title": "B", "key": 'Ctrl+Alt+"', "resourceClass": "b"}])
+        self.assertEqual([d["title"] for d in text["dropped"]], ["B"])
 
 
 class TabSearchBindingTestCase(unittest.TestCase):
