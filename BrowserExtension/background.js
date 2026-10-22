@@ -40,8 +40,12 @@ async function postTabs() {
         .map(t => ({
           id: t.id,
           url: (() => { const raw = t.pendingUrl || t.url; try { const u = new URL(raw); const seg = u.pathname.split('/')[1]; return u.origin + (seg ? '/' + seg : ''); } catch { return raw; } })(),
+          // The full address too: `url` above is cut down to what tab-focus hotkeys match on, the
+          // tab search popup matches the whole thing.
+          fullUrl: t.pendingUrl || t.url,
           title: t.title,
           active: t.active,
+          lastAccessed: t.lastAccessed || 0,  // ms since epoch; orders tab search most-recent-first
           pinned: t.pinned,
           index: t.index,
           audible: t.audible ?? false,
@@ -61,6 +65,73 @@ async function postTabs() {
   }
 }
 
+// Coalesces bursts of tab events (e.g. a page whose title keeps changing) into one POST /tabs.
+let postTabsTimer = null;
+function postTabsSoon() {
+  clearTimeout(postTabsTimer);
+  postTabsTimer = setTimeout(postTabs, 300);
+}
+
+// --- Tab search data: recently closed tabs and a bookmark snapshot -----------------------------
+// Pushed to the server whenever they change, and saved there, so the tab search popup can still
+// offer them while the browser is closed. While it's open, bookmark searches go to the browser
+// itself at query time (searchBookmarks below); the snapshot is only the fallback.
+
+async function serverPost(path, body) {
+  const { authToken = '' } = await chrome.storage.local.get('authToken');
+  await fetch(`http://localhost:9876${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-AltTabSucks-Token': authToken },
+    body: JSON.stringify(body)
+  });
+}
+
+const openable = (url) => /^https?:\/\//i.test(url || '');
+
+async function postRecentlyClosed() {
+  if (!chrome.sessions) return;
+  const { profileName = 'Default' } = await chrome.storage.local.get('profileName');
+  try {
+    const entries = await chrome.sessions.getRecentlyClosed({ maxResults: 25 });
+    const items = [];
+    for (const e of entries) {
+      // A closed window restores as a whole; list it once, under its first openable tab.
+      const tab = e.tab || (e.window && (e.window.tabs || []).find(t => openable(t.url)));
+      if (!tab || !openable(tab.url)) continue;
+      const extra = e.window && e.window.tabs.length > 1 ? ` (+${e.window.tabs.length - 1} tabs)` : '';
+      items.push({
+        sessionId: (e.tab || e.window).sessionId,
+        title: (tab.title || tab.url) + extra,
+        url: tab.url,
+        closedAt: (e.lastModified || 0) * 1000,  // seconds -> ms
+      });
+    }
+    await serverPost('/recently-closed', { profile: profileName, items });
+  } catch {}
+}
+
+function flattenBookmarks(nodes, out) {
+  for (const n of nodes) {
+    if (n.url && openable(n.url)) out.push({ id: n.id, title: n.title || n.url, url: n.url });
+    if (n.children) flattenBookmarks(n.children, out);
+  }
+  return out;
+}
+
+async function postBookmarks() {
+  if (!chrome.bookmarks) return;
+  const { profileName = 'Default' } = await chrome.storage.local.get('profileName');
+  try {
+    const items = flattenBookmarks(await chrome.bookmarks.getTree(), []);
+    await serverPost('/bookmarks', { profile: profileName, items });
+  } catch {}
+}
+let postBookmarksTimer = null;
+function postBookmarksSoon() {
+  clearTimeout(postBookmarksTimer);
+  postBookmarksTimer = setTimeout(postBookmarks, 2000);
+}
+
 // True while the server is unreachable — so the first successful poll after a restart re-pushes
 // the full tab state right away instead of waiting for the next tab event or keepAlive (20s).
 let serverDown = false;
@@ -71,7 +142,7 @@ async function pollSwitchQueue() {
     const res = await fetch(`http://localhost:9876/switchtab?profile=${encodeURIComponent(profileName)}`, {
       headers: { 'X-AltTabSucks-Token': authToken }
     });
-    if (serverDown) { serverDown = false; postTabs(); }
+    if (serverDown) { serverDown = false; postTabs(); postRecentlyClosed(); postBookmarks(); }
     if (res.status === 200) {
       const cmd = await res.json();
       if (cmd && cmd.openUrl && /^https?:\/\//i.test(cmd.openUrl)) {
@@ -161,6 +232,28 @@ async function pollSwitchQueue() {
             }
           }
         } catch {}
+      } else if (cmd && typeof cmd.searchBookmarks === 'string' && chrome.bookmarks) {
+        // The tab search popup's query-time bookmark search; the server waits for the reply.
+        try {
+          const found = (await chrome.bookmarks.search(cmd.searchBookmarks))
+            .filter(n => openable(n.url)).slice(0, 50)
+            .map(n => ({ id: n.id, title: n.title || n.url, url: n.url }));
+          await serverPost('/bookmark-results', { requestId: cmd.requestId, profile: profileName, items: found });
+        } catch {}
+      } else if (cmd && typeof cmd.restoreSession === 'string' && chrome.sessions) {
+        try {
+          const restored = await chrome.sessions.restore(cmd.restoreSession);
+          const winId = restored && (restored.window ? restored.window.id : restored.tab && restored.tab.windowId);
+          if (winId && chrome.windows) await chrome.windows.update(winId, { focused: true });
+        } catch {}
+      } else if (cmd && openable(cmd.newTabUrl)) {
+        // Always a new tab (a bookmark), unlike openUrl above, which reuses a same-site tab.
+        try {
+          const tab = await chrome.tabs.create({ url: cmd.newTabUrl });
+          if (chrome.windows) await chrome.windows.update(tab.windowId, { focused: true });
+        } catch {}
+      } else if (cmd && Number.isInteger(cmd.closeTab) && cmd.closeTab > 0) {
+        try { await chrome.tabs.remove(cmd.closeTab); } catch {}
       } else if (cmd &&
           Number.isInteger(cmd.tabId)    && cmd.tabId    > 0 &&
           Number.isInteger(cmd.windowId) && cmd.windowId > 0) {
@@ -187,6 +280,15 @@ function keepAlive() {
 keepAlive();
 
 postTabs();
+postRecentlyClosed();
+postBookmarks();
+
+if (chrome.sessions) chrome.sessions.onChanged.addListener(postRecentlyClosed);
+if (chrome.bookmarks) {
+  for (const ev of ['onCreated', 'onRemoved', 'onChanged', 'onMoved', 'onImportEnded']) {
+    if (chrome.bookmarks[ev]) chrome.bookmarks[ev].addListener(postBookmarksSoon);
+  }
+}
 
 chrome.tabs.onCreated.addListener(postTabs);
 chrome.tabs.onRemoved.addListener(postTabs);
@@ -219,5 +321,7 @@ chrome.webNavigation.onBeforeNavigate.addListener(({ tabId, url, frameId }) => {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url || (changeInfo.title && tab.active)) postTabs();
+  // Any tab's title, not just the active one's: the tab search popup matches on every title.
+  else if (changeInfo.title) postTabsSoon();
 });
 

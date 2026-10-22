@@ -41,6 +41,7 @@ class ServerTestCase(unittest.TestCase):
         self._hotkeys_tmpdir = tempfile.TemporaryDirectory()
         self.state.legacy_hotkeys_json_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.json"
         self.state.hotkeys_js_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.js"
+        self.state.tab_search.path = Path(self._hotkeys_tmpdir.name) / "browser-data.json"
         # Never let a test invoke the real installer.sh (which would touch the real KWin script
         # installation) — see AppState.deploy_command's docstring. "true" is a real subprocess
         # (exit 0, no output) so POST /hotkeys-config's subprocess.run()-and-report-the-result
@@ -497,6 +498,132 @@ class ServerTestCase(unittest.TestCase):
         self.assertFalse(self.state.legacy_hotkeys_json_path.exists())
         self.assertEqual(len(list(Path(self._hotkeys_tmpdir.name).glob("hotkeys.json.folded-*"))), 1)
         self.assertIsNone(fold_legacy_hotkeys_json(self.state))
+
+    # ---- tab search ----------------------------------------------------------
+
+    def post(self, path, body):
+        status, _, raw = self.request("POST", path, json_body=body)
+        return status, raw
+
+    def poll_as_extension(self, profile="Personal"):
+        """One GET /switchtab, as the extension does every 50ms while its browser runs. Returns
+        the dequeued command, if any."""
+        status, _, raw = self.request("GET", "/switchtab?profile=" + profile.replace(" ", "%20"))
+        return json.loads(raw) if status == 200 else None
+
+    def search(self, q=""):
+        status, _, raw = self.request("GET", "/tab-search?q=" + q.replace(" ", "+"))
+        self.assertEqual(status, 200)
+        return json.loads(raw)
+
+    def push_tabs(self):
+        self.post("/tabs", {"profile": "Personal", "windows": [{"id": 1, "focused": True, "tabs": [
+            {"id": 11, "title": "Inbox - Gmail", "url": "https://mail.google.com/mail",
+             "fullUrl": "https://mail.google.com/mail/u/0/#inbox", "active": True, "lastAccessed": 2},
+            {"id": 12, "title": "Sailing forecast", "url": "https://windy.com/sailing",
+             "fullUrl": "https://windy.com/sailing", "active": False, "lastAccessed": 1}]}]})
+
+    def test_tab_search_shows_open_tabs_only_while_the_browser_is_running(self):
+        self.push_tabs()
+        self.assertEqual(self.search("sail")["category"], "", "no extension polling yet: browser closed")
+        self.poll_as_extension()
+        r = self.search("sail")
+        self.assertEqual((r["category"], [i["tabId"] for i in r["items"]]), ("tabs", [12]))
+
+    def test_recently_closed_is_saved_to_disk_and_shown_when_nothing_is_open(self):
+        status, _ = self.post("/recently-closed", {"profile": "Personal", "items": [
+            {"sessionId": "s1", "title": "Old article", "url": "https://news.example/a", "closedAt": 5}]})
+        self.assertEqual(status, 204)
+        saved = json.loads(self.state.tab_search.path.read_text())
+        self.assertEqual(saved["recent"]["Personal"][0]["sessionId"], "s1")
+        r = self.search("article")
+        self.assertEqual((r["category"], r["items"][0]["live"]), ("recent", False))
+
+    def test_saved_data_is_loaded_back(self):
+        self.post("/bookmarks", {"profile": "Personal", "items": [{"id": "b1", "title": "Pasta", "url": "https://food.example/"}]})
+        from tab_search_state import TabSearchState
+        again = TabSearchState(self.state.tab_search.path)
+        again.load()
+        self.assertEqual(again.bookmarks["Personal"][0]["id"], "b1")
+
+    def test_bookmarks_come_from_the_snapshot_while_the_browser_is_closed(self):
+        self.post("/bookmarks", {"profile": "Personal", "items": [
+            {"id": "b1", "title": "Pasta recipes", "url": "https://food.example/"},
+            {"id": "b2", "title": "Boat parts", "url": "https://boats.example/"}]})
+        r = self.search("pasta")
+        self.assertEqual((r["category"], [i["id"] for i in r["items"]]), ("bookmarks", ["b1"]))
+
+    def test_bookmarks_are_searched_in_the_running_browser(self):
+        self.post("/bookmarks", {"profile": "Personal", "items": [{"id": "old", "title": "Pasta (stale snapshot)", "url": "https://old.example/"}]})
+        self.poll_as_extension()
+        seen = []
+
+        def extension():  # answers the searchBookmarks command like background.js does
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                cmd = self.poll_as_extension()
+                if cmd and "searchBookmarks" in cmd:
+                    seen.append(cmd["searchBookmarks"])
+                    self.post("/bookmark-results", {"requestId": cmd["requestId"], "items": [
+                        {"id": "live", "title": "Pasta recipes", "url": "https://food.example/"}]})
+                    return
+                time.sleep(0.02)
+        t = threading.Thread(target=extension); t.start()
+        r = self.search("pasta")
+        t.join()
+        self.assertEqual(seen, ["pasta"])
+        self.assertEqual([i["id"] for i in r["items"]], ["live"])
+
+    def test_a_running_browser_that_doesnt_answer_falls_back_to_the_snapshot(self):
+        self.post("/bookmarks", {"profile": "Personal", "items": [{"id": "b1", "title": "Pasta", "url": "https://food.example/"}]})
+        self.poll_as_extension()  # live, but nothing answers the search
+        start = time.monotonic()
+        r = self.search("pasta")
+        self.assertEqual([i["id"] for i in r["items"]], ["b1"])
+        self.assertLess(time.monotonic() - start, 1.5)
+        self.assertIsNone(self.state.switch_queue.get("Personal"), "the unanswered search isn't left queued")
+
+    def test_choosing_an_open_tab_switches_to_it_and_tells_kwin(self):
+        self.state.tab_search.begin()
+        self.assertEqual(self.state.tab_search.take(), "", "popup still open")
+        self.poll_as_extension()
+        status, _ = self.post("/tab-search/action", {"kind": "tab", "profile": "Personal", "windowId": 1, "tabId": 12})
+        self.assertEqual(status, 204)
+        self.assertEqual(self.poll_as_extension(), {"windowId": 1, "tabId": 12})
+        self.assertEqual(json.loads(self.state.tab_search.take()), {"kind": "tab", "profile": "Personal", "windowId": 1})
+        self.assertEqual(self.state.tab_search.take(), "", "only once")
+
+    def test_closing_a_tab_keeps_the_popup_open(self):
+        self.state.tab_search.begin()
+        self.post("/tab-search/action", {"kind": "close", "profile": "Personal", "tabId": 12})
+        self.assertEqual(self.poll_as_extension(), {"closeTab": 12})
+        self.assertEqual(self.state.tab_search.take(), "")
+
+    def test_recently_closed_is_restored_in_a_running_browser(self):
+        self.state.tab_search.begin()
+        self.poll_as_extension()
+        self.post("/tab-search/action", {"kind": "recent", "profile": "Personal", "sessionId": "s1", "url": "https://news.example/a"})
+        self.assertEqual(self.poll_as_extension(), {"restoreSession": "s1"})
+        self.assertEqual(json.loads(self.state.tab_search.take())["kind"], "open")
+
+    def test_with_the_browser_closed_it_launches_and_queues_the_url(self):
+        self.state.tab_search.begin()
+        self.post("/tab-search/action", {"kind": "bookmark", "profile": "Personal", "url": "https://food.example/"})
+        self.assertEqual(self.state.switch_queue["Personal"], {"newTabUrl": "https://food.example/"})
+        self.assertEqual(json.loads(self.state.tab_search.take()), {"kind": "launch", "profile": "Personal", "url": "https://food.example/"})
+
+    def test_only_web_urls_can_be_opened(self):
+        status, _ = self.post("/tab-search/action", {"kind": "bookmark", "profile": "Personal", "url": "javascript:alert(1)"})
+        self.assertEqual(status, 400)
+
+    def test_cancel(self):
+        self.state.tab_search.begin()
+        self.post("/tab-search/closed", {})
+        self.assertEqual(json.loads(self.state.tab_search.take()), {"kind": "cancel"})
+
+    def test_tab_search_requires_auth(self):
+        status, _, _ = self.request("GET", "/tab-search?q=x", token=None)
+        self.assertEqual(status, 403)
 
     def test_hotkeys_config_requires_auth(self):
         status, _, _ = self.request("GET", "/hotkeys-config", token=None)

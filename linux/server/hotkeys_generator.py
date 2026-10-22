@@ -40,6 +40,8 @@ Binding "type" maps to one main.js function each:
                                   what a "Reload Hotkeys" binding is made of (argv pointing at this
                                   clone's installer.sh), rather than that being a special case
                                   hardcoded into main.js/dbus_bridge.py.
+  tabSearch                   -> showTabSearch(resourceClass) — the tab search popup (open tabs,
+                                  then recently closed, then bookmarks; see tab_search.py).
   splitTab                    -> splitFocusedTab(resourceClass, profileName) — detaches the
                                   active tab of the focused window into its own new window, then
                                   places the two side by side. Port of lib/chromium.ahk's
@@ -193,6 +195,10 @@ def generate_binding_js(binding: dict, browser_resource_class: str = "") -> str:
             raise ValueError(f"binding {title!r} missing profileName")
         fn = "splitFocusedTab" if kind == "splitTab" else "mergeFocusedWindow"
         call = f"{fn}({_js_string(resource_class)}, {_js_string(profile)});"
+    elif kind == "tabSearch":
+        if not resource_class:
+            raise ValueError(_NO_BROWSER_CONFIGURED)
+        call = f"showTabSearch({_js_string(resource_class)});"
     else:
         raise ValueError(f"binding {title!r} has unknown type: {kind!r}")
 
@@ -331,6 +337,7 @@ _ACTIONS = {
     # name: (min args, max args)
     "manageAppWindows": (2, 3), "cycleChromiumProfile": (2, 3), "focusTab": (4, 4),
     "runCommandWithToast": (2, 2), "splitFocusedTab": (2, 2), "mergeFocusedWindow": (2, 2),
+    "showTabSearch": (1, 1),
 }
 
 
@@ -362,6 +369,8 @@ def _binding_from_call(title, key, name, args):
         b.update(type="profileCycle", resourceClass=s(0), profileName=s(1), launchProfileName=s(2))
     elif name == "focusTab":
         b.update(type="tabFocus", resourceClass=s(0), profileName=s(1), urlPatterns=lst(2), openUrl=s(3))
+    elif name == "showTabSearch":
+        b.update(type="tabSearch", resourceClass=s(0))
     elif name == "runCommandWithToast":
         b.update(type="runCommand", argv=lst(1))
     else:

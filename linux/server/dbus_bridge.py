@@ -224,6 +224,17 @@ class Bridge(dbus.service.Object):
         # Mirrors POST /switchtab's {openUrl} variant.
         self._state.switch_queue[str(profile)] = {"openUrl": str(url)}
 
+    @dbus.service.method(INTERFACE, in_signature="")
+    def BeginTabSearch(self):
+        # main.js, right before showing the tab search popup — see tab_search_state.py.
+        self._state.tab_search.begin()
+
+    @dbus.service.method(INTERFACE, in_signature="", out_signature="s")
+    def TakeTabSearchResult(self):
+        # main.js polls this while the popup is open: "" until the popup reports a choice or a
+        # cancel, then that result as JSON, once.
+        return self._state.tab_search.take()
+
     @dbus.service.method(INTERFACE, in_signature="s")
     def QueueSplitTab(self, profile):
         # Mirrors POST /switchtab's {splitTab} variant (lib/chromium.ahk's SplitFocusedTab) — the

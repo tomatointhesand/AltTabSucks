@@ -633,6 +633,66 @@ function waitForTabOrOpen(resourceClass, profileName, cleanPatterns, openUrl, de
 // mutating the *returned* object's properties (w.frameGeometry.x = ...) is a silent no-op — it
 // hands back a detached snapshot, not a live-bound reference — so this always assigns a whole
 // new object to w.frameGeometry rather than touching one of its properties.
+// --- Tab search popup (tabSearch bindings) ----------------------------------------------------
+// Shows the popup (a window in the toast daemon, linux/toast/alttabsucks_toast.py), which talks
+// to the server directly for results and actions (GET /tab-search, POST /tab-search/action — see
+// linux/server/tab_search.py and tab_search_state.py). The one thing it can't do on Wayland is
+// raise a window, so when you pick a result the server hands that part back here:
+// BeginTabSearch, then TakeTabSearchResult is polled until the popup reports a choice or a cancel.
+var TAB_SEARCH_POLL_MS = 50;
+var TAB_SEARCH_MAX_OPEN_MS = 10 * 60 * 1000;  // stop polling if a popup is somehow left open
+
+function showTabSearch(resourceClass) {
+    var g = workspace.activeWindow ? workspace.activeWindow : null;
+    var geo = g ? { x: g.x, y: g.y, width: g.width, height: g.height } : workspace.activeScreen.geometry;
+    bridgeCall("BeginTabSearch", [], function () {
+        callDBus(TOAST_BUS_NAME, TOAST_OBJECT_PATH, TOAST_INTERFACE, "ShowTabSearch",
+            geo.x, geo.y, geo.width, geo.height, function () {});
+        pollTabSearch(resourceClass, Date.now() + TAB_SEARCH_MAX_OPEN_MS);
+    });
+}
+
+function pollTabSearch(resourceClass, deadline) {
+    bridgeCall("TakeTabSearchResult", [], function (json) {
+        if (!json) {
+            if (Date.now() < deadline) afterDelay(TAB_SEARCH_POLL_MS, function () { pollTabSearch(resourceClass, deadline); });
+            return;
+        }
+        var r = JSON.parse(json);
+        if (r.kind === "tab") {
+            // The server already queued the tab switch; raise the window it's in (same technique
+            // as focusTab: match the window's caption against its current active tab's title).
+            bridgeCall("GetWindowActiveTitle", [r.profile, r.windowId], function (activeTitle) {
+                activateWindowForTab(resourceClass, activeTitle, r.profile);
+            });
+        } else if (r.kind === "open") {
+            // A restored or new tab, in a running browser: raise its window once it shows up.
+            var pattern = r.url.replace(/^https?:\/\//, "").replace(/^([^\/?#]*\/?[^\/?#]*).*$/, "$1");
+            waitAndActivateTab(resourceClass, r.profile, pattern, Date.now() + 3000);
+        } else if (r.kind === "launch") {
+            // That profile's browser isn't running: start it; the server queued the URL for its
+            // extension to open once it's up.
+            launchChromiumProfileAndActivate(resourceClass, r.profile);
+        }
+        // "cancel": nothing to do.
+    });
+}
+
+function waitAndActivateTab(resourceClass, profileName, pattern, deadline) {
+    bridgeCall("FindTab", [profileName, pattern], function (result) {
+        if (result) {
+            var parts = parseTabLine(result.split("\n")[0]);
+            bridgeCall("GetWindowActiveTitle", [profileName, parts.windowId], function (activeTitle) {
+                activateWindowForTab(resourceClass, activeTitle, profileName);
+            });
+        } else if (Date.now() < deadline) {
+            afterDelay(200, function () { waitAndActivateTab(resourceClass, profileName, pattern, deadline); });
+        } else {
+            activateAnyWindow(resourceClass, profileName);
+        }
+    });
+}
+
 function splitFocusedTab(resourceClass, profileName) {
     var origWindow = workspace.activeWindow;
     if (!origWindow || origWindow.resourceClass !== resourceClass) return;
