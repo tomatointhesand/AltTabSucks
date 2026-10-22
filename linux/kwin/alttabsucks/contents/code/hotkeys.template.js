@@ -3,7 +3,8 @@
 // a real, working example instead of generic placeholders. hotkeys.js itself stays
 // gitignored (a `git pull` never touches your own local edits to it); copy this file to
 // hotkeys.js and edit it to match your own setup. See linux/README.md and the porting
-// checklist for what each binding type does.
+// checklist for what each binding type does. YOUR_REPO_ROOT stands for this clone's path
+// (installer.sh fills it in when it creates hotkeys.js from this file).
 
 // AltTabSucks hotkeys. Edit them here or in the Hotkeys UI (Ctrl+Alt+/, served at
 // http://localhost:9876/hotkeys-ui): the UI shows the registerShortcut(...) statements below
@@ -92,3 +93,6 @@ registerShortcut("addresses / contacts", "AltTabSucks: addresses / contacts",
 
 registerShortcut("Search browser tabs", "AltTabSucks: Search browser tabs",
     "Ctrl+Alt+Shift+A", function () { showTabSearch("brave-browser"); });
+
+registerShortcut("Restart AltTabSucks", "AltTabSucks: Restart AltTabSucks",
+    "Ctrl+Alt+Shift+'", function () { runCommandWithToast("Restart AltTabSucks", ["YOUR_REPO_ROOT/installer.sh", "restart"]); });

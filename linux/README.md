@@ -111,12 +111,16 @@ about the one browser this install manages, so there's nothing to type there at 
 **By hand** — edit `hotkeys.js` directly (see its own comments, and `hotkeys.template.js` for
 every binding type with inline docs), then run `./installer.sh reload-hotkeys` to deploy.
 
-Either way, the default **`Ctrl+Alt+Shift+'`** reloads hotkeys without a terminal at all (the
-Linux equivalent of `AltTabSucks.ahk`'s built-in `^!+'::Reload`) — it's an ordinary
-`runCommand` binding pointed at `installer.sh reload-hotkeys`, editable/removable like any other.
-If your keyboard can't sense Shift+apostrophe held together (a real hardware limitation on some
-keyboards' key matrices, not a bug — shows up as the hotkey silently never firing), rebind it to
-something without Shift, e.g. `Ctrl+Alt+'`.
+Either way, **`Ctrl+Alt+Shift+'`** restarts AltTabSucks without a terminal: the server, the
+toast daemon and the KWin script (`installer.sh restart`, the Linux equivalent of
+`AltTabSucks.ahk`'s built-in `Ctrl+Alt+Shift+'`), with a toast when it's done. It's an ordinary
+`runCommand` binding, editable or removable like any other; if it's missing from your
+`hotkeys.js`, add a "Run command" hotkey with the command `/path/to/your/clone/installer.sh,
+restart`. Hotkey commands and the apps hotkeys launch run in their own systemd scopes, so
+restarting the server never takes them down with it. If your keyboard can't sense
+Shift+apostrophe held together (a real hardware limitation on some keyboards' key matrices, not
+a bug — shows up as the hotkey silently never firing), rebind it to something without Shift,
+e.g. `Ctrl+Alt+'`.
 
 ---
 
@@ -126,6 +130,7 @@ something without Shift, e.g. `Ctrl+Alt+'`.
 ./installer.sh status           # server + toast daemon + KWin script load state, plus the auth token
 ./installer.sh start            # start the server (and toast daemon, if installed)
 ./installer.sh stop             # stop them via systemd
+./installer.sh restart          # restart both, then redeploy the KWin script (what Ctrl+Alt+Shift+' runs)
 ./installer.sh configure        # re-run just the browser picker (e.g. after switching browsers)
 ./installer.sh reload-hotkeys   # rebuild + redeploy the KWin script from hotkeys.js
 ./installer.sh uninstall        # remove the service, toast daemon, and KWin script — also kills
