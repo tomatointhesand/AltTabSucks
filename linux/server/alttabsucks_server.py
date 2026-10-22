@@ -321,8 +321,10 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if profile:
                     state.tab_search.mark_poll(profile)  # the extension polls only while its browser runs
                 with state.lock:
-                    cmd = state.switch_queue.get(profile)
-                    if cmd:
+                    # Tab search closes first, all at once; the switch slot waits for the next poll.
+                    closes = state.tab_search.take_closes(profile) if profile else []
+                    cmd = {"closeTabs": closes} if closes else state.switch_queue.get(profile)
+                    if cmd and not closes:
                         state.switch_queue[profile] = None
                 if cmd:
                     self._end_json(200, cmd)
@@ -549,7 +551,7 @@ def _tab_search_action(state, a: dict):
     live = profile in state.tab_search.live_profiles()
     queue = state.switch_queue
     if kind == "close":
-        queue[profile] = {"closeTab": int(a["tabId"])}
+        state.tab_search.add_close(profile, int(a["tabId"]))  # its own list: see add_close
         return
     if kind == "tab":
         queue[profile] = {"windowId": int(a["windowId"]), "tabId": int(a["tabId"])}

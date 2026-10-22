@@ -40,6 +40,7 @@ class TabSearchState:
         self._last_poll: dict = {}  # profile -> time.monotonic() of its last GET /switchtab
         self._requests: dict = {}   # requestId -> {"event": Event, "items": [...]}
         self._result = None         # None (no popup), "pending" (open), or the popup's choice
+        self._closes: dict = {}     # profile -> [tabId] waiting for the extension's next poll
         self._lock = threading.Lock()
 
     # ---- persisted data ----------------------------------------------------------------------
@@ -118,6 +119,19 @@ class TabSearchState:
             req["items"] = items
         req["event"].set()
         return True
+
+    # ---- closing tabs ------------------------------------------------------------------------
+    # Kept apart from the switch queue: that holds one command per profile, latest wins, so a
+    # close queued there was lost to anything queued within the extension's next 50ms poll (a
+    # second Ctrl+W, Enter on another result, a live bookmark search).
+
+    def add_close(self, profile: str, tab_id: int):
+        with self._lock:
+            self._closes.setdefault(profile, []).append(tab_id)
+
+    def take_closes(self, profile: str) -> list:
+        with self._lock:
+            return self._closes.pop(profile, [])
 
     # ---- KWin handshake ----------------------------------------------------------------------
 
