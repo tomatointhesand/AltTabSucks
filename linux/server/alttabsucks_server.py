@@ -46,6 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TOKEN_PATH = REPO_ROOT / "Server" / "token.txt"
 
 TABS_MAX_BODY = 1 * 1024 * 1024   # 1 MB, matches PS1
+BOOKMARKS_MAX_BODY = 16 * 1024 * 1024  # a whole bookmark snapshot (POST /bookmarks)
 SMALL_MAX_BODY = 4 * 1024         # 4 KB, matches PS1 (/profiles and /switchtab POST bodies)
 HOTKEYS_CONFIG_MAX_BODY = 256 * 1024  # generous room for dozens of bindings
 DRAIN_CAP = 8 * 1024 * 1024       # hard ceiling for draining a rejected body off the socket
@@ -131,6 +132,11 @@ class AppState:
         # other dict access anywhere in this file is a single get/set/pop on one key, already
         # atomic under the GIL regardless of threading — doesn't need this lock.
         self.lock = threading.Lock()
+        # Tab search popup data (recently closed, bookmark snapshots, live profiles, the KWin
+        # handshake) — see tab_search_state.py. Not loaded from disk here: main() does that, so
+        # tests never read the real file (they point .path at a tmp dir instead).
+        import tab_search_state
+        self.tab_search = tab_search_state.TabSearchState(tab_search_state.default_state_path())
 
 
 def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
@@ -312,6 +318,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 if origin and not is_extension_origin(origin):
                     self._end(204)
                     return
+                if profile:
+                    state.tab_search.mark_poll(profile)  # the extension polls only while its browser runs
                 with state.lock:
                     cmd = state.switch_queue.get(profile)
                     if cmd:
@@ -338,6 +346,19 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                             lines.append(f"    [{tab.get('index')}] {tab.get('title')}{flags}")
                     lines.append("")
                 self._end_text(200, "\n".join(lines))
+            elif path == "/tab-search":
+                # The tab search popup's query, on every keystroke. See tab_search.py.
+                import tab_search
+                query = qs.get("q", [""])[0]
+                live = state.tab_search.live_profiles()
+
+                def search_bookmarks(words):
+                    # Empty query: nothing to ask the browser, the snapshot lists everything.
+                    browsers = live if words else set()
+                    return state.tab_search.search_bookmarks(" ".join(words), state.switch_queue, browsers)
+
+                self._end_json(200, tab_search.search(
+                    query, state.store, state.tab_search.recent, live, search_bookmarks))
             elif path == "/hotkeys-config":
                 import hotkeys_generator
                 text = _read_hotkeys_js(state)
@@ -412,6 +433,30 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     state.switch_queue[profile] = {"openUrl": payload["openUrl"]}
                 else:
                     state.switch_queue[profile] = {"windowId": payload.get("windowId"), "tabId": payload.get("tabId")}
+                self._end(204)
+
+            elif path in ("/recently-closed", "/bookmarks", "/bookmark-results",
+                          "/tab-search/action", "/tab-search/closed"):
+                body = self._read_body(BOOKMARKS_MAX_BODY if path == "/bookmarks" else TABS_MAX_BODY)
+                if body is None:
+                    return
+                try:
+                    payload = json.loads(body or b"{}")
+                    if not isinstance(payload, dict):
+                        raise ValueError("expected a JSON object")
+                    if path == "/recently-closed":
+                        state.tab_search.set_recent(str(payload["profile"]), list(payload.get("items") or []))
+                    elif path == "/bookmarks":
+                        state.tab_search.set_bookmarks(str(payload["profile"]), list(payload.get("items") or []))
+                    elif path == "/bookmark-results":
+                        state.tab_search.deliver_bookmark_results(str(payload["requestId"]), list(payload.get("items") or []))
+                    elif path == "/tab-search/action":
+                        _tab_search_action(state, payload)
+                    else:
+                        state.tab_search.finish({"kind": "cancel"})
+                except (ValueError, KeyError, TypeError) as e:
+                    self._end_json(400, {"error": str(e) or "bad request"})
+                    return
                 self._end(204)
 
             elif path == "/hotkeys-config":
@@ -490,6 +535,37 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._end(404)
 
     return Handler
+
+
+def _tab_search_action(state, a: dict):
+    """What picking (or closing) a result in the tab search popup does. Queues the browser side
+    for the extension, and hands main.js what it needs to raise the right window (Wayland only
+    lets the compositor do that): {"kind": "tab", profile, windowId} for an open tab,
+    {"kind": "open", profile, url} once a tab is being restored/opened in a running browser, or
+    {"kind": "launch", profile, url} when that profile's browser has to be started first (the
+    queued newTabUrl waits for its extension). Closing a tab only queues; the popup stays open."""
+    kind = a.get("kind")
+    profile = str(a["profile"])
+    live = profile in state.tab_search.live_profiles()
+    queue = state.switch_queue
+    if kind == "close":
+        queue[profile] = {"closeTab": int(a["tabId"])}
+        return
+    if kind == "tab":
+        queue[profile] = {"windowId": int(a["windowId"]), "tabId": int(a["tabId"])}
+        result = {"kind": "tab", "profile": profile, "windowId": int(a["windowId"])}
+    elif kind in ("recent", "bookmark"):
+        url = str(a["url"])
+        if not url.lower().startswith(("http://", "https://")):
+            raise ValueError("only http(s) URLs can be opened")
+        if live and kind == "recent" and a.get("sessionId"):
+            queue[profile] = {"restoreSession": str(a["sessionId"])}
+        else:
+            queue[profile] = {"newTabUrl": url}
+        result = {"kind": "open" if live else "launch", "profile": profile, "url": url}
+    else:
+        raise ValueError(f"unknown kind {kind!r}")
+    state.tab_search.finish(result)
 
 
 def _read_hotkeys_js(state) -> str:
@@ -580,6 +656,7 @@ def main():
     secret = load_or_create_token(TOKEN_PATH)
     state = AppState(secret)
     _load_chromium_config(state)
+    state.tab_search.load()
     fold_legacy_hotkeys_json(state)
     _start_dbus_bridge(state)
     httpd = ThreadingHTTPServer(("127.0.0.1", PORT), make_handler(state))

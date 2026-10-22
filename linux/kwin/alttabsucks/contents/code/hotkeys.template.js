@@ -89,3 +89,6 @@ registerShortcut("calendar", "AltTabSucks: calendar",
 
 registerShortcut("addresses / contacts", "AltTabSucks: addresses / contacts",
     "Ctrl+Shift+Meta+A", function () { focusTab("brave-browser", "Personal", ["https://contacts.google.com"], "https://contacts.google.com"); });
+
+registerShortcut("Search browser tabs", "AltTabSucks: Search browser tabs",
+    "Ctrl+Alt+Shift+A", function () { showTabSearch("brave-browser"); });

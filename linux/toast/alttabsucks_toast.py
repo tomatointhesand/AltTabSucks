@@ -3,7 +3,9 @@
 Toast overlay daemon — Linux port of lib/toast.ahk's ShowProfileToast (SampleTitlebarColor and
 the setup/choice-dialog toasts are NOT ported here; see the porting checklist for what's in vs.
 out of scope). A colored, borderless, momentary text overlay centered on the window a hotkey just
-activated — window/profile cycling, tab focus, etc.
+activated — window/profile cycling, tab focus, etc. Also hosts the tab search popup
+(TabSearchWindow, shown by tabSearch hotkeys), for the same reason: a warm GTK process opens it
+without a cold-start delay.
 
 Why a separate persistent daemon instead of spawning a process per toast (the same LaunchCommand
 escape hatch manageAppWindows/cycleChromiumProfile use to launch apps): the AHK version's rainbow-
@@ -36,8 +38,12 @@ rainbow-cycling behavior on rapid repeated presses is preserved in full, since t
 needed *a* previous color to advance from, not a sampled one.
 """
 
+import json
 import sys
+import threading
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -223,11 +229,262 @@ class ToastWindow:
         return monitors.get_item(0) if monitors.get_n_items() else None
 
 
+SERVER = "http://127.0.0.1:9876"
+TOKEN_PATH = Path(__file__).resolve().parents[2] / "Server" / "token.txt"
+CATEGORY_LABELS = {"tabs": "Open tabs", "recent": "Recently closed", "bookmarks": "Bookmarks", "": "No matches"}
+
+
+class TabSearchWindow:
+    """The tab search popup (tabSearch hotkeys -> main.js showTabSearch -> ShowTabSearch below).
+
+    Results come from the server's GET /tab-search on every keystroke (see
+    linux/server/tab_search.py: open tabs, else recently closed, else bookmarks); picking one,
+    or closing a tab with Ctrl+W, goes to POST /tab-search/action. Requests run on a worker
+    thread so typing never waits on the network, and only the latest query's results are drawn.
+    The selection resets to the top result whenever new results arrive.
+
+    A keyboard-exclusive layer-shell surface with no anchors, which the compositor centers on the
+    chosen monitor. Its CSS is scoped to its own widget names: CSS providers are display-wide, and
+    the toast's rules (bare `window` selectors) apply to every window in this process."""
+
+    def __init__(self):
+        self.win = Gtk.Window()
+        self.win.set_name("ts-window")
+        self.win.set_decorated(False)
+        Gtk4LayerShell.init_for_window(self.win)
+        Gtk4LayerShell.set_layer(self.win, Gtk4LayerShell.Layer.OVERLAY)
+        Gtk4LayerShell.set_keyboard_mode(self.win, Gtk4LayerShell.KeyboardMode.EXCLUSIVE)
+        Gtk4LayerShell.set_namespace(self.win, "alttabsucks-tab-search")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_name("ts-box")
+        self.win.set_child(box)
+        self.entry = Gtk.Entry()
+        self.entry.set_name("ts-entry")
+        self.entry.set_placeholder_text("Search tabs, recently closed, bookmarks")
+        self.entry.connect("changed", lambda e: self._request(e.get_text()))
+        box.append(self.entry)
+        self.header = Gtk.Label(xalign=0)
+        self.header.set_name("ts-header")
+        box.append(self.header)
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_min_content_height(440)
+        scroller.set_min_content_width(760)
+        self.list = Gtk.ListBox()
+        self.list.set_name("ts-list")
+        self.list.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.list.connect("row-activated", lambda _l, row: self._choose(row.get_index()))
+        scroller.set_child(self.list)
+        self.scroller = scroller
+        box.append(scroller)
+        hint = Gtk.Label(label="↑↓ select   Enter open   Ctrl+W close tab   Esc cancel", xalign=0)
+        hint.set_name("ts-hint")
+        box.append(hint)
+
+        keys = Gtk.EventControllerKey()
+        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)  # before the entry sees them
+        keys.connect("key-pressed", self._on_key)
+        self.win.add_controller(keys)
+        self.win.connect("notify::is-active", self._on_active_changed)
+
+        css = Gtk.CssProvider()
+        css.load_from_data((
+            "#ts-window { background-color: transparent; box-shadow: none; }\n"
+            "#ts-box { background-color: #1A2A3A; border-radius: 14px; border: 1px solid #2f4a63; padding: 14px; }\n"
+            "#ts-entry { font-size: 17px; padding: 8px 10px; background: #0f1b27; color: white; border-radius: 8px; }\n"
+            "#ts-header { color: #8fb3d9; font-size: 12px; font-weight: 700; margin: 2px 4px 0 4px; }\n"
+            "#ts-list, #ts-list > row { background: transparent; }\n"
+            "#ts-list > row { padding: 6px 8px; border-radius: 8px; }\n"
+            "#ts-list > row:selected { background: #2e5a88; }\n"
+            ".ts-title { color: white; font-size: 14px; }\n"
+            ".ts-url { color: #8a9bb0; font-size: 11px; }\n"
+            ".ts-profile { color: #1A2A3A; background: #8fb3d9; border-radius: 6px; padding: 0 6px; font-size: 11px; font-weight: 700; }\n"
+            "#ts-hint { color: #6f8399; font-size: 11px; margin: 0 4px; }\n"
+        ).encode("utf-8"))
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+        self.items = []
+        self._seq = 0
+        self._token = ""
+        self._shown_at = 0.0
+
+    # ---- showing / hiding --------------------------------------------------------------------
+
+    def show(self, win_x, win_y, win_w, win_h):
+        try:
+            self._token = TOKEN_PATH.read_text(encoding="utf-8").strip()
+        except OSError:
+            self._token = ""
+        monitor = _monitor_at(win_x + win_w // 2, win_y + win_h // 2)
+        if monitor is not None:
+            Gtk4LayerShell.set_monitor(self.win, monitor)
+        self.entry.set_text("")
+        self._request("")
+        self._shown_at = time.monotonic()
+        self.win.set_visible(True)
+        self.win.present()
+        self.entry.grab_focus()
+
+    def _hide(self):
+        self.win.set_visible(False)
+
+    def _cancel(self):
+        if self.win.get_visible():
+            self._hide()
+            self._post("/tab-search/closed", {})
+
+    def _on_active_changed(self, *_):
+        # Clicking another window: treat like Esc (ignoring the activation churn right after show).
+        if self.win.get_visible() and not self.win.is_active() and time.monotonic() - self._shown_at > 0.3:
+            self._cancel()
+
+    # ---- keys --------------------------------------------------------------------------------
+
+    def _on_key(self, _ctl, keyval, _keycode, state):
+        name = Gdk.keyval_name(keyval) or ""
+        ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        if name == "Escape":
+            self._cancel()
+        elif name in ("Down", "Up"):
+            self._move(1 if name == "Down" else -1)
+        elif name in ("Return", "KP_Enter"):
+            row = self.list.get_selected_row()
+            if row is not None:
+                self._choose(row.get_index())
+        elif ctrl and name.lower() == "w":
+            self._close_selected_tab()
+        else:
+            return False  # typing: let the entry have it
+        return True
+
+    def _move(self, step):
+        if not self.items:
+            return
+        row = self.list.get_selected_row()
+        i = (row.get_index() if row is not None else 0) + step
+        self._select(max(0, min(len(self.items) - 1, i)))
+
+    def _select(self, i):
+        row = self.list.get_row_at_index(i)
+        if row is not None:
+            self.list.select_row(row)
+            # Keep it in view; focus stays in the entry so typing continues to work.
+            adj = self.scroller.get_vadjustment()
+            ok, rect = row.compute_bounds(self.list)
+            if ok:
+                if rect.origin.y < adj.get_value():
+                    adj.set_value(rect.origin.y)
+                elif rect.origin.y + rect.size.height > adj.get_value() + adj.get_page_size():
+                    adj.set_value(rect.origin.y + rect.size.height - adj.get_page_size())
+
+    # ---- results -----------------------------------------------------------------------------
+
+    def _request(self, query):
+        self._seq += 1
+        seq = self._seq
+
+        def work():
+            try:
+                req = urllib.request.Request(SERVER + "/tab-search?q=" + urllib.parse.quote(query),
+                                             headers={"X-AltTabSucks-Token": self._token})
+                with urllib.request.urlopen(req, timeout=3) as r:
+                    data = json.loads(r.read())
+            except Exception as e:  # server down, bad token: say so instead of an empty list
+                data = {"category": "", "items": [], "error": str(e)}
+            GLib.idle_add(self._apply, seq, data)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply(self, seq, data):
+        if seq != self._seq:
+            return False  # a newer query is already on its way
+        self.items = data.get("items") or []
+        self.header.set_text(("Server unavailable: " + data["error"]) if data.get("error")
+                             else CATEGORY_LABELS.get(data.get("category", ""), ""))
+        self.list.remove_all()
+        for item in self.items:
+            self.list.append(self._row(item, data.get("showProfile")))
+        self._select(0)
+        return False
+
+    def _row(self, item, show_profile):
+        title = Gtk.Label(label=item.get("title") or item.get("url") or "", xalign=0)
+        title.add_css_class("ts-title")
+        title.set_ellipsize(Pango.EllipsizeMode.END)
+        title.set_hexpand(True)
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        if show_profile:
+            prof = Gtk.Label(label=item.get("profile") or "")
+            prof.add_css_class("ts-profile")
+            top.append(prof)
+        top.append(title)
+        url = Gtk.Label(label=item.get("url") or "", xalign=0)
+        url.add_css_class("ts-url")
+        url.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        box.append(top)
+        box.append(url)
+        return box
+
+    # ---- actions -----------------------------------------------------------------------------
+
+    def _choose(self, i):
+        if 0 <= i < len(self.items):
+            self._hide()
+            self._post("/tab-search/action", self.items[i])
+
+    def _close_selected_tab(self):
+        row = self.list.get_selected_row()
+        if row is None:
+            return
+        i = row.get_index()
+        item = self.items[i]
+        if item.get("kind") != "tab":
+            return  # only open tabs can be closed
+        self._post("/tab-search/action", {"kind": "close", "profile": item["profile"], "tabId": item["tabId"]})
+        # Drop it here right away; the extension's own update arrives a moment later.
+        del self.items[i]
+        self.list.remove(row)
+        if self.items:
+            self._select(min(i, len(self.items) - 1))
+
+    def _post(self, path, body):
+        token = self._token
+
+        def work():
+            try:
+                req = urllib.request.Request(SERVER + path, data=json.dumps(body).encode("utf-8"), method="POST",
+                                             headers={"Content-Type": "application/json", "X-AltTabSucks-Token": token})
+                urllib.request.urlopen(req, timeout=3).close()
+            except Exception as e:
+                print(f"alttabsucks-toast: POST {path} failed: {e}", file=sys.stderr)
+
+        threading.Thread(target=work, daemon=True).start()
+
+
+def _monitor_at(x, y):
+    display = Gdk.Display.get_default()
+    monitors = display.get_monitors()
+    for i in range(monitors.get_n_items()):
+        m = monitors.get_item(i)
+        geo = m.get_geometry()
+        if geo.x <= x < geo.x + geo.width and geo.y <= y < geo.y + geo.height:
+            return m
+    return monitors.get_item(0) if monitors.get_n_items() else None
+
+
 class ToastService(dbus.service.Object):
-    def __init__(self, bus_name, toast):
+    def __init__(self, bus_name, toast, tab_search):
         super().__init__(bus_name, OBJECT_PATH)
         self._toast = toast
+        self._tab_search = tab_search
         self._state = ToastState()
+
+    @dbus.service.method(INTERFACE, in_signature="iiii")
+    def ShowTabSearch(self, win_x, win_y, win_w, win_h):
+        # From main.js's showTabSearch; the geometry (active window, or screen) picks the monitor.
+        self._tab_search.show(int(win_x), int(win_y), int(win_w), int(win_h))
 
     @dbus.service.method(INTERFACE, in_signature="ssiiiii")
     def ShowToast(self, label, bg_hex, win_x, win_y, win_w, win_h, duration_ms):
@@ -271,7 +528,7 @@ def main():
 
     def on_activate(_app):
         toast = ToastWindow()
-        ToastService(bus_name, toast)
+        ToastService(bus_name, toast, TabSearchWindow())
         app.hold()  # no "main window" of its own — stay running as a background service
 
     app.connect("activate", on_activate)

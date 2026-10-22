@@ -193,6 +193,19 @@ class GenerateBindingJsTestCase(unittest.TestCase):
             })
 
 
+class TabSearchBindingTestCase(unittest.TestCase):
+    def test_generates_and_parses_back(self):
+        b = {"type": "tabSearch", "title": "Search tabs", "key": "Ctrl+Alt+Shift+A", "enabled": True}
+        js = generate_binding_js(b, "brave-browser")
+        self.assertIn('showTabSearch("brave-browser");', js)
+        (parsed,) = parse_hotkeys_js(js)["bindings"]
+        self.assertEqual((parsed["type"], parsed["key"], parsed["resourceClass"]), ("tabSearch", "Ctrl+Alt+Shift+A", "brave-browser"))
+
+    def test_needs_a_browser(self):
+        with self.assertRaises(ValueError):
+            generate_binding_js({"type": "tabSearch", "title": "Search tabs", "key": "Alt+A"})
+
+
 def _stmt(title, key, call):
     return (f'registerShortcut("{title}", "AltTabSucks: {title}",\n'
             f'    "{key}", function () {{ {call} }});')
