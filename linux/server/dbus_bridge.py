@@ -24,9 +24,12 @@ round-trip). See the concurrency note above QueueSwitchTab/QueueSwitchOpenUrl be
 doesn't need a lock despite the two loops touching the same dicts from different threads.
 """
 
+import os
 import re
+import shutil
 import subprocess
 import threading
+import uuid
 
 import dbus
 import dbus.mainloop.glib
@@ -101,14 +104,31 @@ def merge_resource_class_names(resource_classes, resource_names):
     return names
 
 
+def scoped_argv(argv, systemd_run="systemd-run"):
+    """argv wrapped to run in its own transient systemd scope (app-alttabsucks-<name>-<id>.scope
+    under app.slice, like an app launched from KDE's menu), or argv unchanged without systemd-run.
+
+    Without this, everything launched from here stays in alttabsucks-server.service's cgroup, and
+    restarting the server (systemctl restart, installer.sh) kills it along with the server.
+    Chromium/Electron apps (VS Code, Brave) hid this well: they move their main process into a
+    scope of their own at startup, but the zygote/GPU/renderer helpers they already forked stay
+    behind, so a server restart crashed their windows while the main process lived on."""
+    path = shutil.which(systemd_run)
+    if not path:
+        return list(argv)
+    name = re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(str(argv[0])))[:40] or "app"
+    unit = f"app-alttabsucks-{name}-{uuid.uuid4().hex[:8]}"
+    return [path, "--user", "--scope", "--quiet", "--collect", "--slice=app.slice", f"--unit={unit}", "--"] + list(argv)
+
+
 def _spawn_detached(argv):
     """Popen + a background reaper thread. Without ever calling wait()/poll() on a Popen, the
     child becomes a zombie once it exits (its intermediate launcher process, if any, exits well
     before the real app does) and stays one until this long-running server process itself exits
     — confirmed empirically while testing the launch escape hatch. The reaper thread just blocks
     on wait() so the kernel can clean up the process table entry; doesn't touch the D-Bus call
-    itself, which already returned by the time this runs."""
-    proc = subprocess.Popen(argv, start_new_session=True)
+    itself, which already returned by the time this runs. In its own scope: see scoped_argv."""
+    proc = subprocess.Popen(scoped_argv(argv), start_new_session=True)
     threading.Thread(target=proc.wait, daemon=True).start()
     return proc
 

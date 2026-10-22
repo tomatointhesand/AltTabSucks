@@ -8,7 +8,26 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dbus_bridge import merge_resource_class_names, normalize_resource_classes, url_matches_pattern
+from dbus_bridge import merge_resource_class_names, normalize_resource_classes, scoped_argv, url_matches_pattern
+
+
+class TestScopedArgv(unittest.TestCase):
+    """Apps launched by the server must not live in its cgroup, or restarting the server kills
+    them (it crashed VS Code: its Electron helpers stayed in alttabsucks-server.service)."""
+
+    def test_wraps_in_its_own_user_scope(self):
+        argv = scoped_argv(["/usr/bin/code-oss", "--new-window"], systemd_run="sh")
+        self.assertTrue(argv[0].endswith("/sh"))
+        self.assertEqual(argv[1:6], ["--user", "--scope", "--quiet", "--collect", "--slice=app.slice"])
+        self.assertRegex(argv[6], r"^--unit=app-alttabsucks-code-oss-[0-9a-f]{8}$")
+        self.assertEqual(argv[7:], ["--", "/usr/bin/code-oss", "--new-window"])
+
+    def test_unit_name_is_sanitized(self):
+        argv = scoped_argv(["/opt/My App/run me!"], systemd_run="sh")
+        self.assertRegex(argv[6], r"^--unit=app-alttabsucks-run_me_-[0-9a-f]{8}$")
+
+    def test_unchanged_without_systemd_run(self):
+        self.assertEqual(scoped_argv(["kate"], systemd_run="no-such-binary-xyz"), ["kate"])
 
 
 class TestUrlMatchesPattern(unittest.TestCase):
