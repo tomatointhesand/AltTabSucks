@@ -582,6 +582,16 @@ do_reload_hotkeys() {
 # Usually run from a Ctrl+Alt+Shift+' runCommand binding. That binding's own result toast never
 # shows (the server reporting it is what gets restarted), so this shows one itself at the end.
 do_restart() {
+    # From a hotkey, stdout/stderr are a pipe to the server (RunCommandWithOutput reads them for
+    # the result toast). Restarting the server closes that pipe, and the next echo would get this
+    # script killed by SIGPIPE: the toast daemon, the KWin script and the toast never happened.
+    # So unless it's a terminal, output goes to a log first.
+    if [ ! -t 1 ]; then
+        local log="${XDG_STATE_HOME:-$HOME/.local/state}/alttabsucks/restart.log"
+        mkdir -p "$(dirname "$log")"
+        exec >"$log" 2>&1
+        echo "installer.sh restart, $(date)"
+    fi
     systemctl --user restart "$SERVICE_NAME"
     echo "Restarted $SERVICE_NAME."
     if [ -f "$TOAST_SERVICE_DEST" ]; then
