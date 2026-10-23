@@ -514,9 +514,10 @@ class ServerTestCase(unittest.TestCase):
         return json.loads(raw) if status == 200 else None
 
     def search(self, q=""):
+        """{category: [items]} for GET /tab-search."""
         status, _, raw = self.request("GET", "/tab-search?q=" + q.replace(" ", "+"))
         self.assertEqual(status, 200)
-        return json.loads(raw)
+        return {sec["category"]: sec["items"] for sec in json.loads(raw)["sections"]}
 
     def push_tabs(self):
         self.post("/tabs", {"profile": "Personal", "windows": [{"id": 1, "focused": True, "tabs": [
@@ -527,10 +528,9 @@ class ServerTestCase(unittest.TestCase):
 
     def test_tab_search_shows_open_tabs_only_while_the_browser_is_running(self):
         self.push_tabs()
-        self.assertEqual(self.search("sail")["category"], "", "no extension polling yet: browser closed")
+        self.assertEqual(self.search("sail"), {}, "no extension polling yet: browser closed")
         self.poll_as_extension()
-        r = self.search("sail")
-        self.assertEqual((r["category"], [i["tabId"] for i in r["items"]]), ("tabs", [12]))
+        self.assertEqual([i["tabId"] for i in self.search("sail")["tabs"]], [12])
 
     def test_recently_closed_is_saved_to_disk_and_shown_when_nothing_is_open(self):
         status, _ = self.post("/recently-closed", {"profile": "Personal", "items": [
@@ -538,8 +538,7 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(status, 204)
         saved = json.loads(self.state.tab_search.path.read_text())
         self.assertEqual(saved["recent"]["Personal"][0]["sessionId"], "s1")
-        r = self.search("article")
-        self.assertEqual((r["category"], r["items"][0]["live"]), ("recent", False))
+        self.assertEqual(self.search("article")["recent"][0]["live"], False)
 
     def test_saved_data_is_loaded_back(self):
         self.post("/bookmarks", {"profile": "Personal", "items": [{"id": "b1", "title": "Pasta", "url": "https://food.example/"}]})
@@ -552,8 +551,7 @@ class ServerTestCase(unittest.TestCase):
         self.post("/bookmarks", {"profile": "Personal", "items": [
             {"id": "b1", "title": "Pasta recipes", "url": "https://food.example/"},
             {"id": "b2", "title": "Boat parts", "url": "https://boats.example/"}]})
-        r = self.search("pasta")
-        self.assertEqual((r["category"], [i["id"] for i in r["items"]]), ("bookmarks", ["b1"]))
+        self.assertEqual([i["id"] for i in self.search("pasta")["bookmarks"]], ["b1"])
 
     def test_bookmarks_are_searched_in_the_running_browser(self):
         self.post("/bookmarks", {"profile": "Personal", "items": [{"id": "old", "title": "Pasta (stale snapshot)", "url": "https://old.example/"}]})
@@ -574,14 +572,14 @@ class ServerTestCase(unittest.TestCase):
         r = self.search("pasta")
         t.join()
         self.assertEqual(seen, ["pasta"])
-        self.assertEqual([i["id"] for i in r["items"]], ["live"])
+        self.assertEqual([i["id"] for i in r["bookmarks"]], ["live"])
 
     def test_a_running_browser_that_doesnt_answer_falls_back_to_the_snapshot(self):
         self.post("/bookmarks", {"profile": "Personal", "items": [{"id": "b1", "title": "Pasta", "url": "https://food.example/"}]})
         self.poll_as_extension()  # live, but nothing answers the search
         start = time.monotonic()
         r = self.search("pasta")
-        self.assertEqual([i["id"] for i in r["items"]], ["b1"])
+        self.assertEqual([i["id"] for i in r["bookmarks"]], ["b1"])
         self.assertLess(time.monotonic() - start, 1.5)
         self.assertIsNone(self.state.switch_queue.get("Personal"), "the unanswered search isn't left queued")
 
@@ -629,6 +627,15 @@ class ServerTestCase(unittest.TestCase):
         status, _ = self.post("/tab-search/action", {"kind": "bookmark", "profile": "Personal", "url": "javascript:alert(1)"})
         self.assertEqual(status, 400)
 
+    def test_the_tab_youre_on_is_left_out_using_kwins_front_window(self):
+        self.push_tabs()  # "Inbox - Gmail" is the active tab of the focused window
+        self.poll_as_extension()
+        self.assertNotIn(11, [i["tabId"] for i in self.search("")["tabs"]])
+        self.state.tab_search.begin("Sailing forecast - Brave")  # KWin: something else is in front
+        self.assertEqual([i["tabId"] for i in self.search("")["tabs"]], [11, 12])
+        self.state.tab_search.begin("Inbox - Gmail - Brave")
+        self.assertEqual([i["tabId"] for i in self.search("")["tabs"]], [12])
+
     def test_cancel(self):
         self.state.tab_search.begin()
         self.post("/tab-search/closed", {})
@@ -664,8 +671,7 @@ class ServerTestCase(unittest.TestCase):
     def test_search_results_carry_their_icon_key(self):
         self.push_tabs()
         self.poll_as_extension()
-        r = self.search("sail")
-        self.assertEqual(r["items"][0]["iconKey"], "windy.com/sailing")
+        self.assertEqual(self.search("sail")["tabs"][0]["iconKey"], "windy.com/sailing")
 
     def test_manage_extension_link_asks_the_focused_browser(self):
         self.post("/tabs", {"profile": "Work", "windows": [{"id": 5, "focused": False, "tabs": []}]})

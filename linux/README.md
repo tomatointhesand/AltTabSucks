@@ -125,6 +125,21 @@ would never fire. Letters keep their Shift: Ctrl+Alt+Shift+A works as written.
 
 ---
 
+### 4. Tab search (Ctrl+Alt+Shift+A)
+
+A typeahead popup over all your open browser tabs, in every profile, modeled on the Quick Tabs
+extension. It lists **open tabs** (most recently used first; a tab counts as used after you stay
+on it for 1.5s, and the tab you're on is left out) and **recently closed** tabs. Type to filter:
+every word has to appear in the title or URL, in any order, and title matches come first.
+**Bookmarks** join as a third section when fewer than 5 tabs match, or when you start or end the
+query with a space; two spaces search bookmarks only.
+
+↑/↓ select, Enter goes to the tab (restores a closed one, opens a bookmark), **Ctrl+W** closes
+the selected tab without leaving the popup, Esc cancels. With the browser closed you still get
+recently closed tabs and bookmarks (saved copies), and picking one starts the browser. Add it as a
+"Search browser tabs" hotkey on the Hotkeys page. It needs the extension's sessions, bookmarks and
+favicon permissions; reload the extension after updating to approve them.
+
 ## Managing the service
 
 ```bash

@@ -10,6 +10,34 @@ const SERVER = 'http://localhost:9876/tabs';
 // pre-existing "one other window" heuristic below, same behavior as before this feature existed.
 let splitRelations = {};
 
+// --- When a tab counts as "used" (the tab search popup's most-recent-first order) -------------
+// Like Quick Tabs: only once it has stayed active for USED_AFTER_MS, so tabs you flick past on the
+// way somewhere don't jump to the top. Kept in session storage, which survives the service worker
+// being suspended. Tabs not seen since tracking started fall back to the browser's lastAccessed,
+// capped at that start, so a flicked-past tab can't overtake one really used since.
+const USED_AFTER_MS = 1500;
+let usedAt = {};          // tabId -> ms since epoch
+let trackingStart = 0;
+let usedTimer = null;
+const usageLoaded = (async () => {
+  if (!chrome.storage.session) { trackingStart = Date.now(); return; }
+  const saved = await chrome.storage.session.get(['usedAt', 'trackingStart']);
+  usedAt = saved.usedAt || {};
+  trackingStart = saved.trackingStart || Date.now();
+  if (!saved.trackingStart) await chrome.storage.session.set({ trackingStart });
+})();
+
+function noteActivated(tabId) {
+  clearTimeout(usedTimer);
+  usedTimer = setTimeout(() => {
+    usedAt[tabId] = Date.now();
+    if (chrome.storage.session) chrome.storage.session.set({ usedAt });
+    postTabsSoon();
+  }, USED_AFTER_MS);
+}
+
+const lastUsed = (t) => usedAt[t.id] ?? Math.min(t.lastAccessed || 0, trackingStart);
+
 // --- URL redirect rules (tabs.onUpdated — no extra permissions needed) ---
 
 async function applyRedirectRules(tabId, url) {
@@ -23,6 +51,7 @@ async function applyRedirectRules(tabId, url) {
 }
 
 async function postTabs() {
+  await usageLoaded;
   const { profileName = 'Default', authToken = '' } = await chrome.storage.local.get(['profileName', 'authToken']);
 
   const [tabs, windows] = await Promise.all([
@@ -45,7 +74,8 @@ async function postTabs() {
           fullUrl: t.pendingUrl || t.url,
           title: t.title,
           active: t.active,
-          lastAccessed: t.lastAccessed || 0,  // ms since epoch; orders tab search most-recent-first
+          lastAccessed: t.lastAccessed || 0,  // ms since epoch
+          lastUsed: lastUsed(t),              // the tab search popup's order; see noteActivated
           pinned: t.pinned,
           index: t.index,
           audible: t.audible ?? false,
@@ -362,6 +392,14 @@ if (chrome.bookmarks) {
     if (chrome.bookmarks[ev]) chrome.bookmarks[ev].addListener(postBookmarksSoon);
   }
 }
+
+chrome.tabs.onActivated.addListener(({ tabId }) => noteActivated(tabId));
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  const [tab] = await chrome.tabs.query({ active: true, windowId });
+  if (tab) noteActivated(tab.id);
+});
+chrome.tabs.onRemoved.addListener((tabId) => { delete usedAt[tabId]; });
 
 chrome.tabs.onCreated.addListener(postTabs);
 chrome.tabs.onRemoved.addListener(postTabs);

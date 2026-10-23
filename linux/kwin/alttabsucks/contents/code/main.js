@@ -645,7 +645,10 @@ var TAB_SEARCH_MAX_OPEN_MS = 10 * 60 * 1000;  // stop polling if a popup is some
 function showTabSearch(resourceClass) {
     var g = workspace.activeWindow ? workspace.activeWindow : null;
     var geo = g ? { x: g.x, y: g.y, width: g.width, height: g.height } : workspace.activeScreen.geometry;
-    bridgeCall("BeginTabSearch", [], function () {
+    // The browser window in front, if any: its caption names the tab you're on, which the popup
+    // leaves out (the popup takes keyboard focus, so the extension can't be relied on for this).
+    var caption = (g && g.resourceClass === resourceClass) ? g.caption : "";
+    bridgeCall("BeginTabSearch", [caption], function () {
         callDBus(TOAST_BUS_NAME, TOAST_OBJECT_PATH, TOAST_INTERFACE, "ShowTabSearch",
             geo.x, geo.y, geo.width, geo.height, function () {});
         pollTabSearch(resourceClass, Date.now() + TAB_SEARCH_MAX_OPEN_MS);

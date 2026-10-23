@@ -383,7 +383,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     return state.tab_search.search_bookmarks(" ".join(words), state.switch_queue, browsers)
 
                 self._end_json(200, tab_search.search(
-                    query, state.store, state.tab_search.recent, live, search_bookmarks))
+                    query, state.store, state.tab_search.recent, live, search_bookmarks,
+                    current_caption=state.tab_search.current_caption))
             elif path == "/hotkeys-config":
                 import hotkeys_generator
                 text = _read_hotkeys_js(state)
