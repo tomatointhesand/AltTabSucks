@@ -160,6 +160,20 @@ try { while ($listener.IsListening) {
                 $res.StatusCode = 204
             }
 
+        } elseif ($method -eq "POST" -and $path -eq "/open-extension-page") {
+            # The Hotkeys page's "Manage extension" link: a web page can't open edge://extensions
+            # itself, the extension can. Asks the one in the browser you're using (the profile with
+            # a focused window), else the first that has reported tabs.
+            $target = $null
+            foreach ($p in @($store.Keys)) { if (@($store[$p]) | Where-Object { $_.focused }) { $target = $p; break } }
+            if (-not $target) { $target = @($store.Keys) | Select-Object -First 1 }
+            if (-not $target) {
+                Send-Json $res @{ error = "no browser with the AltTabSucks extension is connected" } 409
+            } else {
+                $switchQueue[$target] = @{ openExtensionsPage = $true }
+                Send-Json $res @{ profile = $target }
+            }
+
         } elseif ($method -eq "GET" -and $path -eq "/profiles") {
             # Extension Options page fetches this to populate the profile dropdown
             $out   = ConvertTo-Json -InputObject @($profileList) -Compress

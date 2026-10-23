@@ -94,6 +94,11 @@ try {
 
     Check (Wait-Until { (Get-Content $driverOut -Raw) -match "answered both" } 60) "first launch asks for a browser, then about the default browser" (Get-Content $driverOut -Raw -ErrorAction SilentlyContinue)
     Check (Wait-Until { Test-Path (Join-Path $Repo "lib\config.ahk") } 10) "choosing a browser writes lib\config.ahk"
+    # Edge only runs this working tree's extension when started with --load-extension (see the
+    # "browser extension" section below), and an extension loaded that way is dropped again by a
+    # normal launch. So every Edge AltTabSucks itself launches gets the flag too (it's read at
+    # AltTabSucks' next reload, long before the launch tests).
+    Add-Content (Join-Path $Repo "lib\config.ahk") "`r`nglobal CHROMIUM_EXTRA_FLAGS := `"--load-extension=$Repo\BrowserExtension`""
     $ats = $null
     Check (Wait-Until { ($script:ats = Get-AltTabSucks) -ne $null } 20) "AltTabSucks.ahk is running"
     Check ((Get-Process -Id $ats.ProcessId).SessionId -ne 0) "  ...on the desktop session"
@@ -111,9 +116,18 @@ try {
 
     # ---- browser extension ------------------------------------------------------------------
     # The VM's "browser" snapshot has Edge with the extension loaded unpacked from
-    # C:\alttabsucks\BrowserExtension (so it runs this working tree's code) and $TestToken set.
-    Start-OnDesktop "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" "about:blank" | Out-Null
+    # C:\alttabsucks\BrowserExtension and $TestToken set. --load-extension makes Edge load this
+    # working tree's code: Chromium doesn't re-read an unpacked extension's files when it starts
+    # (that takes Reload on the extensions page), so without it Edge ran the snapshot's old copy.
+    Start-OnDesktop "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" "--load-extension=`"$Repo\BrowserExtension`" about:blank" | Out-Null
     Check (Wait-Until { (Invoke-Api GET "/debugtabs").Json -match "=== Profile 1 ===" } 30) "the extension in Edge connects to a freshly installed server" ((Invoke-Api GET "/debugtabs").Json)
+
+    # The Hotkeys page's "Manage extension" link: the server asks the extension to open its own
+    # entry in Edge's extension manager (a web page can't open edge://extensions itself).
+    $open = Invoke-Api POST "/open-extension-page"
+    Check ($open.Status -eq 200 -and $open.Json.profile -eq "Profile 1") "the Manage extension link asks Edge's extension" "HTTP $($open.Status): $($open.Json | ConvertTo-Json -Compress)"
+    Check (Wait-Until { @((Invoke-Api GET "/tabs").Json."Profile 1" | ForEach-Object { @($_.tabs) } | Where-Object { "$($_.fullUrl)$($_.url)" -match "^(edge|chrome)://extensions" }).Count -gt 0 } 15) `
+        "  ...which opens its page in Edge's extension manager"
 
     # ---- Hotkeys UI round trip ----------------------------------------------------------------
     $get = Invoke-API GET "/hotkeys-config"

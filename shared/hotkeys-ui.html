@@ -54,6 +54,7 @@
   /* Same specificity as input[type=text] above (class+tag either way) — declared after it so
      this wins the cascade and the token input doesn't stretch to fill the header row. */
   .token-row input { width: 220px; }
+  .token-row .ext-link { align-self: center; color: var(--accent); font-size: 13px; white-space: nowrap; }
   /* The key-sequence field is the only readonly input on the page — it's a hotkey recorder,
      not free text (see recordKeyField()), so it gets a distinct affordance. */
   input[readonly] { cursor: pointer; }
@@ -167,6 +168,7 @@
       <div class="sub" id="browserInfo"></div>
     </div>
     <div class="token-row">
+      <a href="#" id="manageExtension" class="ext-link" title="Open the AltTabSucks extension in your browser's extension manager">Manage extension</a>
       <input type="text" id="token" placeholder="auth token (Server/token.txt)">
       <button id="reload" type="button">Reload</button>
     </div>
@@ -947,6 +949,21 @@ tokenInput.addEventListener("input", (e) => {
   localStorage.setItem("atsToken", actualToken);
 });
 tokenInput.addEventListener("change", () => load());
+
+// A web page can't link to brave://extensions (or chrome://, edge://) itself, but the extension
+// may open its own entry there: the server asks the extension in the browser you're using.
+document.getElementById("manageExtension").addEventListener("click", async (e) => {
+  e.preventDefault();
+  try {
+    const res = await fetch("/open-extension-page", { method: "POST", headers: authHeaders() });
+    if (res.status === 403) throw new Error("enter the auth token first");
+    if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+    setStatus("Opening the AltTabSucks extension in your browser's extension manager…", false);
+  } catch (err) {
+    setStatus("Couldn't open it (" + err.message + ") — open your browser's extensions page " +
+      "(e.g. brave://extensions) and look for AltTabSucks.", true);
+  }
+});
 document.getElementById("reload").addEventListener("click", () => load());
 
 load();

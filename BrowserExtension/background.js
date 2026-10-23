@@ -313,6 +313,14 @@ async function pollSwitchQueue() {
           const tab = await chrome.tabs.create({ url: cmd.newTabUrl });
           if (chrome.windows) await chrome.windows.update(tab.windowId, { focused: true });
         } catch {}
+      } else if (cmd && cmd.openExtensionsPage) {
+        // The Hotkeys page's "Manage extension" link (a web page can't open this itself).
+        const url = chrome.runtime.getURL('').startsWith('moz-extension:')
+          ? 'about:addons' : `chrome://extensions/?id=${chrome.runtime.id}`;
+        try {
+          const tab = await chrome.tabs.create({ url });
+          if (chrome.windows) await chrome.windows.update(tab.windowId, { focused: true });
+        } catch {}
       } else if (cmd && Array.isArray(cmd.closeTabs)) {
         // Every tab closed from the tab search popup since the last poll (Ctrl+W).
         const ids = cmd.closeTabs.filter(id => Number.isInteger(id) && id > 0);
