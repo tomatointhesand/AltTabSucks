@@ -22,6 +22,7 @@ FIREFOX_PROFILE_INI := ""
 #Include *i lib\config.ahk    ; browser paths (gitignored — auto-detected on first launch if absent)
 #Include lib\chromium.ahk     ; Chromium profile cycling + tab focus via AltTabSucks server
 #Include lib\firefox.ahk      ; Firefox profile cycling + tab focus via AltTabSucks server
+#Include lib\tab-search.ahk   ; tab search popup (ShowTabSearch, Ctrl+Alt+Shift+A)
 #Include lib\app-hotkeys.ahk  ; general app + browser hotkeys
 #Include lib\hotkeys-ui.ahk   ; runtime for hotkeys saved from the web UI (localhost:9876/hotkeys-ui)
 #Include *i lib\SC.ahk ; SC automation (scoped to SC window) — optional

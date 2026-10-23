@@ -10,7 +10,7 @@ What `e2e.ps1` covers: the installer and first-run dialogs (answered by `drive-f
 starter hotkeys, the Hotkeys UI API and the page itself in Edge (driven through the DevTools
 protocol by `cdp.ps1`), save → reload and broken edit → no reload, the `hotkeys.json` fold-in, tab
 focus / profile cycling / split / merge through the extension in Edge (keys pressed by
-`press.ahk`), launching Edge when it's closed, folder hotkeys against real Explorer
+`press.ahk`), launching Edge when it's closed, the tab search popup (`tab-search.ahk` opens it, types, presses keys, reads its list), folder hotkeys against real Explorer
 (`explorer-mash.ahk`), and uninstall.
 
 SSH sessions have no desktop, so `e2e.ps1` launches anything that needs one through a one-off

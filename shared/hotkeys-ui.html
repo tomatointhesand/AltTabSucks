@@ -206,7 +206,6 @@ const GROUPS = [
   { key: "tabFocus", title: "Focus browser tab", types: ["tabFocus"], defaultType: "tabFocus" },
   { key: "splitTab", title: "Split browser tab into new window", types: ["splitTab"], defaultType: "splitTab" },
   { key: "mergeTabs", title: "Merge browser windows", types: ["mergeTabs"], defaultType: "mergeTabs" },
-  // Linux only for now (applyPlatform removes it on Windows): the popup lives in the Linux toast daemon.
   { key: "tabSearch", title: "Search browser tabs", types: ["tabSearch"], defaultType: "tabSearch" },
   { key: "runCommand", title: "Run command", types: ["runCommand"], defaultType: "runCommand" },
 ];
@@ -689,9 +688,6 @@ function applyPlatform(platform) {
   TYPE_COLUMNS.windowCycle[3] = Object.assign({}, TYPE_COLUMNS.windowCycle[3],
     { label: "Launch command (if no window open — auto-suggested from a running instance)" });
   TYPE_COLUMNS.splitTab = TYPE_COLUMNS.mergeTabs = SPLIT_MERGE_COLUMNS.slice(0, 2);
-  // No tab search popup on Windows yet (Server/AppHotkeys.ps1 would drop the binding anyway).
-  const tabSearch = GROUPS.findIndex((g) => g.key === "tabSearch");
-  if (tabSearch !== -1) GROUPS.splice(tabSearch, 1);
 }
 
 function newBindingOfType(type) {

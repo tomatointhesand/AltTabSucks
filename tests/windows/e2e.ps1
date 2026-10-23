@@ -286,6 +286,46 @@ try {
     Check (Wait-Until { @(Get-EdgeWindows).Count -eq 1 } 10) "Alt+Z merges the split tab back" "$(@(Get-EdgeWindows).Count) windows"
     Check ((Get-TabCount) -eq $tabsBefore) "  ...with every tab kept" "$tabsBefore before, $(Get-TabCount) after"
 
+    # ---- tab search popup (Ctrl+Alt+Shift+A, from the starter set) ------------------------------
+    # Driven by tab-search.ahk: open the popup, type, press keys, read its list.
+    function Drive-TabSearch([string[]]$steps) {
+        $o = Join-Path $Work "tab-search.txt"
+        Remove-Item $o -ErrorAction SilentlyContinue
+        Start-OnDesktop $Ahk ("`"$Here\tab-search.ahk`" `"$o`" " + (($steps | ForEach-Object { "`"$_`"" }) -join " ")) | Out-Null
+        Wait-Until { (Get-Content $o -Raw) -match "(?m)^done" } 60 | Out-Null
+        $lines = @(Get-Content $o -ErrorAction SilentlyContinue)
+        [PSCustomObject]@{
+            Rows   = @($lines | Where-Object { $_ -like "row=*" } | ForEach-Object { $_.Substring(4) })
+            Popup  = @($lines | Where-Object { $_ -like "popup=*" } | ForEach-Object { $_.Substring(6) })
+            Errors = @($lines | Where-Object { $_ -like "error=*" })
+        }
+    }
+    function Get-AllTabUrls { @(Get-EdgeWindows | ForEach-Object { @($_.tabs) } | ForEach-Object { "$($_.fullUrl)" }) }
+
+    Open-Tab "http://localhost:9876/hotkeys-ui"  # be on a known tab, so it's the one left out
+    Wait-Until { (Get-ActiveTabUrl) -match "hotkeys-ui" } 10 | Out-Null
+    $d = Drive-TabSearch @("open", "read", "key:{Esc}")
+    $urls = @($d.Rows | ForEach-Object { ($_ -split "`t")[-1] })
+    Check ($d.Popup[0] -eq "open" -and $d.Rows.Count -ge 2) "Ctrl+Alt+Shift+A opens the tab search popup, listing open tabs" "$($d.Errors) rows: $($d.Rows -join ' | ')"
+    Check (-not ($urls -match "hotkeys-ui")) "  ...without the tab you're on" ($urls -join " | ")
+    Check ($d.Popup[-1] -eq "closed") "  ...and Esc closes it"
+
+    $d = Drive-TabSearch @("open", "type:activetitles", "read", "key:{Enter}")
+    Check ($d.Rows.Count -ge 1 -and @($d.Rows | Where-Object { $_ -notmatch "activetitles" }).Count -eq 0) "typing filters the list" ($d.Rows -join " | ")
+    Check ($d.Popup[-1] -eq "closed" -and (Wait-Until { (Get-ActiveTabUrl) -match "activetitles" } 10)) "  ...and Enter switches Edge to that tab" "$(Get-ActiveTabUrl)"
+
+    $d = Drive-TabSearch @("open", "type:debugtabs", "key:^w", "read")
+    Check ($d.Popup[-1] -eq "open" -and $d.Rows.Count -eq 0) "Ctrl+W removes the tab from the list and keeps the popup open" "$($d.Popup -join ',') rows: $($d.Rows -join ' | ')"
+    Check (Wait-Until { -not ((Get-AllTabUrls) -match "debugtabs") } 10) "  ...and closes it in Edge" ((Get-AllTabUrls) -join " | ")
+    Start-OnDesktop $Ahk "`"$Here\press.ahk`" `"$Work\esc.txt`" `"{Esc}`" `"AutoHotkey64.exe`"" | Out-Null
+    Start-Sleep -Seconds 3
+
+    $d = Drive-TabSearch @("open", "type:debugtabs", "read", "key:{Enter}")
+    Check ($d.Rows.Count -ge 1) "the closed tab is offered under Recently closed" ($d.Rows -join " | ")
+    Check (Wait-Until { (Get-AllTabUrls) -match "debugtabs" } 10) "  ...and Enter restores it" ((Get-AllTabUrls) -join " | ")
+
+    Check (Wait-Until { (Invoke-Api GET "/favicon?key=localhost%3A9876%2Fhotkeys-ui").Status -eq 200 } 15) "the extension uploads favicons for the popup"
+
     # ---- hotkeys launch Edge when it isn't running ---------------------------------------------
     function Close-Edge {
         # Invoke-, not Start-OnDesktop: wait for taskkill itself to finish. Otherwise, with Edge already
@@ -318,13 +358,15 @@ try {
     Check (Wait-EdgeInFront 20) "  ...in front"
 
     # ---- the Hotkeys page itself, in Edge --------------------------------------------------------
+    # CalculateNativeWinOcclusion off: otherwise a tab counts as hidden whenever another window
+    # covers this one, and "brought to the front" checks would depend on what earlier tests left open.
     # Drives shared/hotkeys-ui.html like a user (typing into fields, clicking buttons) through Edge's
     # DevTools protocol (cdp.ps1), in a throwaway Edge profile: remote debugging doesn't work on
     # the default one.
     . (Join-Path $Here "cdp.ps1")
     $cdpPort = 9229
     Start-OnDesktop "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" `
-        "--remote-debugging-port=$cdpPort --user-data-dir=`"$Work\edge-cdp`" --no-first-run --no-default-browser-check --load-extension=`"$Repo\BrowserExtension`" http://localhost:9876/hotkeys-ui" | Out-Null
+        "--remote-debugging-port=$cdpPort --user-data-dir=`"$Work\edge-cdp`" --no-first-run --no-default-browser-check --load-extension=`"$Repo\BrowserExtension`" --disable-features=CalculateNativeWinOcclusion http://localhost:9876/hotkeys-ui" | Out-Null
     Connect-Cdp $cdpPort "*localhost:9876/hotkeys-ui*" 30
     # Edge lists the tab under its URL while still navigating; until then it holds a blank
     # placeholder document that isn't allowed localStorage.
