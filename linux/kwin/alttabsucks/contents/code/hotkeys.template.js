@@ -16,7 +16,7 @@ registerShortcut("Hotkey config", "AltTabSucks: Hotkey config",
 registerShortcut("GPU dashboard", "AltTabSucks: GPU dashboard",
     "Ctrl+Shift+Meta+L", function () { focusTab("brave-browser", "Personal", ["http://localhost:8081/"], "http://localhost:8081"); });
 
-registerShortcut("Firearms dashboard", "AltTabSucks: Firearms dashboard",
+registerShortcut("FA dashboard", "AltTabSucks: FA dashboard",
     "Ctrl+Shift+Meta+F", function () { focusTab("brave-browser", "Personal", ["http://127.0.0.1:5000"], "http://127.0.0.1:5000"); });
 
 registerShortcut("gmail", "AltTabSucks: gmail",

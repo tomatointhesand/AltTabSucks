@@ -262,8 +262,14 @@ try {
     $r = Press ""
     $rects = Get-EdgeRects $r
     $half = [int]$r["screen"] * 0.6
-    Check ($rects.Count -eq 2 -and @($rects | Where-Object { $_.W -lt $half }).Count -eq 2 -and [Math]::Abs($rects[0].X - $rects[1].X) -gt 100) `
-        "  ...and snaps the two windows side by side" "screen $($r['screen']): $($r['edge'])"
+    # Two Edge windows only fit side by side on a reasonably wide screen (Edge won't go much
+    # narrower than ~500px), and the VM's resolution follows its window on the host.
+    if ([int]$r["screen"] -lt 1100) {
+        Write-Host "SKIP    ...and snaps the two windows side by side (VM screen only $($r['screen'])px wide; widen the VM window)"
+    } else {
+        Check ($rects.Count -eq 2 -and @($rects | Where-Object { $_.W -lt $half }).Count -eq 2 -and [Math]::Abs($rects[0].X - $rects[1].X) -gt 100) `
+            "  ...and snaps the two windows side by side" "screen $($r['screen']): $($r['edge'])"
+    }
 
     $a = Press "^!+b"; $b = Press "^!+b"
     Check ($a["active"] -eq "msedge.exe" -and $b["active"] -eq "msedge.exe" -and $a["hwnd"] -ne $b["hwnd"]) `
@@ -318,7 +324,7 @@ try {
     . (Join-Path $Here "cdp.ps1")
     $cdpPort = 9229
     Start-OnDesktop "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" `
-        "--remote-debugging-port=$cdpPort --user-data-dir=`"$Work\edge-cdp`" --no-first-run --no-default-browser-check http://localhost:9876/hotkeys-ui" | Out-Null
+        "--remote-debugging-port=$cdpPort --user-data-dir=`"$Work\edge-cdp`" --no-first-run --no-default-browser-check --load-extension=`"$Repo\BrowserExtension`" http://localhost:9876/hotkeys-ui" | Out-Null
     Connect-Cdp $cdpPort "*localhost:9876/hotkeys-ui*" 30
     # Edge lists the tab under its URL while still navigating; until then it holds a blank
     # placeholder document that isn't allowed localStorage.
@@ -391,6 +397,39 @@ blankRow = () => [...document.querySelectorAll(".binding")].find(r => inputs(r).
     $text = Get-Content $AppHk -Raw
     Check ($text -match "edited by hand while the page was open" -and $text -notmatch "Renamed after a hand edit") "  ...leaving the hand edit intact"
     Disconnect-Cdp
+
+    # ---- the extension popup's "Hotkeys page" link ----------------------------------------------
+    # This Edge loaded the extension too (--load-extension), so its popup page can be opened as a
+    # tab and its link clicked.
+    function Get-CdpTargets { $list = Invoke-RestMethod "http://127.0.0.1:$cdpPort/json" -TimeoutSec 5; $list }  # 5.1: see Connect-Cdp
+    function Get-HotkeysTabs { @(Get-CdpTargets | Where-Object { $_.type -eq "page" -and $_.url -like "http://localhost:9876/hotkeys-ui*" }) }
+    $extId = $null
+    Wait-Until { ($script:extId = (Get-CdpTargets | Where-Object { $_.url -like "chrome-extension://*/background.js" } |
+        Select-Object -First 1).url -replace '^chrome-extension://([^/]+)/.*', '$1') } 15 | Out-Null
+    Check ([bool]$extId) "the extension runs in the test Edge"
+    function Click-PopupLink {
+        $popup = "chrome-extension://$extId/popup.html"
+        Invoke-RestMethod -Method Put "http://127.0.0.1:$cdpPort/json/new?$popup" -TimeoutSec 5 | Out-Null
+        Connect-Cdp $cdpPort "$popup*" 10
+        Wait-Until { (Invoke-Js 'document.readyState') -eq "complete" } 10 | Out-Null
+        Invoke-Js 'document.getElementById("hotkeys-page").click(); true' | Out-Null
+        Disconnect-Cdp
+    }
+    Click-PopupLink
+    Start-Sleep -Seconds 2
+    $tabsNow = @(Get-HotkeysTabs)  # @(): in 5.1 a lone result comes back without .Count
+    Check ($tabsNow.Count -eq 1) "the popup's Hotkeys page link switches to the open Hotkeys tab instead of opening another" "$($tabsNow.Count) Hotkeys tabs"
+    if ($tabsNow.Count -ge 1) {
+        Connect-Cdp $cdpPort "http://localhost:9876/hotkeys-ui*" 10
+        Check ((Invoke-Js 'document.visibilityState') -eq "visible") "  ...and brings it to the front"
+        Disconnect-Cdp
+    }
+    # Keep a blank tab: closing a window's last tab closes the browser.
+    Invoke-RestMethod -Method Put "http://127.0.0.1:$cdpPort/json/new?about:blank" -TimeoutSec 5 | Out-Null
+    foreach ($t in @(Get-HotkeysTabs)) { Invoke-RestMethod "http://127.0.0.1:$cdpPort/json/close/$($t.id)" -TimeoutSec 5 | Out-Null }
+    Start-Sleep -Seconds 1
+    Click-PopupLink
+    Check (Wait-Until { @(Get-HotkeysTabs).Count -eq 1 } 10) "with no Hotkeys tab open, the link opens one" "$(@(Get-HotkeysTabs).Count) Hotkeys tabs"
 
     # ---- folder hotkeys don't open duplicate Explorer windows --------------------------------
     $folder = Join-Path $Work "folder-under-test"
