@@ -60,6 +60,7 @@ async function postTabs() {
       headers: { 'Content-Type': 'application/json', 'X-AltTabSucks-Token': authToken },
       body: JSON.stringify(data)
     });
+    queueFavicons(tabs.map(t => t.url));
   } catch {
     // server not running, will retry on next tab event
   }
@@ -88,6 +89,64 @@ async function serverPost(path, body) {
 
 const openable = (url) => /^https?:\/\//i.test(url || '');
 
+// --- Favicons for the tab search popup ---------------------------------------------------------
+// From the browser's own favicon cache (the `_favicon` endpoint, "favicon" permission), which
+// knows icons for bookmarks and closed tabs too. The server says which ones it lacks (one page
+// per icon key: host + first path segment), so each icon is uploaded once, not on every event.
+let faviconsSupported = true;  // false after a 404: a server without them (Windows, for now)
+const faviconQueue = new Set();
+let faviconTimer = null;
+let faviconRunning = false;
+
+function queueFavicons(urls) {
+  if (!faviconsSupported) return;
+  for (const u of urls) if (openable(u)) faviconQueue.add(u);
+  clearTimeout(faviconTimer);
+  faviconTimer = setTimeout(uploadFavicons, 1500);
+}
+
+async function serverPostJson(path, body) {
+  const { authToken = '' } = await chrome.storage.local.get('authToken');
+  return fetch(`http://localhost:9876${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-AltTabSucks-Token': authToken },
+    body: JSON.stringify(body)
+  });
+}
+
+async function faviconPng(pageUrl) {
+  const res = await fetch(chrome.runtime.getURL(`/_favicon/?pageUrl=${encodeURIComponent(pageUrl)}&size=32`));
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+async function uploadFavicons() {
+  if (faviconRunning || !faviconsSupported) return;
+  faviconRunning = true;
+  try {
+    while (faviconQueue.size) {
+      const urls = [...faviconQueue].slice(0, 500);
+      urls.forEach(u => faviconQueue.delete(u));
+      const res = await serverPostJson('/favicons/missing', { pageUrls: urls });
+      if (res.status === 404) { faviconsSupported = false; faviconQueue.clear(); return; }
+      const { missing = [] } = await res.json();
+      for (let i = 0; i < missing.length; i += 20) {
+        const items = [];
+        for (const pageUrl of missing.slice(i, i + 20)) {
+          try { items.push({ pageUrl, data: await faviconPng(pageUrl) }); } catch {}
+        }
+        if (items.length) await serverPostJson('/favicons', { items });
+      }
+    }
+  } catch {
+    // server not running; the next tab event queues them again
+  } finally {
+    faviconRunning = false;
+  }
+}
+
 async function postRecentlyClosed() {
   if (!chrome.sessions) return;
   const { profileName = 'Default' } = await chrome.storage.local.get('profileName');
@@ -107,6 +166,7 @@ async function postRecentlyClosed() {
       });
     }
     await serverPost('/recently-closed', { profile: profileName, items });
+    queueFavicons(items.map(i => i.url));
   } catch {}
 }
 
@@ -124,6 +184,7 @@ async function postBookmarks() {
   try {
     const items = flattenBookmarks(await chrome.bookmarks.getTree(), []);
     await serverPost('/bookmarks', { profile: profileName, items });
+    queueFavicons(items.map(i => i.url));
   } catch {}
 }
 let postBookmarksTimer = null;

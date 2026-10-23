@@ -11,6 +11,7 @@ real running instance.
 Run with:  python3 -m unittest discover -s linux/server/tests
 """
 
+import base64
 import json
 import socket
 import sys
@@ -42,6 +43,7 @@ class ServerTestCase(unittest.TestCase):
         self.state.legacy_hotkeys_json_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.json"
         self.state.hotkeys_js_path = Path(self._hotkeys_tmpdir.name) / "hotkeys.js"
         self.state.tab_search.path = Path(self._hotkeys_tmpdir.name) / "browser-data.json"
+        self.state.favicons.dir = Path(self._hotkeys_tmpdir.name) / "favicons"
         # Never let a test invoke the real installer.sh (which would touch the real KWin script
         # installation) — see AppState.deploy_command's docstring. "true" is a real subprocess
         # (exit 0, no output) so POST /hotkeys-config's subprocess.run()-and-report-the-result
@@ -631,6 +633,39 @@ class ServerTestCase(unittest.TestCase):
         self.state.tab_search.begin()
         self.post("/tab-search/closed", {})
         self.assertEqual(json.loads(self.state.tab_search.take()), {"kind": "cancel"})
+
+    # 1x1 transparent PNG
+    PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
+
+    def test_favicons_upload_only_whats_missing_and_serve_by_key(self):
+        urls = ["https://docs.google.com/document/d/1", "https://docs.google.com/document/d/2", "https://example.com/x"]
+        status, raw = self.post("/favicons/missing", {"pageUrls": urls})
+        self.assertEqual(json.loads(raw)["missing"], [urls[0], urls[2]], "one page per icon key")
+        status, raw = self.post("/favicons", {"items": [{"pageUrl": urls[0], "data": base64.b64encode(self.PNG).decode()}]})
+        self.assertEqual(json.loads(raw), {"stored": 1})
+        status, raw = self.post("/favicons/missing", {"pageUrls": urls})
+        self.assertEqual(json.loads(raw)["missing"], [urls[2]])
+        status, headers, body = self.request("GET", "/favicon?key=docs.google.com%2Fdocument")
+        self.assertEqual((status, headers.get("Content-Type"), body), (200, "image/png", self.PNG))
+        self.assertEqual(self.request("GET", "/favicon?key=example.com%2Fx")[0], 404)
+
+    def test_favicons_only_accept_small_pngs(self):
+        status, raw = self.post("/favicons", {"items": [
+            {"pageUrl": "https://a.example/", "data": base64.b64encode(b"<svg/>").decode()},
+            {"pageUrl": "https://b.example/", "data": base64.b64encode(self.PNG + b"x" * 70000).decode()},
+            {"pageUrl": "chrome://settings", "data": base64.b64encode(self.PNG).decode()}]})
+        self.assertEqual(json.loads(raw), {"stored": 0})
+
+    def test_favicons_survive_a_restart(self):
+        self.post("/favicons", {"items": [{"pageUrl": "https://example.com/", "data": base64.b64encode(self.PNG).decode()}]})
+        from favicon_store import FaviconStore
+        self.assertEqual(FaviconStore(self.state.favicons.dir).get("example.com"), self.PNG)
+
+    def test_search_results_carry_their_icon_key(self):
+        self.push_tabs()
+        self.poll_as_extension()
+        r = self.search("sail")
+        self.assertEqual(r["items"][0]["iconKey"], "windy.com/sailing")
 
     def test_tab_search_requires_auth(self):
         status, _, _ = self.request("GET", "/tab-search?q=x", token=None)

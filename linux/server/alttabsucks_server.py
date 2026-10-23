@@ -137,6 +137,8 @@ class AppState:
         # tests never read the real file (they point .path at a tmp dir instead).
         import tab_search_state
         self.tab_search = tab_search_state.TabSearchState(tab_search_state.default_state_path())
+        import favicon_store  # the popup's favicons; next to browser-data.json (tests override .dir)
+        self.favicons = favicon_store.FaviconStore(tab_search_state.default_state_path().parent / "favicons")
 
 
 def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
@@ -348,6 +350,12 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                             lines.append(f"    [{tab.get('index')}] {tab.get('title')}{flags}")
                     lines.append("")
                 self._end_text(200, "\n".join(lines))
+            elif path == "/favicon":
+                png = state.favicons.get(qs.get("key", [""])[0])
+                if png is None:
+                    self._end(404)
+                else:
+                    self._end(200, png, "image/png")
             elif path == "/tab-search":
                 # The tab search popup's query, on every keystroke. See tab_search.py.
                 import tab_search
@@ -436,6 +444,34 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 else:
                     state.switch_queue[profile] = {"windowId": payload.get("windowId"), "tabId": payload.get("tabId")}
                 self._end(204)
+
+            elif path in ("/favicons", "/favicons/missing"):
+                # The extension uploading favicons for the tab search popup — see favicon_store.py.
+                # Keys are computed here from page URLs, so they always match the search results'.
+                import tab_search
+                body = self._read_body(TABS_MAX_BODY)
+                if body is None:
+                    return
+                try:
+                    payload = json.loads(body or b"{}")
+                    if path == "/favicons/missing":
+                        by_key = {}
+                        for url in payload.get("pageUrls") or []:
+                            key = tab_search.icon_key(str(url))
+                            if key and key not in by_key:
+                                by_key[key] = str(url)
+                        missing = set(state.favicons.missing(list(by_key)))
+                        self._end_json(200, {"missing": [u for k, u in by_key.items() if k in missing]})
+                        return
+                    stored = 0
+                    for item in payload.get("items") or []:
+                        key = tab_search.icon_key(str(item.get("pageUrl", "")))
+                        if key and state.favicons.put_base64(key, str(item.get("data", ""))):
+                            stored += 1
+                    self._end_json(200, {"stored": stored})
+                except (ValueError, AttributeError, TypeError) as e:
+                    self._end_json(400, {"error": str(e) or "bad request"})
+                return
 
             elif path in ("/recently-closed", "/bookmarks", "/bookmark-results",
                           "/tab-search/action", "/tab-search/closed"):
