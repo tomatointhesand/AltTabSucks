@@ -16,8 +16,8 @@
                 Ctrl+Alt+Shift+' reload hotkey so server changes apply along with AHK ones.
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File install-service.ps1
-    powershell -ExecutionPolicy Bypass -File install-service.ps1 -Action uninstall
+    pwsh -ExecutionPolicy Bypass -File installer.ps1
+    pwsh -ExecutionPolicy Bypass -File installer.ps1 -Action uninstall
 #>
 
 param(
@@ -82,7 +82,7 @@ switch ($Action) {
             Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
             Write-Host "Removed existing '$TaskName' task."
         }
-        $orphans = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
+        $orphans = Get-CimInstance Win32_Process -Filter "Name = 'pwsh.exe' OR Name = 'powershell.exe'" |
                    Where-Object { $_.CommandLine -like "*AltTabSucksServer.ps1*" }
         foreach ($proc in $orphans) {
             Stop-Process -Id $proc.ProcessId -Force
@@ -193,7 +193,7 @@ start "" "$RepoRoot\AltTabSucks.ahk"
 
     "uninstall" {
         # stop, not just Stop-ScheduledTask: the task only runs wscript.exe, and the server's own
-        # powershell.exe outlives it, leaving the port held after an uninstall.
+        # pwsh.exe outlives it, leaving the port held after an uninstall.
         & $PSCommandPath -Action stop
         $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         if (-not $existing) {
@@ -227,7 +227,7 @@ start "" "$RepoRoot\AltTabSucks.ahk"
 
         Write-Host ""
         Write-Host "Running AltTabSucksServer.ps1 processes:"
-        $procs = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
+        $procs = Get-CimInstance Win32_Process -Filter "Name = 'pwsh.exe' OR Name = 'powershell.exe'" |
                  Where-Object { $_.CommandLine -like "*AltTabSucksServer.ps1*" } |
                  Select-Object ProcessId, CommandLine
         if ($procs) { $procs | Format-Table -AutoSize } else { Write-Host "  (none)" }
@@ -257,7 +257,7 @@ start "" "$RepoRoot\AltTabSucks.ahk"
         }
         # Kill any orphaned PowerShell processes still holding the port
         # (e.g. from a manual startServer.ps1 run alongside the scheduled task).
-        $orphans = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
+        $orphans = Get-CimInstance Win32_Process -Filter "Name = 'pwsh.exe' OR Name = 'powershell.exe'" |
                    Where-Object { $_.CommandLine -like "*AltTabSucksServer.ps1*" }
         foreach ($proc in $orphans) {
             Stop-Process -Id $proc.ProcessId -Force

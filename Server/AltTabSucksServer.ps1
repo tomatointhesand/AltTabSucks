@@ -1,3 +1,5 @@
+#Requires -Version 7.4
+# Runs under PowerShell 7 (pwsh, started by launch-hidden.vbs); installer.ps1 requires 7.6 too.
 $port = 9876
 $url  = "http://localhost:$port/"
 
@@ -54,11 +56,7 @@ function Read-AppHotkeysText {
 # Identifies the exact file contents the page loaded, so a save can't silently overwrite a hand
 # edit made in between.
 function Get-AppHotkeysHash([string]$text) {
-    # Create().ComputeHash, not SHA256.HashData/Convert.ToHexString: the server runs under Windows
-    # PowerShell 5.1 (Server/launch-hidden.vbs), whose .NET Framework has neither.
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try { -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text)) | ForEach-Object { $_.ToString("X2") }) }
-    finally { $sha.Dispose() }
+    [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($text)))
 }
 # Writes app-hotkeys.ahk, keeping the previous version as app-hotkeys.ahk.bak and the file's
 # existing BOM (or lack of one). Writing it is what triggers the AHK reload.
