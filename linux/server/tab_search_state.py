@@ -40,6 +40,9 @@ class TabSearchState:
         self._last_poll: dict = {}  # profile -> time.monotonic() of its last GET /switchtab
         self._requests: dict = {}   # requestId -> {"event": Event, "items": [...]}
         self._result = None         # None (no popup), "pending" (open), or the popup's choice
+        # Title of the window in front when the popup opened ("" if it wasn't a browser), so the
+        # tab you're on can be left out (tab_search.open_tab_items). None until a popup opens.
+        self.current_caption = None
         self._closes: dict = {}     # profile -> [tabId] waiting for the extension's next poll
         self._lock = threading.Lock()
 
@@ -135,9 +138,10 @@ class TabSearchState:
 
     # ---- KWin handshake ----------------------------------------------------------------------
 
-    def begin(self):
+    def begin(self, current_caption: str = ""):
         with self._lock:
             self._result = "pending"
+            self.current_caption = current_caption
 
     def finish(self, result: dict):
         """The popup's choice or cancel; ignored unless a popup is open (begin() was called)."""

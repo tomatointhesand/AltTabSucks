@@ -237,7 +237,7 @@ class ToastWindow:
 
 SERVER = "http://127.0.0.1:9876"
 TOKEN_PATH = Path(__file__).resolve().parents[2] / "Server" / "token.txt"
-CATEGORY_LABELS = {"tabs": "Open tabs", "recent": "Recently closed", "bookmarks": "Bookmarks", "": "No matches"}
+SECTION_LABELS = {"tabs": "Open tabs", "recent": "Recently closed", "bookmarks": "Bookmarks"}
 
 
 class TabSearchWindow:
@@ -280,7 +280,7 @@ class TabSearchWindow:
         self.list = Gtk.ListBox()
         self.list.set_name("ts-list")
         self.list.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        self.list.connect("row-activated", lambda _l, row: self._choose(row.get_index()))
+        self.list.connect("row-activated", lambda _l, row: self._choose(row))
         scroller.set_child(self.list)
         self.scroller = scroller
         box.append(scroller)
@@ -300,6 +300,7 @@ class TabSearchWindow:
             "#ts-box { background-color: #1A2A3A; border-radius: 14px; border: 1px solid #2f4a63; padding: 14px; }\n"
             "#ts-entry { font-size: 17px; padding: 8px 10px; background: #0f1b27; color: white; border-radius: 8px; }\n"
             "#ts-header { color: #8fb3d9; font-size: 12px; font-weight: 700; margin: 2px 4px 0 4px; }\n"
+            ".ts-section { color: #8fb3d9; font-size: 11px; font-weight: 700; margin: 8px 0 2px 0; }\n"
             "#ts-list, #ts-list > row { background: transparent; }\n"
             "#ts-list > row { padding: 6px 8px; border-radius: 8px; }\n"
             "#ts-list > row:selected { background: #2e5a88; }\n"
@@ -310,7 +311,7 @@ class TabSearchWindow:
         ).encode("utf-8"))
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
-        self.items = []
+        self._item_of = {}  # Gtk.ListBoxRow -> its result; section header rows aren't in here
         self._seq = 0
         self._token = ""
         self._shown_at = 0.0
@@ -361,34 +362,40 @@ class TabSearchWindow:
         elif name in ("Down", "Up"):
             self._move(1 if name == "Down" else -1)
         elif name in ("Return", "KP_Enter"):
-            row = self.list.get_selected_row()
-            if row is not None:
-                self._choose(row.get_index())
+            self._choose(self.list.get_selected_row())
         elif ctrl and name.lower() == "w":
             self._close_selected_tab()
         else:
             return False  # typing: let the entry have it
         return True
 
-    def _move(self, step):
-        if not self.items:
-            return
-        row = self.list.get_selected_row()
-        i = (row.get_index() if row is not None else 0) + step
-        self._select(max(0, min(len(self.items) - 1, i)))
+    def _result_rows(self):
+        """The selectable rows, top to bottom (section headers left out)."""
+        rows, row = [], self.list.get_first_child()
+        while row is not None:
+            if row in self._item_of:
+                rows.append(row)
+            row = row.get_next_sibling()
+        return rows
 
-    def _select(self, i):
-        row = self.list.get_row_at_index(i)
-        if row is not None:
-            self.list.select_row(row)
-            # Keep it in view; focus stays in the entry so typing continues to work.
-            adj = self.scroller.get_vadjustment()
-            ok, rect = row.compute_bounds(self.list)
-            if ok:
-                if rect.origin.y < adj.get_value():
-                    adj.set_value(rect.origin.y)
-                elif rect.origin.y + rect.size.height > adj.get_value() + adj.get_page_size():
-                    adj.set_value(rect.origin.y + rect.size.height - adj.get_page_size())
+    def _move(self, step):
+        rows = self._result_rows()
+        if not rows:
+            return
+        current = self.list.get_selected_row()
+        i = rows.index(current) + step if current in rows else 0
+        self._select(rows[max(0, min(len(rows) - 1, i))])
+
+    def _select(self, row):
+        self.list.select_row(row)
+        # Keep it in view; focus stays in the entry so typing continues to work.
+        adj = self.scroller.get_vadjustment()
+        ok, rect = row.compute_bounds(self.list)
+        if ok:
+            if rect.origin.y < adj.get_value():
+                adj.set_value(rect.origin.y)
+            elif rect.origin.y + rect.size.height > adj.get_value() + adj.get_page_size():
+                adj.set_value(rect.origin.y + rect.size.height - adj.get_page_size())
 
     # ---- results -----------------------------------------------------------------------------
 
@@ -403,7 +410,7 @@ class TabSearchWindow:
                 with urllib.request.urlopen(req, timeout=3) as r:
                     data = json.loads(r.read())
             except Exception as e:  # server down, bad token: say so instead of an empty list
-                data = {"category": "", "items": [], "error": str(e)}
+                data = {"sections": [], "error": str(e)}
             GLib.idle_add(self._apply, seq, data)
 
         threading.Thread(target=work, daemon=True).start()
@@ -411,13 +418,27 @@ class TabSearchWindow:
     def _apply(self, seq, data):
         if seq != self._seq:
             return False  # a newer query is already on its way
-        self.items = data.get("items") or []
+        sections = data.get("sections") or []
         self.header.set_text(("Server unavailable: " + data["error"]) if data.get("error")
-                             else CATEGORY_LABELS.get(data.get("category", ""), ""))
+                             else "" if sections else "No matches")
+        self.header.set_visible(bool(self.header.get_text()))
         self.list.remove_all()
-        for item in self.items:
-            self.list.append(self._row(item, data.get("showProfile")))
-        self._select(0)
+        self._item_of = {}
+        for section in sections:
+            label = Gtk.Label(label=SECTION_LABELS.get(section.get("category"), ""), xalign=0)
+            label.add_css_class("ts-section")
+            header = Gtk.ListBoxRow(selectable=False, activatable=False)
+            header.set_child(label)
+            self.list.append(header)
+            for item in section.get("items") or []:
+                row = Gtk.ListBoxRow()
+                row.set_child(self._row(item, data.get("showProfile")))
+                self.list.append(row)
+                self._item_of[row] = item
+        self.scroller.get_vadjustment().set_value(0)  # first section's header in view
+        rows = self._result_rows()
+        if rows:
+            self._select(rows[0])
         return False
 
     def _row(self, item, show_profile):
@@ -490,25 +511,32 @@ class TabSearchWindow:
 
     # ---- actions -----------------------------------------------------------------------------
 
-    def _choose(self, i):
-        if 0 <= i < len(self.items):
+    def _choose(self, row):
+        item = self._item_of.get(row)
+        if item is not None:
             self._hide()
-            self._post("/tab-search/action", self.items[i])
+            self._post("/tab-search/action", item)
 
     def _close_selected_tab(self):
         row = self.list.get_selected_row()
         if row is None:
             return
-        i = row.get_index()
-        item = self.items[i]
-        if item.get("kind") != "tab":
+        item = self._item_of.get(row)
+        if item is None or item.get("kind") != "tab":
             return  # only open tabs can be closed
         self._post("/tab-search/action", {"kind": "close", "profile": item["profile"], "tabId": item["tabId"]})
-        # Drop it here right away; the extension's own update arrives a moment later.
-        del self.items[i]
+        # Drop it here right away; the extension's own update arrives a moment later. The next row
+        # gets the selection (or the previous one, at the end); an emptied section loses its header.
+        rows = self._result_rows()
+        i = rows.index(row)
+        prev, nxt = row.get_prev_sibling(), row.get_next_sibling()
+        del self._item_of[row]
         self.list.remove(row)
-        if self.items:
-            self._select(min(i, len(self.items) - 1))
+        if prev is not None and prev not in self._item_of and (nxt is None or nxt not in self._item_of):
+            self.list.remove(prev)
+        rows = self._result_rows()
+        if rows:
+            self._select(rows[min(i, len(rows) - 1)])
 
     def _post(self, path, body):
         token = self._token

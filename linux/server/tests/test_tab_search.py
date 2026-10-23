@@ -51,10 +51,29 @@ class QueryTestCase(unittest.TestCase):
         self.assertEqual(len(rank([{"title": "x"}] * 80, [], limit=50)), 50)
 
 
+def sections(r):
+    """{category: [items]} for a search() result."""
+    return {sec["category"]: sec["items"] for sec in r["sections"]}
+
+
 class OpenTabsTestCase(unittest.TestCase):
-    def test_most_recently_used_first_with_the_current_tab_last(self):
-        items = open_tab_items(TABS, {"Personal"})
-        self.assertEqual([t["tabId"] for t in items], [21, 12, 13, 11])
+    def test_most_recently_used_first_without_the_tab_youre_on(self):
+        # tab 11 is the active tab of the focused window: where you are, so it's left out
+        self.assertEqual([t["tabId"] for t in open_tab_items(TABS, {"Personal"})], [21, 12, 13])
+
+    def test_the_front_window_caption_decides_which_tab_youre_on(self):
+        caption = "GitHub - alttabsucks - Brave"
+        self.assertEqual([t["tabId"] for t in open_tab_items(TABS, {"Personal"}, caption)], [11, 12, 13])
+        # front window isn't a browser (""): you're on no tab, all are listed
+        self.assertEqual([t["tabId"] for t in open_tab_items(TABS, {"Personal"}, "")], [11, 21, 12, 13])
+
+    def test_last_used_beats_last_accessed(self):
+        # a tab only counts as used after 1.5s active (the extension's lastUsed); a flicked-past
+        # tab's lastAccessed is newer but doesn't count
+        tabs = {"P": [{"id": 1, "focused": False, "tabs": [
+            dict(tab(1, "flicked past", "https://a.example", 900), lastUsed=100),
+            dict(tab(2, "really used", "https://b.example", 500), lastUsed=400)]}]}
+        self.assertEqual([t["title"] for t in open_tab_items(tabs, {"P"})], ["really used", "flicked past"])
 
     def test_uses_the_full_url(self):
         self.assertEqual(open_tab_items(TABS, {"Personal"})[1]["url"], "https://www.youtube.com/watch?v=abc")
@@ -75,43 +94,58 @@ class SearchTestCase(unittest.TestCase):
             return [{"kind": "bookmark", "profile": "Personal", "id": "b1", "title": "Pasta recipes", "url": "https://food.example/", "live": True}]
         return search_bookmarks
 
-    def test_open_tabs_win_and_nothing_else_is_searched(self):
+    def test_open_and_recently_closed_tabs_show_together(self):
+        r = sections(search("sail", TABS, self.RECENT, {"Personal"}, self.bookmarks([])))
+        self.assertEqual([i["tabId"] for i in r["tabs"]], [13])
+        self.assertEqual([i["sessionId"] for i in r["recent"]], ["s1"])
+        self.assertTrue(r["recent"][0]["live"])
+
+    def test_bookmarks_join_when_tabs_and_closed_have_fewer_than_five_results(self):
         calls = []
-        r = search("sail", TABS, self.RECENT, {"Personal"}, self.bookmarks(calls))
-        self.assertEqual((r["category"], [i["tabId"] for i in r["items"]]), ("tabs", [13]))
-        self.assertEqual(calls, [], "bookmarks aren't searched when an open tab matches")
+        r = search("pasta", TABS, self.RECENT, {"Personal"}, self.bookmarks(calls))
+        self.assertEqual(calls, [["pasta"]])
+        self.assertEqual([s["category"] for s in r["sections"]], ["recent", "bookmarks"])
 
-    def test_recently_closed_only_when_no_open_tab_matches(self):
-        r = search("recipe", TABS, self.RECENT, {"Personal"}, self.bookmarks([]))
-        self.assertEqual(r["category"], "recent")
-        self.assertEqual([i["sessionId"] for i in r["items"]], ["s2"])
-        self.assertTrue(r["items"][0]["live"])
-
-    def test_bookmarks_only_when_neither_matches(self):
+    def test_no_bookmarks_with_five_or_more(self):
         calls = []
-        r = search("pasta recipes", TABS, self.RECENT, {"Personal"}, self.bookmarks(calls))
-        self.assertEqual((r["category"], r["items"][0]["id"]), ("bookmarks", "b1"))
-        self.assertEqual(calls, [["pasta", "recipes"]])
+        r = search("https", TABS, self.RECENT, {"Personal"}, self.bookmarks(calls))  # 3 open + 2 closed
+        self.assertEqual(calls, [], "bookmarks aren't even searched")
+        self.assertEqual([s["category"] for s in r["sections"]], ["tabs", "recent"])
 
-    def test_empty_query_lists_open_tabs(self):
-        r = search("", TABS, self.RECENT, {"Personal"}, NO_BOOKMARKS)
-        self.assertEqual((r["category"], len(r["items"])), ("tabs", 4))
+    def test_a_leading_or_trailing_space_adds_bookmarks(self):
+        for q in ("https ", " https"):
+            calls = []
+            search(q, TABS, self.RECENT, {"Personal"}, self.bookmarks(calls))
+            self.assertEqual(calls, [["https"]], repr(q))
 
-    def test_browser_closed_falls_back_to_recently_closed(self):
+    def test_two_spaces_search_bookmarks_only(self):
+        for q in ("  pasta", "pasta  "):
+            r = search(q, TABS, self.RECENT, {"Personal"}, self.bookmarks([]))
+            self.assertEqual([s["category"] for s in r["sections"]], ["bookmarks"], repr(q))
+
+    def test_empty_query_lists_open_and_closed_tabs_without_bookmarks(self):
+        calls = []
+        r = sections(search("", TABS, self.RECENT, {"Personal"}, self.bookmarks(calls)))
+        self.assertEqual((len(r["tabs"]), len(r["recent"]), calls), (3, 2, []))
+        self.assertEqual([i["sessionId"] for i in r["recent"]], ["s2", "s1"])  # most recently closed first
+
+    def test_browser_closed_lists_only_recently_closed(self):
         r = search("", TABS, self.RECENT, set(), NO_BOOKMARKS)
-        self.assertEqual(r["category"], "recent")
-        self.assertEqual([i["sessionId"] for i in r["items"]], ["s2", "s1"])  # most recently closed first
-        self.assertFalse(r["items"][0]["live"])
+        self.assertEqual([s["category"] for s in r["sections"]], ["recent"])
+        self.assertFalse(r["sections"][0]["items"][0]["live"])
+
+    def test_items_carry_their_icon_key(self):
+        r = sections(search("sail", TABS, self.RECENT, {"Personal"}, NO_BOOKMARKS))
+        self.assertEqual(r["tabs"][0]["iconKey"], "windy.com/sailing")
 
     def test_profile_label_only_with_several_profiles_open(self):
         self.assertFalse(search("", TABS, {}, {"Personal"}, NO_BOOKMARKS)["showProfile"])
         two = dict(TABS, Work=[{"id": 9, "focused": False, "tabs": [tab(91, "Jira", "https://jira.example", 600)]}])
-        r = search("", two, {}, {"Personal", "Work"}, NO_BOOKMARKS)
-        self.assertTrue(r["showProfile"])
+        self.assertTrue(search("", two, {}, {"Personal", "Work"}, NO_BOOKMARKS)["showProfile"])
         self.assertFalse(search("", two, {}, {"Personal"}, NO_BOOKMARKS)["showProfile"], "Work isn't open")
 
     def test_nothing_matches(self):
-        self.assertEqual(search("zzz", TABS, self.RECENT, {"Personal"}, NO_BOOKMARKS)["category"], "")
+        self.assertEqual(search("zzz", TABS, self.RECENT, {"Personal"}, NO_BOOKMARKS)["sections"], [])
 
 
 if __name__ == "__main__":

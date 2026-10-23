@@ -244,10 +244,11 @@ class Bridge(dbus.service.Object):
         # Mirrors POST /switchtab's {openUrl} variant.
         self._state.switch_queue[str(profile)] = {"openUrl": str(url)}
 
-    @dbus.service.method(INTERFACE, in_signature="")
-    def BeginTabSearch(self):
-        # main.js, right before showing the tab search popup — see tab_search_state.py.
-        self._state.tab_search.begin()
+    @dbus.service.method(INTERFACE, in_signature="s")
+    def BeginTabSearch(self, current_caption):
+        # main.js, right before showing the tab search popup — see tab_search_state.py. The caption
+        # of the browser window in front ("" if it isn't one) leaves the tab you're on out.
+        self._state.tab_search.begin(str(current_caption))
 
     @dbus.service.method(INTERFACE, in_signature="", out_signature="s")
     def TakeTabSearchResult(self):

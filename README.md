@@ -8,6 +8,7 @@ ATS is the alt-tab of the future: a keyboard shortcut based solution for app-spe
 - **Browser profile cycling** — cycle through all windows for a given browser profile, or across every profile at once
 - **Split/merge tab snapping** — tear the active tab into its own window and snap both halves side-by-side; merge them back with another hotkey
 - **Hotkeys config page** — a local web page (`http://localhost:9876/hotkeys-ui`) to add and edit all of the above, with a key recorder; saving applies immediately
+- **Tab search** (Linux) — a Quick Tabs-style popup (Ctrl+Alt+Shift+A) over open tabs in every profile, recently closed tabs and bookmarks; Enter goes there, Ctrl+W closes a tab
 - **Typeahead window switcher** (Windows) — an optional Alt+Tab replacement: type to filter open windows by app or title, with a live preview. Off by default; turn it on in Settings (Ctrl+Alt+Shift+,)
 
 **Platforms:**
