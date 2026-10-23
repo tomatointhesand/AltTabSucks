@@ -1,1 +1,1 @@
-powershell -NoExit -File ".\AltTabSucksServer.ps1"
+pwsh -NoExit -File ".\AltTabSucksServer.ps1"

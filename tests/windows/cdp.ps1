@@ -1,5 +1,5 @@
 # cdp.ps1 - minimal Chrome DevTools Protocol client (dot-source it), for driving a page in Edge from
-# tests/windows/e2e.ps1. Windows PowerShell 5.1 compatible: System.Net.WebSockets.ClientWebSocket.
+# tests/windows/e2e.ps1, using System.Net.WebSockets.ClientWebSocket.
 #
 # Edge has to be started with --remote-debugging-port and its own --user-data-dir: current
 # Chromium ignores remote debugging on the default profile.

@@ -4,7 +4,7 @@
 #
 # SSH sessions have no desktop, so everything that needs one (the installer, AltTabSucks.ahk,
 # the dialog driver, Explorer) is launched into the logged-on session through a one-off
-# scheduled task (Start-OnDesktop). Windows PowerShell 5.1, like the real server.
+# scheduled task (Start-OnDesktop). PowerShell 7, like the real server.
 
 $ErrorActionPreference = 'Stop'
 $Repo    = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -70,12 +70,10 @@ function Invoke-Api([string]$method, [string]$path, $body = $null) {
     $p = @{ Uri = "$Server$path"; Method = $method; Headers = @{ "X-AltTabSucks-Token" = (Get-Token) }; UseBasicParsing = $true; TimeoutSec = 20 }
     if ($null -ne $body) { $p.Body = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $body -Depth 10 -Compress)); $p.ContentType = "application/json" }
     try {
-        $r = Invoke-WebRequest @p
+        $r = Invoke-WebRequest @p -SkipHttpErrorCheck  # 4xx/5xx come back as results, not exceptions
         [PSCustomObject]@{ Status = [int]$r.StatusCode; Json = $(try { $r.Content | ConvertFrom-Json } catch { $r.Content }) }  # /debugtabs is plain text
-    } catch [System.Net.WebException] {
-        $resp = $_.Exception.Response
-        $text = if ($resp) { (New-Object IO.StreamReader($resp.GetResponseStream())).ReadToEnd() } else { $_.Exception.Message }
-        [PSCustomObject]@{ Status = $(if ($resp) { [int]$resp.StatusCode } else { 0 }); Json = $(try { $text | ConvertFrom-Json } catch { $text }) }
+    } catch {
+        [PSCustomObject]@{ Status = 0; Json = $_.Exception.Message }  # couldn't connect at all
     }
 }
 
@@ -89,6 +87,8 @@ try {
     $task = Get-ScheduledTask -TaskName "AltTabSucks" -ErrorAction SilentlyContinue
     Check ($null -ne $task) "installer registers the AltTabSucks scheduled task" (Get-Content $installLog -Raw -ErrorAction SilentlyContinue)
     Check (Wait-Until { (Invoke-WebRequest "$Server/hotkeys-ui" -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200 } 30) "server answers on :9876"
+    $serverProc = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*AltTabSucksServer.ps1*" } | Select-Object -First 1
+    Check ($serverProc.Name -eq "pwsh.exe") "  ...running under PowerShell 7" "process: $($serverProc.Name)"
     Check ((Get-Token) -eq $TestToken) "server keeps an existing token.txt"
     Check (Test-Path $AppHk) "installer created lib\app-hotkeys.ahk from the template"
 
