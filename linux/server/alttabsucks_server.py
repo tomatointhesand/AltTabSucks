@@ -445,6 +445,20 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     state.switch_queue[profile] = {"windowId": payload.get("windowId"), "tabId": payload.get("tabId")}
                 self._end(204)
 
+            elif path == "/open-extension-page":
+                # The Hotkeys page's "Manage extension" link: a web page can't open
+                # brave://extensions itself, the extension can. Asks the one in the browser you're
+                # using (the profile with a focused window), else any connected one.
+                self._drain_unread_body()
+                live = state.tab_search.live_profiles()
+                focused = [p for p, wins in state.store.items() if any(w.get("focused") for w in wins or [])]
+                candidates = [p for p in focused if p in live] or focused or sorted(live)
+                if not candidates:
+                    self._end_json(409, {"error": "no browser with the AltTabSucks extension is connected"})
+                    return
+                state.switch_queue[candidates[0]] = {"openExtensionsPage": True}
+                self._end_json(200, {"profile": candidates[0]})
+
             elif path in ("/favicons", "/favicons/missing"):
                 # The extension uploading favicons for the tab search popup — see favicon_store.py.
                 # Keys are computed here from page URLs, so they always match the search results'.

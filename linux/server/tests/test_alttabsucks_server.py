@@ -667,6 +667,20 @@ class ServerTestCase(unittest.TestCase):
         r = self.search("sail")
         self.assertEqual(r["items"][0]["iconKey"], "windy.com/sailing")
 
+    def test_manage_extension_link_asks_the_focused_browser(self):
+        self.post("/tabs", {"profile": "Work", "windows": [{"id": 5, "focused": False, "tabs": []}]})
+        self.push_tabs()  # Personal, focused
+        self.poll_as_extension("Work"); self.poll_as_extension("Personal")
+        status, raw = self.post("/open-extension-page", {})
+        self.assertEqual((status, json.loads(raw)), (200, {"profile": "Personal"}))
+        self.assertEqual(self.poll_as_extension("Personal"), {"openExtensionsPage": True})
+        self.assertIsNone(self.poll_as_extension("Work"))
+
+    def test_manage_extension_link_without_a_connected_browser(self):
+        status, raw = self.post("/open-extension-page", {})
+        self.assertEqual(status, 409)
+        self.assertIn("extension", json.loads(raw)["error"])
+
     def test_tab_search_requires_auth(self):
         status, _, _ = self.request("GET", "/tab-search?q=x", token=None)
         self.assertEqual(status, 403)

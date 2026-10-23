@@ -115,8 +115,10 @@ Tested on Arch/CachyOS with KVM. About 30 minutes, mostly the Windows install.
    Developer mode, **Load unpacked** → `C:\alttabsucks\BrowserExtension`; in the extension's
    Options pick `Profile 1` and enter the token `alttabsucks-vm-test`. If `Profile 1` isn't in the
    dropdown, press Ctrl+Alt+Shift+' (AltTabSucks reads profiles at startup, before Edge's first run
-   created one) and hit ↺. Leave the extension pointing at `C:\alttabsucks\BrowserExtension`: each
-   run replaces that folder, so Edge always runs the working tree's extension code.
+   created one) and hit ↺. Leave the extension pointing at `C:\alttabsucks\BrowserExtension`. Each run
+   replaces that folder, and `e2e.ps1` starts Edge with `--load-extension` pointing at it, because
+   Chromium doesn't re-read an unpacked extension's files on its own: until you click Reload on the
+   extensions page, it keeps running the copy it loaded before.
 
    Finally, uninstall AltTabSucks again (runs must start from a fresh install), keep Edge from
    running in the background (it would hold that folder open during a sync), and snapshot:
