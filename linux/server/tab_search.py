@@ -17,7 +17,29 @@ Item shapes (dicts), as returned to the popup and posted back to POST /tab-searc
 decides between restoring/opening in the running browser and launching it first.
 """
 
+from urllib.parse import urlsplit
+
 DEFAULT_LIMIT = 50
+
+
+def icon_key(url: str):
+    """Which favicon a URL shows: its host plus first path segment ("docs.google.com/document"),
+    so sites that serve different apps under one host still get different icons. None for
+    non-web URLs. Shared by search results (iconKey) and favicon uploads (see favicon_store.py)."""
+    try:
+        parts = urlsplit(url or "")
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    host = parts.hostname + (f":{parts.port}" if parts.port else "")
+    seg = parts.path.lstrip("/").split("/", 1)[0]
+    return host + ("/" + seg if seg else "")
+
+
+def _with_icons(result: dict) -> dict:
+    result["items"] = [dict(i, iconKey=icon_key(i.get("url"))) for i in result["items"]]
+    return result
 
 
 def query_words(query: str) -> list:
@@ -85,7 +107,7 @@ def search(query: str, tabs_by_profile: dict, recent_by_profile: dict, live_prof
 
     found = rank(tabs, words, limit=limit)  # open_tab_items already put them in MRU order
     if found:
-        return {"category": "tabs", "showProfile": show_profile, "items": found}
+        return _with_icons({"category": "tabs", "showProfile": show_profile, "items": found})
 
     recent = []
     for profile, items in recent_by_profile.items():
@@ -93,10 +115,10 @@ def search(query: str, tabs_by_profile: dict, recent_by_profile: dict, live_prof
             recent.append(dict(r, kind="recent", profile=profile, live=profile in live_profiles))
     found = rank(recent, words, recency_key="closedAt", limit=limit)
     if found:
-        return {"category": "recent", "showProfile": len({r["profile"] for r in recent}) > 1, "items": found}
+        return _with_icons({"category": "recent", "showProfile": len({r["profile"] for r in recent}) > 1, "items": found})
 
     bookmarks = search_bookmarks(words)
     found = rank(bookmarks, words, limit=limit)
     if found:
-        return {"category": "bookmarks", "showProfile": len({b["profile"] for b in bookmarks}) > 1, "items": found}
+        return _with_icons({"category": "bookmarks", "showProfile": len({b["profile"] for b in bookmarks}) > 1, "items": found})
     return {"category": "", "showProfile": False, "items": []}

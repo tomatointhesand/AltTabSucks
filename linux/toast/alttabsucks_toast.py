@@ -314,6 +314,11 @@ class TabSearchWindow:
         self._seq = 0
         self._token = ""
         self._shown_at = 0.0
+        # Favicons by iconKey (see linux/server/favicon_store.py): a Gdk.Texture, or None when the
+        # server doesn't have one yet (retried on the next show). _icon_waiting: images to fill in
+        # once an in-flight fetch lands.
+        self._icons = {}
+        self._icon_waiting = {}
 
     # ---- showing / hiding --------------------------------------------------------------------
 
@@ -325,6 +330,7 @@ class TabSearchWindow:
         monitor = _monitor_at(win_x + win_w // 2, win_y + win_h // 2)
         if monitor is not None:
             Gtk4LayerShell.set_monitor(self.win, monitor)
+        self._icons = {k: v for k, v in self._icons.items() if v is not None}  # retry missing ones
         self.entry.set_text("")
         self._request("")
         self._shown_at = time.monotonic()
@@ -420,6 +426,7 @@ class TabSearchWindow:
         title.set_ellipsize(Pango.EllipsizeMode.END)
         title.set_hexpand(True)
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        top.append(self._icon(item.get("iconKey")))
         if show_profile:
             prof = Gtk.Label(label=item.get("profile") or "")
             prof.add_css_class("ts-profile")
@@ -432,6 +439,54 @@ class TabSearchWindow:
         box.append(top)
         box.append(url)
         return box
+
+    def _icon(self, key):
+        """A 16px favicon: from the cache, or blank until the background fetch lands (blank space
+        rather than nothing, so titles don't shift when it does)."""
+        image = Gtk.Image()
+        image.set_pixel_size(16)
+        image.set_size_request(16, 16)
+        image.set_valign(Gtk.Align.CENTER)
+        if not key:
+            return image
+        if key in self._icons:
+            if self._icons[key] is not None:
+                image.set_from_paintable(self._icons[key])
+            return image
+        waiting = self._icon_waiting.setdefault(key, [])
+        waiting.append(image)
+        if len(waiting) == 1:
+            self._fetch_icon(key)
+        return image
+
+    def _fetch_icon(self, key):
+        token = self._token
+
+        def work():
+            png = None
+            try:
+                req = urllib.request.Request(SERVER + "/favicon?key=" + urllib.parse.quote(key, safe=""),
+                                             headers={"X-AltTabSucks-Token": token})
+                with urllib.request.urlopen(req, timeout=3) as r:
+                    png = r.read()
+            except Exception:
+                pass  # 404 (not uploaded yet) or server down: stays blank
+            GLib.idle_add(self._icon_loaded, key, png)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _icon_loaded(self, key, png):
+        texture = None
+        if png:
+            try:
+                texture = Gdk.Texture.new_from_bytes(GLib.Bytes.new(png))
+            except GLib.Error:
+                texture = None
+        self._icons[key] = texture
+        for image in self._icon_waiting.pop(key, []):
+            if texture is not None:
+                image.set_from_paintable(texture)
+        return False
 
     # ---- actions -----------------------------------------------------------------------------
 
