@@ -18,4 +18,20 @@ async function render() {
     (tab.title ?? '').slice(0, 30) || '(no title)';
 }
 
+// The Hotkeys config page (served by the AltTabSucks server): switch to it if it's already open,
+// otherwise open it in a new tab.
+document.getElementById('hotkeys-page').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const url = e.currentTarget.href;
+  const tabs = await chrome.tabs.query({});
+  const open = tabs.find(t => (t.url || t.pendingUrl || '').startsWith(url));
+  if (open) {
+    await chrome.tabs.update(open.id, { active: true });
+    if (chrome.windows) await chrome.windows.update(open.windowId, { focused: true });
+  } else {
+    await chrome.tabs.create({ url });
+  }
+  window.close();
+});
+
 render();
