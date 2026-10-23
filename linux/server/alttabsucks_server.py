@@ -59,6 +59,9 @@ KWIN_CODE_DIR = REPO_ROOT / "linux" / "kwin" / "alttabsucks" / "contents" / "cod
 LEGACY_HOTKEYS_JSON_PATH = KWIN_CODE_DIR / "hotkeys.json"
 HOTKEYS_JS_PATH = KWIN_CODE_DIR / "hotkeys.js"
 HOTKEYS_UI_PATH = REPO_ROOT / "shared" / "hotkeys-ui.html"
+# The Hotkeys page's favicon is the extension's icon; only these names are served (GET /icons/<name>).
+EXTENSION_ICONS_DIR = REPO_ROOT / "BrowserExtension" / "icons"
+EXTENSION_ICON_NAMES = ("icon-16.png", "icon-48.png", "icon-128.png")
 
 
 def load_or_create_token(token_path: Path) -> str:
@@ -266,6 +269,18 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     self._end(404)
                     return
                 self._end_html(200, html)
+                return
+            # Its favicon: no token either, the browser fetches it on its own.
+            if urlsplit(self.path).path.startswith("/icons/"):
+                name = urlsplit(self.path).path[len("/icons/"):]
+                try:
+                    png = (EXTENSION_ICONS_DIR / name).read_bytes() if name in EXTENSION_ICON_NAMES else None
+                except OSError:
+                    png = None
+                if png is None:
+                    self._end(404)
+                else:
+                    self._end(200, png, "image/png")
                 return
 
             if not self._check_auth():

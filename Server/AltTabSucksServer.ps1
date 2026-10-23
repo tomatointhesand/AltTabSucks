@@ -133,6 +133,21 @@ try { while ($listener.IsListening) {
             $res.OutputStream.Close()
             continue
         }
+        # The page's favicon (the extension's icon): no token either, the browser fetches it itself.
+        # Only these names, so the path can't reach anything else on disk.
+        if ($method -eq "GET" -and $path -in "/icons/icon-16.png", "/icons/icon-48.png", "/icons/icon-128.png") {
+            $iconFile = Join-Path $repoRoot ("BrowserExtension\icons\" + $path.Substring(7))
+            if (Test-Path $iconFile) {
+                $bytes = [IO.File]::ReadAllBytes($iconFile)
+                $res.ContentType = "image/png"
+                $res.ContentLength64 = $bytes.Length
+                $res.OutputStream.Write($bytes, 0, $bytes.Length)
+            } else {
+                $res.StatusCode = 404
+            }
+            $res.OutputStream.Close()
+            continue
+        }
 
         # Validate shared secret on every non-preflight request.
         # AHK (WinHttp) sends no Origin header and is unaffected by CORS but still sends the token.

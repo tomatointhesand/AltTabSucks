@@ -343,6 +343,8 @@ blankRow = () => [...document.querySelectorAll(".binding")].find(r => inputs(r).
     Start-Sleep -Seconds 1
     Wait-Until { (Invoke-Js 'document.readyState') -eq "complete" } 20 | Out-Null
     Check (Wait-Status "^Loaded \d+ hotkey") "the Hotkeys page loads with the token" (Page 'statusEl().textContent')
+    Check ((Page 'fetch([...document.querySelectorAll("link[rel=icon]")].find(l => l.sizes.value === "48x48").href).then(r => r.status + " " + r.headers.get("content-type"))') -eq "200 image/png") `
+        "  ...with the extension's icon as its favicon"
     $apiCount = @((Invoke-Api GET "/hotkeys-config").Json.bindings | Where-Object { $_ }).Count
     Check ((Page 'document.querySelectorAll(".binding").length') -eq $apiCount) "  ...showing every hotkey in app-hotkeys.ahk" "page $(Page 'document.querySelectorAll(".binding").length'), API $apiCount"
 
