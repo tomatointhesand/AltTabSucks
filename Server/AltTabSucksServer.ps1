@@ -50,6 +50,20 @@ $legacyHotkeysJson = Join-Path $repoRoot "lib\hotkeys.json"
 $legacyGenerated   = Join-Path $repoRoot "lib\hotkeys-ui.generated.ahk"
 . (Join-Path $PSScriptRoot "AppHotkeys.ps1")
 
+# Tab search popup (lib/tab-search.ahk): open/recently closed tabs, bookmarks and favicons, kept by
+# a C# store (TabSearch.ps1). Recently closed, bookmarks and favicons are saved here so they're
+# still there while the browser is closed.
+. (Join-Path $PSScriptRoot "TabSearch.ps1")
+$tabSearch = [AltTabSucks.TabSearchStore]::new((Join-Path $env:LOCALAPPDATA "AltTabSucks"))
+$tabSearch.Load()
+
+# Request body as a string, or $null after answering 413 when it's missing or over $max bytes.
+function Read-Body($req, $res, [long]$max) {
+    if ($req.ContentLength64 -lt 0 -or $req.ContentLength64 -gt $max) { $res.StatusCode = 413; return $null }
+    $reader = [System.IO.StreamReader]::new($req.InputStream, [System.Text.Encoding]::UTF8)
+    try { $reader.ReadToEnd() } finally { $reader.Close() }
+}
+
 function Read-AppHotkeysText {
     if (Test-Path $appHotkeysPath) { [IO.File]::ReadAllText($appHotkeysPath) } else { "" }
 }
@@ -204,6 +218,7 @@ try { while ($listener.IsListening) {
                 $reader.Close()
                 $payload = $body | ConvertFrom-Json
                 $store[$payload.profile] = $payload.windows
+                try { $tabSearch.SetTabs($body) } catch {}
                 $res.StatusCode = 204
             }
 
@@ -212,6 +227,7 @@ try { while ($listener.IsListening) {
             if ($profile -and $store.ContainsKey($profile)) {
                 $store.Remove($profile)
             }
+            if ($profile) { $tabSearch.RemoveTabs($profile) }
             $res.StatusCode = 204
 
         } elseif ($method -eq "GET" -and $path -eq "/tabs") {
@@ -294,8 +310,13 @@ try { while ($listener.IsListening) {
             # Reject simple-request GETs from browser page origins — they send no preflight
             # so CORS alone doesn't block them from consuming queued switch commands.
             $profile = $req.QueryString["profile"]
+            if ($profile) { $tabSearch.MarkPoll($profile) }  # it only polls while its browser runs
+            $closes = if ($profile) { $tabSearch.TakeCloses($profile) } else { @() }
             if ($origin -and $origin -notlike "chrome-extension://*" -and $origin -notlike "moz-extension://*") {
                 $res.StatusCode = 204
+            } elseif ($closes.Count -gt 0) {
+                # Tab search closes (Ctrl+W) first, all at once; the switch slot waits for the next poll.
+                Send-Json $res @{ closeTabs = @($closes) }
             } elseif ($switchQueue.ContainsKey($profile) -and $null -ne $switchQueue[$profile]) {
                 $cmd = $switchQueue[$profile]
                 $switchQueue[$profile] = $null
@@ -306,6 +327,88 @@ try { while ($listener.IsListening) {
                 $res.OutputStream.Write($bytes, 0, $bytes.Length)
             } else {
                 $res.StatusCode = 204
+            }
+
+        } elseif ($method -eq "POST" -and $path -in "/recently-closed", "/bookmarks") {
+            # The extension, whenever they change (see TabSearch.ps1).
+            $body = Read-Body $req $res $(if ($path -eq "/bookmarks") { 16MB } else { 1MB })
+            if ($null -ne $body) {
+                try {
+                    if ($path -eq "/bookmarks") { $tabSearch.SetBookmarks($body) } else { $tabSearch.SetRecent($body) }
+                    $res.StatusCode = 204
+                } catch { Send-Json $res @{ error = $_.Exception.Message } 400 }
+            }
+
+        } elseif ($method -eq "POST" -and $path -eq "/favicons/missing") {
+            # The extension asks which favicons to upload: page URLs, one per icon key.
+            $body = Read-Body $req $res 1MB
+            if ($null -ne $body) {
+                $urls = [string[]]@(($body | ConvertFrom-Json).pageUrls | Where-Object { $_ })
+                Send-Json $res @{ missing = @($tabSearch.MissingFavicons($urls)) }
+            }
+
+        } elseif ($method -eq "POST" -and $path -eq "/favicons") {
+            $body = Read-Body $req $res 1MB
+            if ($null -ne $body) {
+                $stored = 0
+                foreach ($item in @(($body | ConvertFrom-Json).items)) {
+                    try { if ($tabSearch.PutFavicon("$($item.pageUrl)", [Convert]::FromBase64String("$($item.data)"))) { $stored++ } } catch {}
+                }
+                Send-Json $res @{ stored = $stored }
+            }
+
+        } elseif ($method -eq "GET" -and $path -eq "/favicon") {
+            $png = $tabSearch.GetFavicon("$($req.QueryString["key"])")
+            if ($null -eq $png) { $res.StatusCode = 404 } else {
+                $res.ContentType = "image/png"; $res.ContentLength64 = $png.Length
+                $res.OutputStream.Write($png, 0, $png.Length)
+            }
+
+        } elseif ($method -eq "GET" -and $path -eq "/tab-search") {
+            # ?q=<query>, &caption=<title of the window in front, "" if not a browser> leaves the tab
+            # you're on out (else: the active tab of a focused window), &format=tsv for the AHK popup.
+            $q = "$($req.QueryString["q"])"
+            $caption = $req.QueryString["caption"]
+            $result = if ($null -ne $caption) { $tabSearch.Search($q, $caption, 50) } else { $tabSearch.Search($q) }
+            if ($req.QueryString["format"] -eq "tsv") {
+                Send-Body $res ([AltTabSucks.TabSearchStore]::ToTsv($result)) "text/plain; charset=utf-8"
+            } else {
+                Send-Body $res ([AltTabSucks.TabSearchStore]::ToJson($result)) "application/json; charset=utf-8"
+            }
+
+        } elseif ($method -eq "POST" -and $path -eq "/tab-search/action") {
+            # Picking (or Ctrl+W closing) a result. Queues the browser side for the extension and
+            # answers one line for the popup: kind, profile, windowId, the title of that window's
+            # active tab (to find the window on screen), url - tab-separated. kind: "tab" (switch
+            # to it), "open" (being restored/opened in the running browser), "launch" (start that
+            # profile's browser first; the queued URL waits for its extension), "close".
+            $body = Read-Body $req $res 64KB
+            if ($null -ne $body) {
+                try {
+                    $a = $body | ConvertFrom-Json
+                    $profile = "$($a.profile)"
+                    if (-not $profile) { throw "missing profile" }
+                    $live = $tabSearch.LiveProfiles().Contains($profile)
+                    $line = switch ("$($a.kind)") {
+                        "close" {
+                            $tabSearch.AddClose($profile, [long]$a.tabId)
+                            "close`t$profile"
+                        }
+                        "tab" {
+                            $switchQueue[$profile] = @{ windowId = [long]$a.windowId; tabId = [long]$a.tabId }
+                            "tab`t$profile`t$([long]$a.windowId)`t$($tabSearch.ActiveTitle($profile, [long]$a.windowId))"
+                        }
+                        { $_ -in "recent", "bookmark" } {
+                            $u = "$($a.url)"
+                            if ($u -notmatch '^https?://') { throw "only http(s) URLs can be opened" }
+                            $switchQueue[$profile] = if ($live -and $a.kind -eq "recent" -and $a.sessionId) {
+                                @{ restoreSession = "$($a.sessionId)" } } else { @{ newTabUrl = $u } }
+                            "$(if ($live) { 'open' } else { 'launch' })`t$profile`t`t`t$u"
+                        }
+                        default { throw "unknown kind '$($a.kind)'" }
+                    }
+                    Send-Body $res (($line -replace "[\r\n]", " ") + "`n") "text/plain; charset=utf-8"
+                } catch { Send-Json $res @{ error = $_.Exception.Message } 400 }
             }
 
         } elseif ($method -eq "GET" -and $path -eq "/debugtabs") {

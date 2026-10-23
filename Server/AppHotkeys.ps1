@@ -12,6 +12,7 @@
 #   CycleChromiumProfile / CycleFirefoxProfile -> profileCycle
 #   ManageAppWindows                         -> windowCycle / windowToggle
 #   SplitFocusedTab / MergeFocusedWindow     -> splitTab / mergeTabs
+#   ShowTabSearch                            -> tabSearch (lib/tab-search.ahk)
 #   Run(single command)                      -> runCommand
 # under no #HotIf, a #HotIf !WinActive(...) suppression block, or (split/merge only) a browser
 # #HotIf block. "^!+k:: ... ; Title" - the trailing comment is the binding's title.
@@ -196,6 +197,7 @@ function Get-DefaultTitle($b) {
         'profileCycle' { if ($b.profileName -eq $AllProfiles) { return 'Cycle all profiles' }; return "Cycle $($b.profileName)" }
         'splitTab'     { return 'Split tab' }
         'mergeTabs'    { return 'Merge windows' }
+        'tabSearch'    { return 'Search tabs' }
         'runCommand'   { if (@($b.argv).Count) { return [IO.Path]::GetFileNameWithoutExtension(($b.argv[0] -split '[\\/]')[-1]) }; return '' }
         default        { return [IO.Path]::GetFileNameWithoutExtension("$($b.resourceClass)") }
     }
@@ -246,6 +248,7 @@ function ConvertFrom-HotkeyParts($parts, $profileVars) {
         }
         '^SplitFocusedTab$'    { if ($a.Count -ne 0) { return $null }; $b = [ordered]@{ type = 'splitTab' } }
         '^MergeFocusedWindow$' { if ($a.Count -ne 0) { return $null }; $b = [ordered]@{ type = 'mergeTabs' } }
+        '^ShowTabSearch$'      { if ($a.Count -ne 0) { return $null }; $b = [ordered]@{ type = 'tabSearch' } }
         '^Run$' {
             if ($a.Count -ne 1) { return $null }   # Run's extra options (working dir, "Hide") don't round-trip
             $cmd = Resolve-AhkStringExpr $a[0]
@@ -299,6 +302,7 @@ function ConvertTo-AhkCall($b, [string]$profileExpr) {
         }
         'splitTab'  { return 'SplitFocusedTab()' }
         'mergeTabs' { return 'MergeFocusedWindow()' }
+        'tabSearch' { return 'ShowTabSearch()' }
         'runCommand' {
             $argv = @($b.argv | Where-Object { $_ })
             if (-not $argv) { throw "missing command" }

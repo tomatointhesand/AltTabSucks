@@ -4,6 +4,7 @@
     { "type": "windowCycle", "title": "Terminal", "key": "Ctrl+Alt+Shift+Return", "resourceClass": "WindowsTerminal.exe", "launchArgv": ["wt.exe"] },
 
     { "type": "profileCycle", "title": "Browser windows", "key": "Ctrl+Alt+Shift+B", "profileName": "__all__", "launchProfileName": "__PROFILE__" },
+    { "type": "tabSearch", "title": "Search browser tabs", "key": "Ctrl+Alt+Shift+A" },
 
     { "type": "tabFocus", "title": "Hotkey config", "key": "Ctrl+Alt+/", "profileName": "__PROFILE__", "urlPatterns": ["localhost:9876/hotkeys-ui"], "openUrl": "http://localhost:9876/hotkeys-ui" },
     { "type": "tabFocus", "title": "Gmail", "key": "Ctrl+Alt+Shift+G", "profileName": "__PROFILE__", "urlPatterns": ["mail.google.com"], "openUrl": "https://mail.google.com" },

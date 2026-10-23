@@ -221,6 +221,14 @@ Assert-Equal ($f.Text -match '(?m)^#HotIf !WinActive\("ahk_exe Moonlight\.exe"\)
 Assert-Equal @(Read-AppHotkeys $f.Text | ForEach-Object { $_.Bindings } | ForEach-Object type) @('tabFocus', 'mergeTabs') "  ...and the result reads back"
 Assert-Equal @($f.Dropped | ForEach-Object key) @('Ctrl+Alt+Shift+Q') "  ...reporting invalid ones instead of writing them"
 
+# ---- tab search binding ------------------------------------------------------------------------
+
+$ts = Read-AppHotkeys (Lines @('^!+a:: ShowTabSearch()  ; Search browser tabs'))
+Assert-Equal @($ts.Bindings | ForEach-Object { "$($_.type) $($_.key) $($_.title)" }) @('tabSearch Ctrl+Alt+Shift+A Search browser tabs') "ShowTabSearch() reads as a tabSearch binding"
+$tw = Write-AppHotkeys "" @([PSCustomObject]@{ type = 'tabSearch'; title = 'Search browser tabs'; key = 'Ctrl+Alt+Shift+A'; enabled = $true })
+Assert-Equal ($tw.Text.Trim()) '^!+a:: ShowTabSearch()  ; Search browser tabs' "  ...and is written as one"
+Assert-Equal @((Read-AppHotkeys (Lines @('^!+a:: ShowTabSearch("x")'))).Bindings).Count 0 "  ...only without arguments"
+
 # ---- starter set ---------------------------------------------------------------------------------
 
 $tpl = '{ "bindings": [ { "type": "tabFocus", "title": "Gmail", "key": "Ctrl+Alt+Shift+G", "profileName": "__PROFILE__", "urlPatterns": ["mail.google.com"], "openUrl": "https://mail.google.com" } ] }'
