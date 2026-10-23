@@ -681,6 +681,15 @@ class ServerTestCase(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertIn("extension", json.loads(raw)["error"])
 
+    def test_hotkeys_page_icon_is_served_without_a_token(self):
+        status, headers, body = self.request("GET", "/icons/icon-48.png", token=None)
+        self.assertEqual((status, headers.get("Content-Type")), (200, "image/png"))
+        self.assertTrue(body.startswith(b"\x89PNG"))
+
+    def test_only_the_extension_icons_are_served(self):
+        for path in ("/icons/manifest.json", "/icons/../manifest.json", "/icons/", "/icons/%2e%2e/manifest.json"):
+            self.assertEqual(self.request("GET", path, token=None)[0], 404, path)
+
     def test_tab_search_requires_auth(self):
         status, _, _ = self.request("GET", "/tab-search?q=x", token=None)
         self.assertEqual(status, 403)
