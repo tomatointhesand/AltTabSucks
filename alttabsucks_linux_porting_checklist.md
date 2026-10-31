@@ -44,7 +44,7 @@ entirely, Windows side included — see its entry in the Deferred section.)
       normally AHK's `_InitChromiumState()` pushing what it found, and there's no Linux
       equivalent doing that yet. Server now discovers profiles itself at startup by parsing
       "Local State" (real JSON — simpler than AHK's regex approach). Verified live against this
-      machine's real Brave install (`Personal`), not just fixture data. See commit `ced7a50`.
+      machine's real Brave install (`Personal`), not just fixture data. See commit `9933d4f`.
 - [x] Manually verified against a **real, running server** (curl/unittest plus the live Brave
       profile-discovery check above); verifying against a **loaded `BrowserExtension/`** itself
       (not just what it calls) is still open — see Phase 2's equivalent item
@@ -52,7 +52,7 @@ entirely, Windows side included — see its entry in the Deferred section.)
       surfaced by the user's real browser failing to load `/hotkeys-ui`, the first time this
       server had run persistently under real sustained extension traffic (every prior test this
       session used short-lived instances).
-      - **Round 1** (commit `3d7dbb2`): diagnosed live via `/proc/<pid>/task/*/wchan` (main thread
+      - **Round 1** (commit `bb3112d`): diagnosed live via `/proc/<pid>/task/*/wchan` (main thread
         stuck in `wait_woken`, an unbounded blocking read — `Handler.timeout` was never set, so
         the request-line read inside `http.server`'s own `parse_request()`, and this file's own
         `_read_body`/`_drain_unread_body`, all waited *forever* if a client ever stalled
@@ -60,7 +60,7 @@ entirely, Windows side included — see its entry in the Deferred section.)
         other client permanently. Fixed with `Handler.timeout = 10` — confirmed via the actual
         stdlib source that `handle_one_request()` already wraps request handling in a
         `try/except TimeoutError` that closes just that connection, no other change needed.
-      - **Round 2** (commit `bc1688b`): redeployed, and `wchan` now showed a *bounded* `poll()` wait
+      - **Round 2** (commit `dc0ea8d`): redeployed, and `wchan` now showed a *bounded* `poll()` wait
         — correct — but the symptom didn't actually go away: `ss` showed a steady 5+ connections
         with real, non-trivial payloads (473 bytes each) queued behind whichever one the server
         was on, and it never caught up faster than new problematic connections arrived. A single
@@ -99,7 +99,7 @@ entirely, Windows side included — see its entry in the Deferred section.)
 - [x] Ported `ManageAppWindows` cycle/toggle logic → `findAppWindows`/`activateWindow`/
       `manageAppWindows` in `main.js`. Manually verified against two independent, fully-controlled
       test windows (spawned instances, not ambient ones — ambient windows turned out to be an
-      unreliable test fixture, see commit `2e59a2e`): cycle wraps correctly, toggle
+      unreliable test fixture, see commit `05d3697`): cycle wraps correctly, toggle
       minimizes-if-active / restores-and-activates-if-not, and `workspace.activeWindow =`
       assignment auto-restores a minimized window (matches AHK's `WinActivate`).
 - [x] **D-Bus bridge decided and built**: KWin's plain-JS scripting sandbox has **no
@@ -111,7 +111,7 @@ entirely, Windows side included — see its entry in the Deferred section.)
       `GetProfiles`/`QueueSwitchTab`/`QueueSwitchOpenUrl`). Uses `dbus-python` + `PyGObject`
       (`python-dbus`/`python-gobject` on Arch — system packages, not pip; already present on this
       KDE install). Verified end to end including from an actual loaded KWin script's `callDBus`
-      — see commit `fc5c120`. Same escape hatch (not yet used) would cover the still-unimplemented
+      — see commit `6841d95`. Same escape hatch (not yet used) would cover the still-unimplemented
       "launch app when no windows exist" case in `manageAppWindows`.
 - [x] Ported `FocusTab`/`CycleChromiumProfile` → `cycleChromiumProfile`/`focusTab` in `main.js`,
       using `workspace` for window activation and the D-Bus bridge for `GetActiveTitles`/
@@ -123,7 +123,7 @@ entirely, Windows side included — see its entry in the Deferred section.)
       the no-match fallback (opens a new tab in an existing window), the match-found path
       (`FindTab` → `QueueSwitchTab` → dequeued via the real `GET /switchtab` path), and
       multi-match cycling with wraparound — all through the actual installed `kpackagetool6`
-      package, not just an ad-hoc dev-loaded copy. See commit `b586ec3` for the noted
+      package, not just an ad-hoc dev-loaded copy. See commit `50da095` for the noted
       simplifications (no HWND-style stable sort, no `_ServerHasAnyTabData()` distinction, no
       duplicate-tab-open cooldown, launch-when-no-window-exists still stubbed like
       `manageAppWindows`') and a real gotcha worth remembering: `kpackagetool6 --upgrade` +
@@ -134,7 +134,7 @@ entirely, Windows side included — see its entry in the Deferred section.)
       not done; so far only verified against seeded server data, never a real loaded extension
       actually driving `chrome.tabs.update`/`chrome.windows.update`
 - [x] **Process-spawn escape hatch, all three "launch when nothing's open" cases** (commit
-      `b68722b`): `dbus_bridge.py` gained `LaunchCommand(argv)` (general-purpose, used by
+      `b52a1ed`): `dbus_bridge.py` gained `LaunchCommand(argv)` (general-purpose, used by
       `manageAppWindows`'s new `launchArgv` param) and `LaunchChromiumProfile(profile)` (resolves
       the profile *directory* via `AppState.chromium_profile_dirs`, clears stale server state for
       it, spawns `$CHROMIUM_EXE --profile-directory=<dir> $CHROMIUM_EXTRA_FLAGS` — used by
@@ -172,10 +172,10 @@ entirely, Windows side included — see its entry in the Deferred section.)
       the always-running compositor once installed). Tested the full cycle live — install
       (idempotent against an already-installed service + already-loaded KWin script), status,
       stop, start, uninstall (confirmed config.py/token.txt survive, matching `installer.ps1`
-      leaving token.txt alone), reinstall. See commit `e6aacf5` for a real bug this surfaced:
+      leaving token.txt alone), reinstall. See commit `054842d` for a real bug this surfaced:
       `enable --now` on an already-running service doesn't restart it, so a naive re-run would
       silently keep serving stale code.
-  - [x] **Upgraded to a real interactive wizard** (`choose_browser`, commit `a13d1ea`): always
+  - [x] **Upgraded to a real interactive wizard** (`choose_browser`, commit `1e1ba9b`): always
         prompts with a numbered menu (detected browsers + manual entry) instead of silently
         auto-picking, and — the actual point — verifies the chosen browser's `resourceClass`
         against a real open window when one exists (a one-off KWin script probe matching the
@@ -197,13 +197,13 @@ entirely, Windows side included — see its entry in the Deferred section.)
       `registerShortcut` calls anymore) with gitignored `hotkeys.js` (seeded from
       `hotkeys.template.js` on first install) into a staged copy before installing it. Verified
       live end to end with a real binding needing no placeholder edits ("Toggle File Manager").
-      See commit `efa714b`.
+      See commit `cfd33cf`.
   - [ ] **Follow-up, not done**: `dev-scripts/make-template.sh`/the pre-commit hook don't know
         about `hotkeys.js` yet — unlike `app-hotkeys.ahk`, editing your real `hotkeys.js` won't
         auto-regenerate `hotkeys.template.js` with values redacted on commit. `hotkeys.template.js`
         is hand-written for now; extending the sanitizer to also handle `hotkeys.js`'s (different,
         JS-syntax) URL/profile-name patterns is real but modest follow-up work.
-- [x] **Hotkeys config UI, Linux half** (commit `d78cb65`): a shared local web page
+- [x] **Hotkeys config UI, Linux half** (commit `9551d0a`): a shared local web page
       (`shared/hotkeys-ui.html`) served by the bridge server, rather than a native GTK/PyQt app —
       both platforms already run a local HTTP+token bridge server, so this needed nothing new on
       either side beyond a couple of endpoints, no new GUI toolkit dependency on Linux, and no
