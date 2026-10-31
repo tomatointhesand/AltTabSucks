@@ -42,6 +42,9 @@ Binding "type" maps to one main.js function each:
                                   hardcoded into main.js/dbus_bridge.py.
   tabSearch                   -> showTabSearch(resourceClass) — the tab search popup (open tabs,
                                   then recently closed, then bookmarks; see tab_search.py).
+  folder                      -> focusOrOpenFolder(path) — switches to the Dolphin window/tab
+                                  showing the folder, or opens it. Port of lib/explorer.ahk's
+                                  FocusOrOpenFolder; "~" is expanded by dbus_bridge.py.
   splitTab                    -> splitFocusedTab(resourceClass, profileName) — detaches the
                                   active tab of the focused window into its own new window, then
                                   places the two side by side. Port of lib/chromium.ahk's
@@ -220,6 +223,11 @@ def generate_binding_js(binding: dict, browser_resource_class: str = "") -> str:
         if not resource_class:
             raise ValueError(_NO_BROWSER_CONFIGURED)
         call = f"showTabSearch({_js_string(resource_class)});"
+    elif kind == "folder":
+        path = (binding.get("path") or "").strip()
+        if not path:
+            raise ValueError(f"binding {title!r} missing folder")
+        call = f"focusOrOpenFolder({_js_string(path)});"
     else:
         raise ValueError(f"binding {title!r} has unknown type: {kind!r}")
 
@@ -359,7 +367,7 @@ _ACTIONS = {
     # name: (min args, max args)
     "manageAppWindows": (2, 3), "cycleChromiumProfile": (2, 3), "focusTab": (4, 4),
     "runCommandWithToast": (2, 2), "splitFocusedTab": (2, 2), "mergeFocusedWindow": (2, 2),
-    "showTabSearch": (1, 1),
+    "showTabSearch": (1, 1), "focusOrOpenFolder": (1, 1),
 }
 
 
@@ -393,6 +401,8 @@ def _binding_from_call(title, key, name, args):
         b.update(type="tabFocus", resourceClass=s(0), profileName=s(1), urlPatterns=lst(2), openUrl=s(3))
     elif name == "showTabSearch":
         b.update(type="tabSearch", resourceClass=s(0))
+    elif name == "focusOrOpenFolder":
+        b.update(type="folder", path=s(0))
     elif name == "runCommandWithToast":
         b.update(type="runCommand", argv=lst(1))
     else:
@@ -488,16 +498,17 @@ def _statement_js(b: dict, browser_resource_class: str) -> str:
     return js
 
 
-def rewrite_hotkeys_js(text: str, posted: list, browser_resource_class: str = "") -> dict:
+def rewrite_hotkeys_js(text: str, posted: list, browser_resource_class: str = "", keep_invalid: bool = False) -> dict:
     """Puts the UI's bindings back into hotkeys.js: a binding with a "slot" replaces the statement
     it was parsed from (bindings reordered within a section swap statements), a new one goes after
     the last statement of its section (or at the end), and statements no longer posted are
-    removed. Invalid or clashing bindings are left out. Returns {"text", "saved", "dropped"}."""
+    removed. Invalid or clashing bindings are left out. keep_invalid leaves invalid statements in
+    place (and unreported) instead of removing them. Returns {"text", "saved", "dropped"}."""
     m = _file_model(text)
     lines, stmts = m["lines"], m["stmts"]
     dropped = []
     titles = {c["title"] for c in m["custom"]}
-    keys = {_key_identity(c["key"]) for c in m["custom"]}
+    keys = {_key_identity(c["key"]): f"a hand-written hotkey ({c['title']!r})" for c in m["custom"]}
 
     kept = []  # (binding, js)
     for b in posted:
@@ -514,15 +525,15 @@ def rewrite_hotkeys_js(text: str, posted: list, browser_resource_class: str = ""
                 if title in titles:
                     raise ValueError(f"another hotkey already has the title {title!r}")
                 if _key_identity(key) in keys:
-                    raise ValueError(f"another hotkey already uses {key}")
+                    raise ValueError(f"{key} is already used by {keys[_key_identity(key)]}")
                 titles.add(title)
-                keys.add(_key_identity(key))
+                keys[_key_identity(key)] = repr(title)
         except ValueError as e:
             dropped.append({"title": title, "key": key, "reason": str(e)})
             continue
         kept.append((b, js))
     for s in stmts:
-        if "invalid" in s:
+        if "invalid" in s and not keep_invalid:
             inv = s["invalid"]
             dropped.append({"title": inv["title"], "key": inv["key"], "reason": inv["reason"]})
 
@@ -554,6 +565,10 @@ def rewrite_hotkeys_js(text: str, posted: list, browser_resource_class: str = ""
     while i < len(lines):
         if i in starts:
             n, s = starts[i]
+            if keep_invalid and "invalid" in s:
+                out.extend(lines[i:s["end"]])
+                i = s["end"]
+                continue
             chunk = ([at_slot[n]] if n in at_slot else []) + after_slot.get(n, [])
             if chunk:
                 out.append("\n\n".join(chunk))
@@ -584,3 +599,99 @@ def fold_legacy_hotkeys_json(text: str, json_bindings: list, browser_resource_cl
     never written to hotkeys.js at all) replace the recognized statements in hotkeys.js."""
     posted = [{k: v for k, v in b.items() if k != "slot"} for b in json_bindings if isinstance(b, dict)]
     return rewrite_hotkeys_js(text, posted, browser_resource_class)
+
+
+# ---- starter hotkeys ------------------------------------------------------------------------------
+
+# Remembers which starter hotkeys (linux/server/hotkeys.starter.json, by id) this file has been
+# offered. Windows counterpart: Add-StarterHotkeys in Server/AppHotkeys.ps1.
+STARTER_MARKER = "// [Hotkeys UI] starter hotkeys: "
+STARTER_SUFFIX = " - edit or delete them freely, they won't be re-added"
+
+
+def starter_identity(b: dict) -> str:
+    """What makes two bindings the same hotkey for the starter set, whatever their key and title:
+    a file that already has one doesn't get the starter's."""
+    kind = b.get("type")
+    if kind == "tabFocus":
+        return "tabFocus|" + (b.get("openUrl") or "").strip().lower()
+    if kind == "profileCycle":
+        return "profileCycle|" + (b.get("profileName") or "")
+    if kind in ("windowCycle", "windowToggle"):
+        return "app|" + (b.get("resourceClass") or "").strip()
+    if kind == "runCommand":
+        return "runCommand|" + "\0".join(b.get("argv") or [])
+    if kind == "folder":
+        return "folder|" + (b.get("path") or "").strip().rstrip("/")
+    return str(kind)
+
+
+def _starter_offered(lines):
+    for line in lines:
+        if line.startswith(STARTER_MARKER):
+            ids = line[len(STARTER_MARKER):]
+            if ids.endswith(STARTER_SUFFIX):
+                ids = ids[:-len(STARTER_SUFFIX)]
+            return ids.split()
+    return []
+
+
+def _set_starter_marker(text: str, ids) -> str:
+    marker = STARTER_MARKER + " ".join(ids) + STARTER_SUFFIX
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        if line.startswith(STARTER_MARKER):
+            lines[i] = marker
+            return "\n".join(lines)
+    return text.rstrip("\n") + "\n\n" + marker + "\n"
+
+
+def add_starter_hotkeys(text: str, starter: list, browser_resource_class: str = "") -> dict:
+    """Offers each starter hotkey (placeholders already filled in) to hotkeys.js once, remembered
+    by its id in a marker line. An entry is skipped if the file already has the same hotkey under
+    any key; otherwise it's added, and if its key (or title — kglobalaccel's action ID) is taken
+    it's added switched off ("switchedOff" says by what), so nothing the user set up changes. One
+    that can't be added at all ("dropped", e.g. no browser configured yet) is offered again next
+    time. Unlike Windows there's no first-run set: installer.sh starts a new hotkeys.js from
+    hotkeys.template.js, so the starter file only lists hotkeys for new features.
+    Returns {"text", "added", "switchedOff", "dropped"}."""
+    offered = _starter_offered(text.split("\n"))
+    result = {"text": text, "added": [], "switchedOff": [], "dropped": []}
+    todo = [t for t in starter if isinstance(t, dict) and t.get("id") and t["id"] not in offered]
+    if not todo:
+        return result
+    cur = text
+    for t in todo:
+        c = {k: v for k, v in t.items() if k != "id"}
+        c.setdefault("enabled", True)
+        existing = parse_hotkeys_js(cur)["bindings"]
+        if any(starter_identity(b) == starter_identity(c) for b in existing):
+            offered.append(t["id"])
+            continue
+        r = rewrite_hotkeys_js(cur, existing + [c], browser_resource_class, keep_invalid=True)
+        mine = [d for d in r["dropped"] if d["title"] == c.get("title") and d["key"] == c.get("key")]
+        clash = mine and (" is already used by " in mine[0]["reason"] or "already has the title" in mine[0]["reason"])
+        if clash:
+            c["enabled"] = False
+            r = rewrite_hotkeys_js(cur, existing + [c], browser_resource_class, keep_invalid=True)
+            reason = mine[0]["reason"]
+            taken_by = reason.split(" is already used by ", 1)[1] if " is already used by " in reason else \
+                "another hotkey with the same title"
+            result["switchedOff"].append({"title": c["title"], "key": c["key"], "takenBy": taken_by})
+        elif mine:
+            result["dropped"].extend(mine)
+            continue
+        else:
+            result["added"].append({"title": c["title"], "key": c["key"]})
+        cur = r["text"]
+        offered.append(t["id"])
+    result["text"] = _set_starter_marker(cur, offered)
+    return result
+
+
+def format_starter_notice(r: dict) -> str:
+    """The notification for what add_starter_hotkeys did, "" for nothing worth saying."""
+    parts = [f"New hotkey: {a['title']} ({a['key']})." for a in r["added"]]
+    parts += [f"New: {o['title']}. {o['key']} is already used by {o['takenBy']}, so it was added switched off "
+              "- give it a key on the Hotkeys page." for o in r["switchedOff"]]
+    return " ".join(parts)

@@ -1,0 +1,8 @@
+{
+  "bindings": [
+    { "id": "tabSearch", "type": "tabSearch", "title": "Search browser tabs", "key": "Ctrl+Alt+Shift+A" },
+    { "id": "hotkeyConfig", "type": "tabFocus", "title": "Hotkey config", "key": "Ctrl+Alt+/", "profileName": "__PROFILE__", "urlPatterns": ["localhost:9876/hotkeys-ui"], "openUrl": "http://localhost:9876/hotkeys-ui" },
+    { "id": "splitTab", "type": "splitTab", "title": "Split browser tab", "key": "Alt+X", "profileName": "__PROFILE__" },
+    { "id": "mergeTabs", "type": "mergeTabs", "title": "Merge browser tab", "key": "Alt+Z", "profileName": "__PROFILE__" }
+  ]
+}

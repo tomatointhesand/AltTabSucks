@@ -229,13 +229,65 @@ $tw = Write-AppHotkeys "" @([PSCustomObject]@{ type = 'tabSearch'; title = 'Sear
 Assert-Equal ($tw.Text.Trim()) '^!+a:: ShowTabSearch()  ; Search browser tabs' "  ...and is written as one"
 Assert-Equal @((Read-AppHotkeys (Lines @('^!+a:: ShowTabSearch("x")'))).Bindings).Count 0 "  ...only without arguments"
 
-# ---- starter set ---------------------------------------------------------------------------------
+# ---- folders -------------------------------------------------------------------------------------
 
-$tpl = '{ "bindings": [ { "type": "tabFocus", "title": "Gmail", "key": "Ctrl+Alt+Shift+G", "profileName": "__PROFILE__", "urlPatterns": ["mail.google.com"], "openUrl": "https://mail.google.com" } ] }'
-$s = Add-StarterHotkeys $plain $tpl 'Default'
-Assert-Equal $s.Count 1 "the starter set is added to a file with no bindings"
+$fo = Read-AppHotkeys (Lines @('^!+Down:: FocusOrOpenFolder(EnvGet("ATS_TEST_HOME") "\Downloads")', '^!+u:: FocusOrOpenFolder("C:\Users\me\")'))
+Assert-Equal @($fo.Bindings | ForEach-Object { "$($_.type) $($_.path) $($_.title)" }) @('folder C:\Users\me\Downloads Downloads', 'folder C:\Users\me\ me') "FocusOrOpenFolder() reads as a folder binding, titled by the folder's name"
+$fw = Write-AppHotkeys "" @([PSCustomObject]@{ type = 'folder'; title = 'Downloads'; key = 'Ctrl+Alt+Shift+Down'; path = 'C:\Users\me\Downloads'; enabled = $true })
+Assert-Equal ($fw.Text.Trim()) '^!+Down:: FocusOrOpenFolder("C:\Users\me\Downloads")  ; Downloads' "  ...and is written as one"
+Assert-Equal @((Write-AppHotkeys "" @([PSCustomObject]@{ type = 'folder'; title = 'x'; key = 'Ctrl+Alt+Shift+U'; path = ' '; enabled = $true })).Dropped | ForEach-Object reason) @('missing folder') "  ...and needs a folder"
+
+# ---- starter hotkeys -----------------------------------------------------------------------------
+
+$tpl = @'
+{ "bindings": [
+  { "id": "gmail", "type": "tabFocus", "title": "Gmail", "key": "Ctrl+Alt+Shift+G", "profileName": "__PROFILE__", "urlPatterns": ["mail.google.com"], "openUrl": "https://mail.google.com" },
+  { "id": "downloads", "type": "folder", "title": "Downloads", "key": "Ctrl+Alt+Shift+Down", "path": "__DOWNLOADS__" },
+  { "id": "split", "upgrade": true, "type": "splitTab", "title": "Split tab", "key": "Alt+X" }
+] }
+'@
+$dl = @{ __DOWNLOADS__ = 'C:\Users\me\Downloads' }
+$s = Add-StarterHotkeys $plain $tpl 'Default' $dl
+Assert-Equal @((Read-AppHotkeys $s.Text).Bindings | ForEach-Object title) @('Gmail', 'Downloads', 'Split tab') "first run: the whole starter set is added to a file with no bindings"
 Assert-Equal (Find (Read-AppHotkeys $s.Text) 'Ctrl+Alt+Shift+G').profileName 'Default' "  ...with __PROFILE__ filled in"
-Assert-Equal (Add-StarterHotkeys $s.Text $tpl 'Default').Count 0 "  ...and only once (a marker remembers it, even if every binding is later deleted)"
-Assert-Equal (Add-StarterHotkeys $clean $tpl 'Default').Count 0 "a file that already has bindings gets no starter set"
+Assert-Equal (Find (Read-AppHotkeys $s.Text) 'Ctrl+Alt+Shift+Down').path 'C:\Users\me\Downloads' "  ...and the other placeholders"
+Assert-Equal (Format-StarterNotice $s) "Suggested hotkeys added to app-hotkeys.ahk. Press Ctrl+Alt+/ to view and edit them." "  ...and says so"
+Assert-Equal ($s.Text -match "\[Hotkeys UI\] starter hotkeys: gmail downloads split - ") $true "  ...remembering each one in a marker line"
+$again = Add-StarterHotkeys $s.Text $tpl 'Default' $dl
+Assert-Equal @($again.Count, ($again.Text -ceq $s.Text)) @(0, $true) "  ...only once"
+$deleted = Add-StarterHotkeys (Lines @('P1 := "Default"', ($StarterMarker + 'gmail downloads split' + $StarterSuffix))) $tpl 'Default' $dl
+Assert-Equal $deleted.Count 0 "  ...even if every binding is later deleted"
+
+$hand = Lines @('P1 := "Default"', '^!+y:: FocusTab(P1, ["youtube.com"], "https://youtube.com")  ; YouTube')
+$u = Add-StarterHotkeys $hand $tpl 'Default' $dl
+Assert-Equal @((Read-AppHotkeys $u.Text).Bindings | ForEach-Object title) @('YouTube', 'Split tab') "a file with hotkeys of its own only gets the new-feature (upgrade) ones, not the examples"
+Assert-Equal (Format-StarterNotice $u) "New hotkey: Split tab (Alt+X)." "  ...and the notice names it"
+Assert-Equal (Add-StarterHotkeys $u.Text $tpl 'Default' $dl).Count 0 "  ...once"
+
+$tplSearch = '{ "bindings": [ { "id": "tabSearch", "upgrade": true, "type": "tabSearch", "title": "Search browser tabs", "key": "Ctrl+Alt+Shift+A" } ] }'
+$t = Add-StarterHotkeys (Lines @('^!+y:: FocusTab("Default", ["youtube.com"], "https://youtube.com")  ; YouTube', '^!+a:: Send("a")')) $tplSearch 'Default'
+$ts = @((Read-AppHotkeys $t.Text).Bindings | Where-Object type -eq 'tabSearch')
+Assert-Equal @($ts.Count, $ts[0].enabled, $ts[0].key) @(1, $false, 'Ctrl+Alt+Shift+A') "a starter hotkey whose key is taken is added switched off"
+Assert-Equal ($t.Text.Contains("`n^!+a:: Send(`"a`")")) $true "  ...leaving the hotkey that has the key alone"
+Assert-Equal (Format-StarterNotice $t) "New: Search browser tabs. Ctrl+Alt+Shift+A is already used by a hand-written hotkey (^!+a:: Send(`"a`")), so it was added switched off - give it a key on the Hotkeys page." "  ...and the notice says why"
+$t2 = Add-StarterHotkeys (Lines @('^!+a:: FocusTab("Default", ["a.com"], "https://a.com")  ; A site')) $tplSearch 'Default'
+Assert-Equal @($t2.SwitchedOff | ForEach-Object takenBy) @("'A site'") "  ...or by a binding, named by its title"
+
+$has = Lines @('^!+s:: SplitFocusedTab()  ; My split')
+$h = Add-StarterHotkeys $has $tpl 'Default' $dl
+Assert-Equal @((Read-AppHotkeys $h.Text).Bindings | ForEach-Object title) @('My split') "a file that already has the same hotkey under another key doesn't get it again"
+Assert-Equal @($h.Count, ($h.Text -match 'starter hotkeys: split - ')) @(0, $true) "  ...but remembers it was offered"
+
+$legacy = Lines @('^!+y:: FocusTab("Default", ["youtube.com"], "https://youtube.com")  ; YouTube', '', $LegacyStarterMarker)
+$tpl2 = $tpl.Replace('"id": "split"', '"id": "tabSearch"')
+$l = Add-StarterHotkeys $legacy $tpl2 'Default' $dl
+Assert-Equal @($l.Added | ForEach-Object title) @('Split tab') "a file from before starter ids only gets the starter hotkeys added since (tab search)"
+Assert-Equal ($l.Text.Contains($LegacyStarterMarker)) $false "  ...and its marker is replaced by one with ids"
+
+$inv = Lines @('^!+q:: FocusTab("Default", [], "")  ; Broken')
+Assert-Equal ((Add-StarterHotkeys $inv $tpl 'Default' $dl).Text.Contains('^!+q:: FocusTab("Default", [], "")')) $true "adding starter hotkeys leaves invalid lines for the user to see"
+
+$np = Add-StarterHotkeys $plain $tpl '' $dl
+Assert-Equal @(@($np.Dropped | ForEach-Object title), ($np.Text -match 'starter hotkeys: downloads split - ')) @(@('Gmail'), $true) "one that can't be added yet (no profile) isn't remembered, so it's offered again"
 
 Complete-Asserts

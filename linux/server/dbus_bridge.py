@@ -24,12 +24,15 @@ round-trip). See the concurrency note above QueueSwitchTab/QueueSwitchOpenUrl be
 doesn't need a lock despite the two loops touching the same dicts from different threads.
 """
 
+import json
 import os
 import re
 import shutil
 import subprocess
 import threading
+import time
 import uuid
+from pathlib import Path
 
 import dbus
 import dbus.mainloop.glib
@@ -121,6 +124,34 @@ def scoped_argv(argv, systemd_run="systemd-run"):
     return [path, "--user", "--scope", "--quiet", "--collect", "--slice=app.slice", f"--unit={unit}", "--"] + list(argv)
 
 
+def resolve_folder(path):
+    """A folder hotkey's path as an absolute one: "~" and $VARS expanded, no trailing slash
+    (hotkeys.js holds "~/Downloads", which the KWin sandbox can't expand itself)."""
+    return os.path.normpath(os.path.abspath(os.path.expandvars(os.path.expanduser(str(path).strip()))))
+
+
+def dolphin_window_paths(introspection_xml):
+    """The main window object paths a Dolphin process exports under /dolphin (Dolphin_1, Dolphin_2,
+    ... one per window), from its Introspect() XML."""
+    return ["/dolphin/" + n for n in re.findall(r'<node name="(Dolphin_\d+)"', introspection_xml)]
+
+
+# How long after launching a folder another press waits for its window instead of launching again
+# (lib/explorer-logic.ahk's cooldownMs).
+FOLDER_LAUNCH_COOLDOWN = 3.0
+
+
+def folder_action(found_pid, last_launch, now, cooldown=FOLDER_LAUNCH_COOLDOWN):
+    """"activate" (a Dolphin window shows the folder), "wait" (a launch for it is still in flight —
+    without this, each press while the window was still appearing opened another) or "launch".
+    Same decision as lib/explorer-logic.ahk's _ExplorerFolderAction."""
+    if found_pid:
+        return "activate"
+    if last_launch and now - last_launch < cooldown:
+        return "wait"
+    return "launch"
+
+
 def _spawn_detached(argv):
     """Popen + a background reaper thread. Without ever calling wait()/poll() on a Popen, the
     child becomes a zombie once it exits (its intermediate launcher process, if any, exits well
@@ -142,6 +173,8 @@ class Bridge(dbus.service.Object):
     def __init__(self, state, bus_name):
         super().__init__(bus_name, OBJECT_PATH)
         self._state = state
+        self._bus = bus_name.get_bus()
+        self._folder_launched = {}  # resolved folder -> time.monotonic() of its last launch
 
     @dbus.service.method(INTERFACE, in_signature="ss", out_signature="s")
     def FindTab(self, profile, url_pattern):
@@ -277,6 +310,54 @@ class Bridge(dbus.service.Object):
     # cycleChromiumProfile, and focusTab's full-launch tier. subprocess.Popen with an argv list
     # (never shell=True) — nothing here is attacker-controlled (hotkeys.js/config.py are local,
     # user-authored files), argv just avoids quoting bugs with paths containing spaces.
+
+    def _dolphin_showing(self, uri):
+        """The pid of a running Dolphin with a window showing uri (switched to that tab), or 0.
+        Dolphin's own "is it open already" check (dolphin <folder> asks every instance the same
+        way) does this too, but then raises the window itself, which KWin's focus-stealing
+        prevention stops: main.js activates it instead."""
+        for name in self._bus.list_names():
+            name = str(name)
+            if not name.startswith("org.kde.dolphin-"):
+                continue
+            try:
+                pid = int(name.rsplit("-", 1)[1])
+                root = self._bus.get_object(name, "/dolphin", introspect=False)
+                xml = root.Introspect(dbus_interface="org.freedesktop.DBus.Introspectable", timeout=1)
+            except (ValueError, dbus.exceptions.DBusException):
+                continue
+            for path in dolphin_window_paths(str(xml)):
+                window = dbus.Interface(self._bus.get_object(name, path, introspect=False), "org.kde.dolphin.MainWindow")
+                try:
+                    if window.isUrlOpen(uri, timeout=1):
+                        # Opening a folder a window already shows switches to its tab instead.
+                        window.openDirectories([uri], False, timeout=1)
+                        return pid
+                except dbus.exceptions.DBusException:
+                    continue
+        return 0
+
+    @dbus.service.method(INTERFACE, in_signature="s", out_signature="s")
+    def FocusFolder(self, path):
+        # main.js's focusOrOpenFolder: finds a Dolphin window showing the folder, or opens it
+        # (Dolphin, else xdg-open's file manager). JSON {path, name, action, pid, error}; main.js
+        # activates the window ("activate": pid's, "launch": the one that appears).
+        folder = resolve_folder(path)
+        result = {"path": folder, "name": os.path.basename(folder) or folder, "action": "", "pid": 0, "error": ""}
+        if not os.path.isdir(folder):
+            result["error"] = f"{folder} isn't a folder"
+            return json.dumps(result)
+        result["pid"] = self._dolphin_showing(Path(folder).as_uri())
+        now = time.monotonic()
+        result["action"] = folder_action(result["pid"], self._folder_launched.get(folder, 0), now)
+        if result["action"] == "launch":
+            argv = ["dolphin", folder] if shutil.which("dolphin") else ["xdg-open", folder]
+            try:
+                _spawn_detached(argv)
+                self._folder_launched[folder] = now
+            except OSError as e:
+                result["error"] = str(e)
+        return json.dumps(result)
 
     @dbus.service.method(INTERFACE, in_signature="as")
     def LaunchCommand(self, argv):

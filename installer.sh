@@ -447,6 +447,9 @@ for info in comp.allShortcutInfos():
 
 install_kwin_script() {
     ensure_hotkeys
+    # Starter hotkeys for features added since hotkeys.js was created, each offered once
+    # (switched off if its key is taken) — see linux/server/starter_hotkeys.py.
+    python3 "$REPO_ROOT/linux/server/starter_hotkeys.py" || echo "Couldn't check for new starter hotkeys (see above); carrying on." >&2
     local staged
     staged="$(build_staged_kwin_package)"
     if qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.isScriptLoaded "$KWIN_PLUGIN_ID" 2>/dev/null | grep -q true; then

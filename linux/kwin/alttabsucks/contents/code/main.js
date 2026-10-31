@@ -134,6 +134,63 @@ function waitAndActivateLaunchedWindow(resourceClass, deadline) {
     }
 }
 
+// focusOrOpenFolder(path) — Linux port of lib/explorer.ahk's FocusOrOpenFolder, for folder
+// hotkeys: switches to the Dolphin window (and tab) already showing the folder, or opens it. A
+// runCommand binding running `dolphin <folder>` gets part of the way (Dolphin itself switches to
+// an open one), but its own raise is stopped by focus-stealing prevention, and the command never
+// exits when it opens a new window. The bridge (FocusFolder) expands "~", asks every Dolphin over
+// D-Bus which window shows the folder, switches its tab, or launches it (ignoring repeat presses
+// while that launch is in flight); this end does what only KWin can, bringing the window forward.
+var DOLPHIN_CLASS = "org.kde.dolphin";
+
+function focusOrOpenFolder(path) {
+    bridgeCall("FocusFolder", [path], function (resultStr) {
+        var r;
+        try { r = JSON.parse(resultStr); } catch (e) { return; }
+        if (r.error) {
+            showCommandResultToast(path, false, r.error);
+        } else if (r.action === "activate") {
+            // Give Dolphin a moment to switch the tab, so the caption names the folder.
+            afterDelay(100, function () {
+                var w = findFolderWindow(r, r.pid);
+                if (w) activateWindow(w, r.name);
+            });
+        } else if (r.action === "launch") {
+            waitAndActivateFolderWindow(r, Date.now() + 8000);
+        }
+        // "wait": a launch for this folder is still in flight — doing nothing is the point.
+    });
+}
+
+// Dolphin's caption is "<folder name> — Dolphin" (or the full path, with its "show full path"
+// setting). With pid, only that process's windows, falling back to its topmost one.
+function findFolderWindow(r, pid) {
+    var fallback = null;
+    var order = workspace.stackingOrder;
+    for (var i = order.length - 1; i >= 0; i--) {  // topmost first
+        var w = order[i];
+        if (w.resourceClass !== DOLPHIN_CLASS || !w.normalWindow || w.transient) continue;
+        if (pid && w.pid !== pid) continue;
+        var c = w.caption || "";
+        if (c === r.name || c.indexOf(r.name + " ") === 0 || c.indexOf(r.path + " ") === 0) return w;
+        if (pid && !fallback) fallback = w;
+    }
+    return fallback;
+}
+
+// Same poll-then-activate as waitAndActivateLaunchedWindow (and for the same reason), but for the
+// window showing this folder: Dolphin may open it as a tab of a window that's already there.
+function waitAndActivateFolderWindow(r, deadline) {
+    var w = findFolderWindow(r, 0);
+    if (w) {
+        activateWindow(w, r.name);
+        return;
+    }
+    if (Date.now() < deadline) {
+        afterDelay(500, function () { waitAndActivateFolderWindow(r, deadline); });
+    }
+}
+
 // --- D-Bus bridge to linux/server/dbus_bridge.py ---------------------------------------------
 var DBUS_SERVICE = "com.github.tomatointhesand.AltTabSucks";
 var DBUS_PATH = "/com/github/tomatointhesand/AltTabSucks";

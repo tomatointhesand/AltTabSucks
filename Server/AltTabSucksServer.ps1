@@ -476,15 +476,16 @@ try { while ($listener.IsListening) {
         } elseif ($method -eq "POST" -and $path -eq "/init-hotkeys") {
             # AltTabSucks.ahk calls this on every startup with {profile}. Either folds a leftover
             # lib/hotkeys.json from the earlier JSON-based Hotkeys UI back into app-hotkeys.ahk
-            # (once - the JSON file is then renamed out of the way), or adds the starter set from
-            # lib/hotkeys.template.json to a file with no hotkeys yet (once - see Add-StarterHotkeys).
+            # (once - the JSON file is then renamed out of the way), or adds the starter hotkeys from
+            # lib/hotkeys.template.json: the whole set to a file with no hotkeys yet, and new ones
+            # to any file, each once (see Add-StarterHotkeys). notice is what AHK shows about it.
             try {
                 $reader = [System.IO.StreamReader]::new($req.InputStream, [System.Text.Encoding]::UTF8)
                 $body   = $reader.ReadToEnd()
                 $reader.Close()
                 $profile = "$(($body | ConvertFrom-Json).profile)"
                 $text = Read-AppHotkeysText
-                $result = @{ folded = 0; seeded = 0; dropped = @() }
+                $result = @{ folded = 0; seeded = 0; dropped = @(); notice = "" }
                 if (Test-Path $legacyHotkeysJson) {
                     $legacy = Get-Content $legacyHotkeysJson -Raw -Encoding UTF8 | ConvertFrom-Json
                     $f = Merge-LegacyHotkeysJson $text @($legacy.bindings)
@@ -493,9 +494,10 @@ try { while ($listener.IsListening) {
                     if (Test-Path $legacyGenerated) { Remove-Item $legacyGenerated }
                     $result.folded = $f.Count; $result.dropped = @($f.Dropped)
                 } elseif ($profile -and (Test-Path $starterHotkeys)) {
-                    $s = Add-StarterHotkeys $text (Get-Content $starterHotkeys -Raw -Encoding UTF8) $profile
-                    if ($s.Count) { Save-AppHotkeysText $s.Text }
-                    $result.seeded = $s.Count; $result.dropped = @($s.Dropped)
+                    $downloads = (New-Object -ComObject Shell.Application).NameSpace('shell:Downloads').Self.Path
+                    $s = Add-StarterHotkeys $text (Get-Content $starterHotkeys -Raw -Encoding UTF8) $profile @{ __DOWNLOADS__ = $downloads }
+                    if ($s.Text -cne $text) { Save-AppHotkeysText $s.Text }
+                    $result.seeded = $s.Count; $result.dropped = @($s.Dropped); $result.notice = Format-StarterNotice $s
                 }
                 Send-Json $res $result
             } catch {

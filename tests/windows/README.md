@@ -11,7 +11,9 @@ starter hotkeys, the Hotkeys UI API and the page itself in Edge (driven through 
 protocol by `cdp.ps1`), save → reload and broken edit → no reload, the `hotkeys.json` fold-in, tab
 focus / profile cycling / split / merge through the extension in Edge (keys pressed by
 `press.ahk`), launching Edge when it's closed, the tab search popup (`tab-search.ahk` opens it, types, presses keys, reads its list), folder hotkeys against real Explorer
-(`explorer-mash.ahk`), and uninstall.
+(`explorer-mash.ahk`), the startup manager (taking over Windows startup entries at install, a timed
+run of AltTabSucks/Notepad/Charmap with the history row it records, the new-entry scan, and giving
+them back at uninstall), and uninstall.
 
 SSH sessions have no desktop, so `e2e.ps1` launches anything that needs one through a one-off
 scheduled task on the logged-on user's session (`Start-OnDesktop`). Don't click in the VM window
@@ -45,9 +47,12 @@ Tested on Arch/CachyOS with KVM. About 30 minutes, mostly the Windows install.
    cpu_cores="8"
    ram="12G"
    gl="off"
+   width="1920"
+   height="1080"
    ```
 
-   (`gl="off"`: Windows can't use VirGL anyway, and it avoids GL crashes on some host GPUs.)
+   (`gl="off"`: Windows can't use VirGL anyway, and it avoids GL crashes on some host GPUs.
+   `width`/`height`: the display size QEMU offers; Windows still has to be set to it, in step 5.)
 
 3. **Install Windows**: `cd ~/VMs && quickemu --vm windows-11.conf`. Press Enter on the
    language and keyboard screens; the rest is unattended (account `Quickemu`, password
@@ -95,6 +100,7 @@ Tested on Arch/CachyOS with KVM. About 30 minutes, mostly the Windows install.
    $V ssh 'reg add HKLM\SOFTWARE\OpenSSH /v DefaultShell /t REG_SZ /d C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe /f'
    $V ssh 'foreach ($id in "AutoHotkey.AutoHotkey","Microsoft.PowerShell","Git.Git") { winget install --id $id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity }'
    $V ssh 'Add-MpPreference -ExclusionPath C:\alttabsucks,"C:\Program Files\AutoHotkey"; $au = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"; New-Item $au -Force | Out-Null; Set-ItemProperty $au NoAutoUpdate 1 -Type DWord; Set-ItemProperty $au NoAutoRebootWithLoggedOnUsers 1 -Type DWord'
+   $V resolution          # 1920x1080: the VirtIO GPU driver starts at 640x480 otherwise
    $V stop && $V snapshot clean
    ```
 
@@ -136,6 +142,10 @@ bash dev-scripts/run-windows-tests.sh --no-reset   # unit suites only, on the ru
 dev-scripts/windows-vm.sh ssh                      # a PowerShell prompt in the VM
 dev-scripts/windows-vm.sh stop                     # when done
 ```
+
+Windows' resolution follows the size of the VM's window on the host, so shrinking that window
+shrinks the guest's screen. `dev-scripts/windows-vm.sh resolution` sets it back to 1920x1080 (the
+test runner does this at the start of each run).
 
 To look at the VM's screen without the window, QEMU's monitor can save a screenshot:
 `echo "screendump /tmp/vm.ppm" | socat - unix-connect:$HOME/VMs/windows-11/windows-11-monitor.socket`.

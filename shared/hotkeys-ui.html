@@ -131,6 +131,7 @@
      simpler than carving out a CSS exception, and the badge stays just as clickable at reduced
      opacity (opacity doesn't affect pointer-events) so re-enabling is no harder to hit. */
   .binding.disabled { opacity: 0.5; }
+  input.conflict { border-color: var(--err); }
   .remove-btn { padding: 6px 10px; font-size: 12px; }
   /* No longer pinned to a card corner (there's no card now, just a bottom-border divider row)
      — it's an ordinary leading cell in the row's own flex flow, same as the badge next to it. */
@@ -207,6 +208,7 @@ const GROUPS = [
   { key: "splitTab", title: "Split browser tab into new window", types: ["splitTab"], defaultType: "splitTab" },
   { key: "mergeTabs", title: "Merge browser windows", types: ["mergeTabs"], defaultType: "mergeTabs" },
   { key: "tabSearch", title: "Search browser tabs", types: ["tabSearch"], defaultType: "tabSearch" },
+  { key: "folder", title: "Open folder", types: ["folder"], defaultType: "folder" },
   { key: "runCommand", title: "Run command", types: ["runCommand"], defaultType: "runCommand" },
 ];
 // binding.type -> its GROUPS entry, built once rather than searched on every lookup.
@@ -219,6 +221,7 @@ let profiles = [];
 let HINTS = {
   resourceClass: "brave-browser, org.kde.dolphin, ...", launch: "e.g. dolphin",
   command: "/path/to/installer.sh, reload-hotkeys",
+  folder: "~/Downloads",
   browserConfigured: (b) => `Browser: ${b} — change with ./installer.sh configure (applies to every browser hotkey below, not per-row)`,
   browserMissing: "No browser configured yet — run ./installer.sh configure, then Reload. Browser hotkeys below won't save until then.",
 };
@@ -604,10 +607,33 @@ function launchProfileSelect(binding) {
   return select;
 }
 
+// "Ctrl+Shift+Alt+I" and "Ctrl+Alt+Shift+I" are the same key.
+function keyIdentity(key) {
+  const parts = (key || "").split(/\+(?=.)/).filter(Boolean).map((p) => p.toLowerCase());
+  return parts.length ? parts.slice(0, -1).sort().concat(parts[parts.length - 1]).join("+") : "";
+}
+
+// Another enabled binding with this binding's key, or null. Saving drops the second enabled
+// hotkey on a key, so a disabled one on a taken key (as starter hotkeys are added when their key
+// is taken) can't simply be switched on.
+function keyConflict(binding) {
+  const id = keyIdentity(binding.key);
+  if (!id) return null;
+  return bindings.find((b) => b !== binding && b.enabled !== false && keyIdentity(b.key) === id) || null;
+}
+
 function keyInput(binding) {
   const input = el("input", { type: "text" });
   input.value = binding.key || "";
   recordKeyField(input, binding);
+  const flag = () => {
+    const other = keyConflict(binding);
+    input.classList.toggle("conflict", !!other);
+    input.title = other ? `${binding.key} is already used by "${other.title}" — pick another key` +
+      (binding.enabled === false ? " before switching this one on" : "") : "";
+  };
+  input.addEventListener("keydown", flag);
+  flag();
   return input;
 }
 
@@ -668,6 +694,10 @@ TYPE_COLUMNS.splitTab = SPLIT_MERGE_COLUMNS;
 TYPE_COLUMNS.mergeTabs = SPLIT_MERGE_COLUMNS;
 // The tab search popup: just a key. It searches every profile, so no Profile column.
 TYPE_COLUMNS.tabSearch = SPLIT_MERGE_COLUMNS.slice(0, 2);
+// Switches to the file manager window/tab already showing the folder, or opens it.
+TYPE_COLUMNS.folder = SPLIT_MERGE_COLUMNS.slice(0, 2).concat([
+  { label: "Folder", extraClass: "wide", build: (b) => textInput(b, "path", HINTS.folder) },
+]);
 
 // Windows (Server/AppHotkeys.ps1 -> lib/app-hotkeys.ahk) differs in a few places: windows are matched by
 // process name rather than resourceClass, split/merge detect the profile from the focused window
@@ -681,6 +711,7 @@ function applyPlatform(platform) {
   Object.assign(HINTS, {
     resourceClass: "code.exe, slack.exe, ...", launch: "C:\\path\\to\\app.exe, or shell:AppsFolder\\<AppId>",
     command: "notepad.exe, C:\\notes.txt",
+    folder: "C:\\Users\\you\\Downloads",
     browserConfigured: (b) => `Browser: ${b} — change in Settings (Ctrl+Alt+Shift+,)`,
     browserMissing: "No browser configured yet — AltTabSucks prompts for one on first launch (or set it in Settings).",
   });

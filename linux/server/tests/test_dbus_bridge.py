@@ -8,7 +8,26 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dbus_bridge import merge_resource_class_names, normalize_resource_classes, scoped_argv, url_matches_pattern
+from dbus_bridge import (  # noqa: E402
+    dolphin_window_paths, folder_action, merge_resource_class_names, normalize_resource_classes, resolve_folder,
+    scoped_argv, url_matches_pattern,
+)
+
+
+class TestFolders(unittest.TestCase):
+    def test_resolve_folder_expands_home_and_drops_the_trailing_slash(self):
+        self.assertEqual(resolve_folder("~/Downloads/"), os.path.join(os.path.expanduser("~"), "Downloads"))
+        self.assertEqual(resolve_folder(" /tmp/x/ "), "/tmp/x")
+
+    def test_dolphin_window_paths(self):
+        xml = '<node><interface name="x"/><node name="Dolphin_1"/><node name="Dolphin_2"/><node name="other"/></node>'
+        self.assertEqual(dolphin_window_paths(xml), ["/dolphin/Dolphin_1", "/dolphin/Dolphin_2"])
+
+    def test_folder_action(self):
+        self.assertEqual(folder_action(1234, 0, 100.0), "activate")
+        self.assertEqual(folder_action(0, 0, 100.0), "launch")
+        self.assertEqual(folder_action(0, 99.0, 100.0), "wait")    # a launch still in flight
+        self.assertEqual(folder_action(0, 90.0, 100.0), "launch")  # long enough ago: it didn't open
 
 
 class TestScopedArgv(unittest.TestCase):

@@ -13,6 +13,7 @@
 #   ManageAppWindows                         -> windowCycle / windowToggle
 #   SplitFocusedTab / MergeFocusedWindow     -> splitTab / mergeTabs
 #   ShowTabSearch                            -> tabSearch (lib/tab-search.ahk)
+#   FocusOrOpenFolder                        -> folder (lib/explorer.ahk)
 #   Run(single command)                      -> runCommand
 # under no #HotIf, a #HotIf !WinActive(...) suppression block, or (split/merge only) a browser
 # #HotIf block. "^!+k:: ... ; Title" - the trailing comment is the binding's title.
@@ -24,7 +25,13 @@
 
 $AllProfiles     = "__all__"   # must match shared/hotkeys-ui.html's ALL_PROFILES
 $DisabledMarker  = "; [disabled] "
-$StarterMarker   = "; [Hotkeys UI] starter hotkeys added - edit or delete them freely, they won't be re-added"
+# Remembers which starter hotkeys (lib/hotkeys.template.json, by id) this file has been offered.
+$StarterMarker   = "; [Hotkeys UI] starter hotkeys: "
+$StarterSuffix   = " - edit or delete them freely, they won't be re-added"
+# What the marker said before starter hotkeys had ids: the whole set then, which had everything
+# but these.
+$LegacyStarterMarker = "; [Hotkeys UI] starter hotkeys added - edit or delete them freely, they won't be re-added"
+$StarterIdsSinceLegacy = @('tabSearch')
 $LegacyMigrated  = "; [migrated to Hotkeys UI] "
 $BrowserCriteria = 'WinActive("ahk_class Chrome_WidgetWin_1") || WinActive("ahk_class MozillaWindowClass")'
 
@@ -198,6 +205,7 @@ function Get-DefaultTitle($b) {
         'splitTab'     { return 'Split tab' }
         'mergeTabs'    { return 'Merge windows' }
         'tabSearch'    { return 'Search tabs' }
+        'folder'       { $p = "$($b.path)".TrimEnd('\', '/'); return $(if ($p) { ($p -split '[\\/]')[-1] } else { '' }) }
         'runCommand'   { if (@($b.argv).Count) { return [IO.Path]::GetFileNameWithoutExtension(($b.argv[0] -split '[\\/]')[-1]) }; return '' }
         default        { return [IO.Path]::GetFileNameWithoutExtension("$($b.resourceClass)") }
     }
@@ -249,6 +257,12 @@ function ConvertFrom-HotkeyParts($parts, $profileVars) {
         '^SplitFocusedTab$'    { if ($a.Count -ne 0) { return $null }; $b = [ordered]@{ type = 'splitTab' } }
         '^MergeFocusedWindow$' { if ($a.Count -ne 0) { return $null }; $b = [ordered]@{ type = 'mergeTabs' } }
         '^ShowTabSearch$'      { if ($a.Count -ne 0) { return $null }; $b = [ordered]@{ type = 'tabSearch' } }
+        '^FocusOrOpenFolder$' {
+            if ($a.Count -ne 1) { return $null }
+            $path = Resolve-AhkStringExpr $a[0]
+            if ($null -eq $path) { return $null }
+            $b = [ordered]@{ type = 'folder'; path = $path }
+        }
         '^Run$' {
             if ($a.Count -ne 1) { return $null }   # Run's extra options (working dir, "Hide") don't round-trip
             $cmd = Resolve-AhkStringExpr $a[0]
@@ -303,6 +317,11 @@ function ConvertTo-AhkCall($b, [string]$profileExpr) {
         'splitTab'  { return 'SplitFocusedTab()' }
         'mergeTabs' { return 'MergeFocusedWindow()' }
         'tabSearch' { return 'ShowTabSearch()' }
+        'folder' {
+            $path = "$($b.path)".Trim()
+            if (-not $path) { throw "missing folder" }
+            return "FocusOrOpenFolder($(ConvertTo-AhkString $path))"
+        }
         'runCommand' {
             $argv = @($b.argv | Where-Object { $_ })
             if (-not $argv) { throw "missing command" }
@@ -379,7 +398,8 @@ function Read-AppHotkeys([string]$text) {
 
 # Core rewrite. $newAnchor (line index, optional) forces where new non-split/merge bindings go;
 # $browserCriteria is the #HotIf criteria for a new browser-only block.
-function Invoke-AppHotkeysRewrite([string]$text, $posted, $newAnchor = $null, [string]$browserCriteria = $BrowserCriteria) {
+# -KeepInvalid leaves invalid entries in place (and unreported) instead of removing them.
+function Invoke-AppHotkeysRewrite([string]$text, $posted, $newAnchor = $null, [string]$browserCriteria = $BrowserCriteria, [switch]$KeepInvalid) {
     $m = Get-FileModel $text
     $lines = $m.Lines
     $slotBinding = @{}; foreach ($b in $m.Bindings) { $slotBinding[$b.slot] = $b }
@@ -448,7 +468,7 @@ function Invoke-AppHotkeysRewrite([string]$text, $posted, $newAnchor = $null, [s
     #    are removed, new bindings are inserted before their anchor line.
     $byLine = @{}; foreach ($it in $kept) { if ($null -ne $it.Line) { $byLine[$it.Line] = $it.Text } }
     $remove = @{}; foreach ($b in $m.Bindings) { if (-not $byLine.ContainsKey($b.slot)) { $remove[$b.slot] = $true } }
-    foreach ($inv in $m.Invalid) {
+    foreach ($inv in $(if ($KeepInvalid) { @() } else { $m.Invalid })) {
         $remove[$inv.line - 1] = $true
         [void]$dropped.Add([PSCustomObject]@{ title = $inv.title; key = $inv.key; reason = $inv.reason })
     }
@@ -510,15 +530,98 @@ function Merge-LegacyHotkeysJson([string]$text, $jsonBindings) {
     [PSCustomObject]@{ Text = $r.Text; Count = $r.Saved - $existing.Count; Dropped = $r.Dropped }
 }
 
-# First-run starter set (lib/hotkeys.template.json, "__PROFILE__" -> the browser's default
-# profile), only for a file with no bindings, and only once: a marker line remembers it.
-function Add-StarterHotkeys([string]$text, [string]$templateJson, [string]$profile) {
+# What makes two bindings the same hotkey for the starter set, whatever their key and title: a
+# file that already has one doesn't get the starter's.
+function Get-StarterIdentity($b) {
+    switch ($b.type) {
+        'tabFocus'     { "tabFocus|$("$($b.openUrl)".Trim().ToLowerInvariant())" }
+        'profileCycle' { "profileCycle|$($b.profileName)" }
+        { $_ -in 'windowCycle', 'windowToggle' } { $p = "$($b.resourceClass)".Trim().ToLowerInvariant(); if ($p -notmatch '\.') { $p += '.exe' }; "app|$p" }
+        'runCommand'   { "runCommand|$((Join-CommandLine @($b.argv)).ToLowerInvariant())" }
+        'folder'       { "folder|$("$($b.path)".Trim().TrimEnd('\', '/').ToLowerInvariant())" }
+        default        { "$($b.type)" }
+    }
+}
+
+# The ids in the file's starter marker, $null if it has none.
+function Get-StarterOffered([string[]]$lines, $templateIds) {
+    foreach ($l in $lines) {
+        if ($l.StartsWith($StarterMarker)) {
+            $ids = $l.Substring($StarterMarker.Length)
+            if ($ids.EndsWith($StarterSuffix)) { $ids = $ids.Substring(0, $ids.Length - $StarterSuffix.Length) }
+            return , @($ids -split '\s+' | Where-Object { $_ })
+        }
+        if ($l -ceq $LegacyStarterMarker) { return , @($templateIds | Where-Object { $_ -notin $StarterIdsSinceLegacy }) }
+    }
+    $null
+}
+
+# The file with its starter marker listing $ids: the marker line replaced, or added at the end.
+function Set-StarterMarker([string]$text, $ids) {
+    $eol = if ($text.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $marker = $StarterMarker + (@($ids) -join ' ') + $StarterSuffix
+    $lines = @($text -split "`n" | ForEach-Object { $_.TrimEnd("`r") })
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i].StartsWith($StarterMarker) -or $lines[$i] -ceq $LegacyStarterMarker) { $lines[$i] = $marker; return $lines -join $eol }
+    }
+    $text.TrimEnd("`r", "`n") + $eol + $eol + $marker + $eol
+}
+
+# The starter hotkeys (lib/hotkeys.template.json; "__PROFILE__" -> the browser's default profile,
+# and any other $Values placeholders), each offered to a file once, remembered by its id in a
+# marker line. A file with no bindings and no marker (first run) gets the whole set; any other
+# file gets the entries marked "upgrade" it hasn't been offered yet (new features, not examples).
+# An entry is skipped if the file already has the same hotkey under any key; otherwise it's added,
+# and if its key is taken it's added switched off (SwitchedOff says by what), so nothing the user
+# set up changes. One that can't be added at all (Dropped, e.g. no profile yet) is offered again
+# next time.
+function Add-StarterHotkeys([string]$text, [string]$templateJson, [string]$profile, [hashtable]$Values = @{}) {
     $m = Get-FileModel $text
-    if ($m.Bindings.Count -gt 0 -or $text.Contains($StarterMarker)) { return [PSCustomObject]@{ Text = $text; Count = 0; Dropped = @() } }
-    $esc = (ConvertTo-Json -InputObject $profile -Compress).Trim('"')
-    $tpl = $templateJson.Replace('__PROFILE__', $esc) | ConvertFrom-Json
-    $new = @($tpl.bindings | ForEach-Object { if ($null -eq $_.PSObject.Properties['enabled']) { $_ | Add-Member enabled $true }; $_ })
-    $marked = $text.TrimEnd("`r", "`n") + $m.Eol + $m.Eol + $StarterMarker + $m.Eol
-    $r = Invoke-AppHotkeysRewrite $marked $new
-    [PSCustomObject]@{ Text = $r.Text; Count = $r.Saved; Dropped = $r.Dropped }
+    $json = $templateJson
+    $Values = @{} + $Values; $Values['__PROFILE__'] = $profile
+    foreach ($k in $Values.Keys) { $json = $json.Replace($k, (ConvertTo-Json -InputObject "$($Values[$k])" -Compress).Trim('"')) }
+    $tpl = @(($json | ConvertFrom-Json).bindings | Where-Object { $_.id })
+    $offered = Get-StarterOffered $m.Lines @($tpl | ForEach-Object id)
+    $firstRun = $null -eq $offered -and $m.Bindings.Count -eq 0
+    if ($null -eq $offered) { $offered = @() }
+    $result = [PSCustomObject]@{ Text = $text; Count = 0; FirstRun = $firstRun; Added = @(); SwitchedOff = @(); Dropped = @() }
+    $todo = @($tpl | Where-Object { $_.id -notin $offered -and ($firstRun -or $_.upgrade -eq $true) })
+    if (-not $todo) { return $result }
+
+    $cur = Set-StarterMarker $text $offered
+    foreach ($t in $todo) {
+        $c = [ordered]@{}
+        foreach ($p in $t.PSObject.Properties) { if ($p.Name -notin 'id', 'upgrade') { $c[$p.Name] = $p.Value } }
+        if (-not $c.Contains('enabled')) { $c['enabled'] = $true }
+        $c = [PSCustomObject]$c
+        $existing = @((Get-FileModel $cur).Bindings)
+        $id = Get-StarterIdentity $c
+        if ($existing | Where-Object { (Get-StarterIdentity $_) -eq $id }) { $offered += $t.id; continue }
+        $r = Invoke-AppHotkeysRewrite $cur (@($existing) + $c) -KeepInvalid
+        $mine = @($r.Dropped | Where-Object { $_.title -eq "$($c.title)" -and $_.key -eq "$($c.key)" })
+        if ($mine -and $mine[0].reason -like 'same key as *') {
+            $c.enabled = $false
+            $r = Invoke-AppHotkeysRewrite $cur (@($existing) + $c) -KeepInvalid
+            $result.SwitchedOff += [PSCustomObject]@{ title = "$($c.title)"; key = "$($c.key)"; takenBy = $mine[0].reason.Substring(12) }
+        } elseif ($mine) {
+            $result.Dropped += $mine
+            continue
+        } else {
+            $result.Added += [PSCustomObject]@{ title = "$($c.title)"; key = "$($c.key)" }
+        }
+        $cur = $r.Text
+        $offered += $t.id
+    }
+    $result.Text = Set-StarterMarker $cur $offered
+    $result.Count = @($result.Added).Count + @($result.SwitchedOff).Count
+    $result
+}
+
+# The tray notification for what Add-StarterHotkeys did, "" for nothing worth saying.
+function Format-StarterNotice($s) {
+    if ($s.FirstRun) { return $(if ($s.Count) { "Suggested hotkeys added to app-hotkeys.ahk. Press Ctrl+Alt+/ to view and edit them." } else { "" }) }
+    $parts = @()
+    foreach ($a in $s.Added) { $parts += "New hotkey: $($a.title) ($($a.key))." }
+    foreach ($o in $s.SwitchedOff) { $parts += "New: $($o.title). $($o.key) is already used by $($o.takenBy), so it was added switched off - give it a key on the Hotkeys page." }
+    $parts -join ' '
 }

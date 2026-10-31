@@ -4,9 +4,10 @@
 ; reloads the script when app-hotkeys.ahk changes.
 
 ; Startup, via the server: folds a leftover lib\hotkeys.json from the earlier JSON-based UI back
-; into app-hotkeys.ahk, or on a file with no hotkeys yet adds the starter set from
-; lib\hotkeys.template.json with __PROFILE__ filled in by the browser's default profile. Each
-; happens once; the watcher below then reloads to apply the result.
+; into app-hotkeys.ahk, or adds starter hotkeys from lib\hotkeys.template.json (__PROFILE__ filled
+; in by the browser's default profile): the whole set to a file with no hotkeys yet, and starter
+; hotkeys for new features to any file, switched off if their key is taken. Each happens once;
+; the watcher below then reloads to apply the result.
 _InitUiHotkeys(attempt := 1) {
     try {
         resp := _UiServerPost("/init-hotkeys", '{"profile":"' JsonEscape(_DefaultBrowserProfile()) '"}')
@@ -15,8 +16,8 @@ _InitUiHotkeys(attempt := 1) {
         dropped := RegExMatch(resp, '"dropped":\[[^\]]+\]') ? " Some couldn't be added - see the Hotkeys UI save report." : ""
         if RegExMatch(resp, '"folded":\s*(\d+)', &m) && m[1] > 0
             TrayTip("Moved " m[1] " Hotkeys UI bindings into app-hotkeys.ahk." dropped " Press Ctrl+Alt+/ to view and edit them.", "AltTabSucks")
-        else if RegExMatch(resp, '"seeded":\s*(\d+)', &m) && m[1] > 0
-            TrayTip("Suggested hotkeys added to app-hotkeys.ahk." dropped " Press Ctrl+Alt+/ to view and edit them.", "AltTabSucks")
+        else if (notice := Json_Parse(resp).Get("notice", "")) != ""
+            TrayTip(notice, "AltTabSucks")
     } catch {
         if attempt < 10  ; server may still be starting
             SetTimer(() => _InitUiHotkeys(attempt + 1), -3000)

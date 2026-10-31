@@ -23,3 +23,5 @@ linux/kwin/alttabsucks/contents/code/hotkeys.json*
 lib/hotkeys.json*
 lib/hotkeys-ui.generated.ahk
 lib/app-hotkeys.ahk.pre-ui-migration-*
+alttabsucks.code-workspace
+.playwright-mcp

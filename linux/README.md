@@ -111,6 +111,19 @@ about the one browser this install manages, so there's nothing to type there at 
 **By hand** — edit `hotkeys.js` directly (see its own comments, and `hotkeys.template.js` for
 every binding type with inline docs), then run `./installer.sh reload-hotkeys` to deploy.
 
+**Folder hotkeys** ("Open folder" on the Hotkeys page, `focusOrOpenFolder("~/Downloads")` in
+`hotkeys.js`) switch to the Dolphin window and tab already showing the folder, or open it. Use
+them instead of a "Run command" `dolphin <folder>`, which opens a new window on every press when
+Dolphin isn't already showing it, and can't bring Dolphin forward when it is.
+
+**New starter hotkeys.** New features can come with a starter hotkey of their own
+(`linux/server/hotkeys.starter.json`). Every KWin script install (`./installer.sh install`,
+`restart` or `reload-hotkeys`, so `Ctrl+Alt+Shift+'` after a `git pull`) adds each one to your
+`hotkeys.js` once, with a notification. If its key or title is already taken, yours stays as it
+is and the new hotkey is added switched off, so give it another key on the Hotkeys page. Delete one
+you don't want and it stays deleted. A marker comment in `hotkeys.js` remembers which have been
+offered.
+
 Either way, **`Ctrl+Alt+Shift+'`** restarts AltTabSucks without a terminal: the server, the
 toast daemon and the KWin script (`installer.sh restart`, the Linux equivalent of
 `AltTabSucks.ahk`'s built-in `Ctrl+Alt+Shift+'`), with a toast when it's done. It's an ordinary

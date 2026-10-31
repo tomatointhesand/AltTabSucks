@@ -24,9 +24,14 @@ FIREFOX_PROFILE_INI := ""
 #Include lib\firefox.ahk      ; Firefox profile cycling + tab focus via AltTabSucks server
 #Include lib\tab-search.ahk   ; tab search popup (ShowTabSearch, Ctrl+Alt+Shift+A)
 #Include lib\app-hotkeys.ahk  ; general app + browser hotkeys
+#Include lib\json.ahk         ; Json_Parse, Json_Stringify
 #Include lib\hotkeys-ui.ahk   ; runtime for hotkeys saved from the web UI (localhost:9876/hotkeys-ui)
+#Include lib\startup-upgrade.ahk ; offers the startup manager to installs from before it existed
 #Include *i lib\SC.ahk ; SC automation (scoped to SC window) — optional
 
 A_TrayMenu.Insert("1&", "Settings", (*) => ShowSettingsGui())
 A_TrayMenu.Insert("2&", "Hotkeys UI", (*) => Run("http://localhost:9876/hotkeys-ui"))
-A_TrayMenu.Insert("3&")
+A_TrayMenu.Insert("3&", "Search browser tabs", (*) => ShowTabSearch())
+; Through Explorer, so the editor (and its "Run startup now") runs as a normal user, not elevated like this script.
+A_TrayMenu.Insert("4&", "Startup items", (*) => Run('explorer.exe "' A_ScriptDir '\StartupManager.ahk"'))
+A_TrayMenu.Insert("5&")

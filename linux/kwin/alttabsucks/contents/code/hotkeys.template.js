@@ -82,8 +82,16 @@ registerShortcut("calendar", "AltTabSucks: calendar",
 registerShortcut("addresses / contacts", "AltTabSucks: addresses / contacts",
     "Ctrl+Shift+Meta+A", function () { focusTab("brave-browser", "Personal", ["https://contacts.google.com"], "https://contacts.google.com"); });
 
+registerShortcut("google photos", "AltTabSucks: google photos",
+    "Ctrl+Shift+Meta+P", function () { focusTab("brave-browser", "Personal", ["https://photos.google.com"], "https://photos.google.com"); });
+
 registerShortcut("Search browser tabs", "AltTabSucks: Search browser tabs",
     "Ctrl+Alt+Shift+A", function () { showTabSearch("brave-browser"); });
 
 registerShortcut("Restart AltTabSucks", "AltTabSucks: Restart AltTabSucks",
     "Ctrl+Alt+\"", function () { runCommandWithToast("Restart AltTabSucks", ["YOUR_REPO_ROOT/installer.sh", "restart"]); });
+
+registerShortcut("Open Downloads", "AltTabSucks: Open Downloads",
+    "Ctrl+Alt+Shift+Down", function () { focusOrOpenFolder("~/Downloads"); });
+
+// [Hotkeys UI] starter hotkeys: tabSearch hotkeyConfig splitTab mergeTabs - edit or delete them freely, they won't be re-added

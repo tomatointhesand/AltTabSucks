@@ -6,11 +6,7 @@
 # the dialog driver, Explorer) is launched into the logged-on session through a one-off
 # scheduled task (Start-OnDesktop). PowerShell 7, like the real server.
 
-$ErrorActionPreference = 'Stop'
-$Repo    = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$Here    = $PSScriptRoot
-$Ahk     = "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe"
-$Pwsh    = "$env:LOCALAPPDATA\Microsoft\WindowsApps\pwsh.exe"
+. "$PSScriptRoot\helpers.ps1"  # $Repo, $Here, $Ahk, $Pwsh, Check, Wait-Until, Start-OnDesktop...
 $Server  = "http://localhost:9876"
 $Work    = Join-Path $env:TEMP "alttabsucks-e2e"
 $AppHk   = Join-Path $Repo "lib\app-hotkeys.ahk"
@@ -21,50 +17,6 @@ New-Item $Work -ItemType Directory -Force | Out-Null
 $TestToken = "alttabsucks-vm-test"
 Set-Content (Join-Path $Repo "Server\token.txt") $TestToken -NoNewline -Encoding ASCII
 
-$script:Passed = 0; $script:Failed = 0
-function Check([bool]$ok, [string]$name, [string]$detail = "") {
-    if ($ok) { $script:Passed++; Write-Host "PASS  $name" }
-    else     { $script:Failed++; Write-Host "FAIL  $name$(if ($detail) { "`n        $detail" })" }
-}
-function Wait-Until([scriptblock]$cond, [int]$seconds) {
-    $deadline = (Get-Date).AddSeconds($seconds)
-    while ((Get-Date) -lt $deadline) {
-        try { if (& $cond) { return $true } } catch {}
-        Start-Sleep -Milliseconds 250
-    }
-    return $false
-}
-
-# Runs exe on the interactive desktop (session of the logged-on user) and returns right away.
-function Start-OnDesktop([string]$exe, [string]$arguments, [string]$workDir = $Repo) {
-    $name = "alttabsucks-e2e-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
-    $action = if ($arguments) { New-ScheduledTaskAction -Execute $exe -Argument $arguments -WorkingDirectory $workDir }
-              else { New-ScheduledTaskAction -Execute $exe -WorkingDirectory $workDir }
-    # Not "$env:USERDOMAIN\$env:USERNAME": over SSH USERDOMAIN is "WORKGROUP", not the machine.
-    $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
-    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries
-    Register-ScheduledTask -TaskName $name -Action $action -Principal $principal -Settings $settings | Out-Null
-    Start-ScheduledTask -TaskName $name
-    $name
-}
-# Same, but waits for it to finish (up to $seconds) and removes the task.
-function Invoke-OnDesktop([string]$exe, [string]$arguments, [int]$seconds = 120) {
-    $name = Start-OnDesktop $exe $arguments
-    Wait-Until { (Get-ScheduledTask -TaskName $name).State -ne 'Running' } $seconds | Out-Null
-    Start-Sleep -Milliseconds 500
-    Unregister-ScheduledTask -TaskName $name -Confirm:$false
-}
-function Remove-E2eTasks {
-    Get-ScheduledTask -TaskName "alttabsucks-e2e-*" -ErrorAction SilentlyContinue |
-        Unregister-ScheduledTask -Confirm:$false
-}
-
-# The AltTabSucks.ahk process (AutoHotkey64.exe running it), or $null.
-function Get-AltTabSucks {
-    Get-CimInstance Win32_Process -Filter "Name = 'AutoHotkey64.exe'" |
-        Where-Object { $_.CommandLine -like "*AltTabSucks.ahk*" } | Select-Object -First 1
-}
 function Get-Token { (Get-Content (Join-Path $Repo "Server\token.txt") -Raw).Trim() }
 function Invoke-Api([string]$method, [string]$path, $body = $null) {
     $p = @{ Uri = "$Server$path"; Method = $method; Headers = @{ "X-AltTabSucks-Token" = (Get-Token) }; UseBasicParsing = $true; TimeoutSec = 20 }
@@ -77,12 +29,21 @@ function Invoke-Api([string]$method, [string]$path, $body = $null) {
     }
 }
 
+# The startup manager's files, and two Windows startup entries for the installer to take over.
+$SmConfig    = "$env:LOCALAPPDATA\AltTabSucks\startup.json"
+$SmHistory   = "$env:LOCALAPPDATA\AltTabSucks\startup-history.jsonl"
+$SmErrors    = "$env:LOCALAPPDATA\AltTabSucks\startup-errors.log"
+$RunKey      = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+$ApprovedRun = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+Set-ItemProperty $RunKey "E2E Notepad" "notepad.exe"
+Set-ItemProperty $RunKey "E2E Charmap" "$env:windir\System32\charmap.exe"
+
 try {
     # ---- fresh install, as a new user would do it -------------------------------------------
     $driverOut = Join-Path $Work "first-run.txt"
     Start-OnDesktop $Ahk "`"$Here\drive-first-run.ahk`" `"$driverOut`"" | Out-Null
     $installLog = Join-Path $Work "install.log"
-    Invoke-OnDesktop "cmd.exe" "/c `"`"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Repo\installer.ps1`" -Action install > `"$installLog`" 2>&1`"" 180
+    Invoke-OnDesktop "cmd.exe" "/c `"`"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Repo\installer.ps1`" -Action install -TakeOverStartup Yes > `"$installLog`" 2>&1`"" 180
 
     $task = Get-ScheduledTask -TaskName "AltTabSucks" -ErrorAction SilentlyContinue
     Check ($null -ne $task) "installer registers the AltTabSucks scheduled task" (Get-Content $installLog -Raw -ErrorAction SilentlyContinue)
@@ -91,6 +52,18 @@ try {
     Check ($serverProc.Name -eq "pwsh.exe") "  ...running under PowerShell 7" "process: $($serverProc.Name)"
     Check ((Get-Token) -eq $TestToken) "server keeps an existing token.txt"
     Check (Test-Path $AppHk) "installer created lib\app-hotkeys.ahk from the template"
+
+    $smTask = Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue
+    Check ($smTask -and $smTask.Triggers[0].CimClass.CimClassName -eq "MSFT_TaskLogonTrigger" -and "$($smTask.Principal.RunLevel)" -eq "Limited" -and $smTask.Settings.Priority -eq 4) `
+        "installer registers the startup manager's logon task (not elevated, normal priority)" "$($smTask.Triggers | Out-String) $($smTask.Principal | Out-String) priority $($smTask.Settings.Priority)"
+    $ahkTask = Get-ScheduledTask -TaskName "AltTabSucks AHK" -ErrorAction SilentlyContinue
+    Check ($ahkTask -and "$($ahkTask.Principal.RunLevel)" -eq "Highest" -and -not $ahkTask.Triggers) "  ...and the on-demand elevated task it starts AltTabSucks.ahk through"
+    Check (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AltTabSucks.bat")) "  ...instead of a Startup folder script"
+    $sm = Get-Content $SmConfig -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+    $smNotepad = @($sm.items | Where-Object { $_.name -eq "E2E Notepad" })[0]
+    Check ($sm.items[0].builtin -eq "alttabsucks" -and $smNotepad.process -eq "notepad.exe" -and $smNotepad.windows.valueName -eq "E2E Notepad") `
+        "install moves the Windows startup entries into startup.json, after AltTabSucks" (Get-Content $SmConfig -Raw -ErrorAction SilentlyContinue)
+    Check ((Get-ItemProperty $ApprovedRun -ErrorAction SilentlyContinue)."E2E Notepad"[0] -eq 3) "  ...and turns them off in Windows startup"
 
     Check (Wait-Until { (Get-Content $driverOut -Raw) -match "answered both" } 60) "first launch asks for a browser, then about the default browser" (Get-Content $driverOut -Raw -ErrorAction SilentlyContinue)
     Check (Wait-Until { Test-Path (Join-Path $Repo "lib\config.ahk") } 10) "choosing a browser writes lib\config.ahk"
@@ -106,7 +79,7 @@ try {
     # ---- starter hotkeys --------------------------------------------------------------------
     # The template has no UI-recognizable hotkeys, so _InitUiHotkeys (3s after start) adds the
     # starter set from lib\hotkeys.template.json, and the watcher reloads to apply it.
-    Check (Wait-Until { (Get-Content $AppHk -Raw) -match "\[Hotkeys UI\] starter hotkeys added" } 30) "first start adds the starter hotkeys to app-hotkeys.ahk"
+    Check (Wait-Until { (Get-Content $AppHk -Raw) -match "\[Hotkeys UI\] starter hotkeys: notepad " } 30) "first start adds the starter hotkeys to app-hotkeys.ahk"
     # Not "the process ID changed": the reload can happen before $ats was read. The running script
     # must have started after the starter hotkeys were written.
     Check (Wait-Until { ($p = Get-AltTabSucks) -and $p.CreationDate -ge (Get-Item $AppHk).LastWriteTime.AddSeconds(-1) } 15) "  ...and reloads to apply them" `
@@ -136,6 +109,9 @@ try {
     $bindings = @($get.Json.bindings | Where-Object { $_ })
     $invalid = @($get.Json.invalid | Where-Object { $_ })
     Check ($bindings.Count -ge 10 -and $invalid.Count -eq 0 -and "$($get.Json.fileHash)" -ne "") "  ...shows the starter hotkeys, none invalid, with a fileHash" "$($bindings.Count) bindings, $($invalid.Count) invalid: $($invalid | ConvertTo-Json -Compress)"
+
+    $dl = @($bindings | Where-Object { $_.type -eq "folder" })
+    Check ($dl.Count -eq 1 -and $dl[0].path -eq (New-Object -ComObject Shell.Application).NameSpace('shell:Downloads').Self.Path) "  ...Downloads as a folder hotkey, with the real Downloads folder" ($dl | ConvertTo-Json -Compress)
 
     if ($bindings.Count -gt 0) {
         $bindings[0].title = "E2E renamed"
@@ -172,6 +148,28 @@ try {
     $again = Invoke-API POST "/init-hotkeys" @{ profile = "Default" }
     Check ($again.Json.folded -eq 0 -and $again.Json.seeded -eq 0) "  ...only once"
     Check (Wait-Until { (Get-AltTabSucks) -ne $null } 15) "AltTabSucks is still running after all that"
+
+    # ---- a starter hotkey that comes with an update, on a key that's taken ----------------------
+    # As if tab search were new: its line becomes a hand-written hotkey on the same key, and the
+    # marker forgets it was offered. That edit reloads AltTabSucks, whose startup /init-hotkeys
+    # call then offers it.
+    Start-Sleep -Seconds 2
+    $before = Get-Content $AppHk -Raw
+    $upd = $before -replace '(?m)^\^!\+a:: ShowTabSearch\(\)[^\r\n]*', '^!+a:: Send("e2e")' -replace '(starter hotkeys: [^\r\n]*?)tabSearch ', '$1'
+    Check ($upd -cne $before -and $upd -notmatch 'starter hotkeys: [^\r\n]*tabSearch') "(set up: tab search's key taken by a hand-written hotkey)"
+    [IO.File]::WriteAllText($AppHk, $upd)
+    Check (Wait-Until { (Get-Content $AppHk -Raw) -match '(?m)^; \[disabled\] \^!\+a:: ShowTabSearch\(\)' } 30) "after an update, AltTabSucks adds a new starter hotkey whose key is taken switched off"
+    $text = Get-Content $AppHk -Raw
+    Check ($text.Contains('^!+a:: Send("e2e")') -and $text -match 'starter hotkeys: [^\r\n]*tabSearch') "  ...leaving the hotkey on its key alone, and remembering it"
+    $st = Invoke-API POST "/init-hotkeys" @{ profile = "Default" }
+    Check ($st.Status -eq 200 -and "$($st.Json.notice)" -eq "" -and (Get-Content $AppHk -Raw) -ceq $text) "  ...once" "HTTP $($st.Status): $($st.Json | ConvertTo-Json -Compress)"
+    Check (Wait-Until { ($p = Get-AltTabSucks) -and $p.CreationDate -ge (Get-Item $AppHk).LastWriteTime.AddSeconds(-1) } 15) "  ...and reloads with it"
+    Start-Sleep -Seconds 4
+    $ats = Get-AltTabSucks
+    [IO.File]::WriteAllText($AppHk, $before)
+    Check (Wait-Until { ($p = Get-AltTabSucks) -and $p.ProcessId -ne $ats.ProcessId } 15) "(tab search's starter hotkey put back)"
+    # Let the reloaded script take its first look at the file: a save before that wouldn't reload it.
+    Start-Sleep -Seconds 4
 
     # ---- tab focus hotkeys (FocusTab through the extension in Edge) ---------------------------
     # Two bindings added through the API, on local pages so nothing depends on the internet:
@@ -482,9 +480,76 @@ blankRow = () => [...document.querySelectorAll(".binding")].find(r => inputs(r).
     $mash = @{}; foreach ($l in (Get-Content $mashOut -ErrorAction SilentlyContinue)) { $k, $v = $l -split '=', 2; if ($v) { $mash[$k] = $v } }
     Check ($mash["after_mash"] -eq "1") "mashing a folder hotkey opens exactly one Explorer window" "got $($mash['after_mash'])"
     Check ($mash["after_second_press"] -eq "1") "  ...and a later press focuses it instead of opening another" "got $($mash['after_second_press'])"
+
+    # ---- startup manager ----------------------------------------------------------------------
+    # A run like the one at logon (--run: same thing, recorded as manual), with AltTabSucks.ahk
+    # stopped so it's started again, then Notepad, then Charmap 1 s after Notepad's window shows.
+    # The VM's own startup apps (Edge, OneDrive...) were taken over too; they stay off here.
+    $sm = Get-Content $SmConfig -Raw | ConvertFrom-Json -AsHashtable
+    foreach ($i in $sm.items) {
+        $i.enabled = $i.builtin -eq "alttabsucks" -or $i.name -like "E2E *"
+        if ($i.name -eq "E2E Notepad") { $i.delay = 0 }
+        if ($i.name -eq "E2E Charmap") { $i.delay = 1; $i.afterReady = $true }
+    }
+    $sm.autoCloseSeconds = 3
+    [IO.File]::WriteAllText($SmConfig, (ConvertTo-Json $sm -Depth 10))
+    Stop-Process -Name notepad, charmap -ErrorAction SilentlyContinue
+    if ($ats = Get-AltTabSucks) { Stop-Process -Id $ats.ProcessId -Force }
+    Start-Sleep -Seconds 1
+    $smStarted = Get-Date
+    Start-OnDesktop $Ahk "`"$Repo\StartupManager.ahk`" --run" | Out-Null
+    Check (Wait-Until { Test-Path $SmHistory } 60) "the startup manager launches the startup items and adds a row to startup-history.jsonl" (Get-Content $SmErrors -Raw -ErrorAction SilentlyContinue)
+    $row = Get-Content $SmHistory -Tail 1 -ErrorAction SilentlyContinue | ConvertFrom-Json
+    $it = @{}; foreach ($x in $row.items) { $it[$x.name] = $x }
+    $n = $it["E2E Notepad"]; $c = $it["E2E Charmap"]
+    Check ($it["AltTabSucks"].status -eq "ready" -and (Get-AltTabSucks)) "  ...AltTabSucks.ahk started again" ($row | ConvertTo-Json -Depth 5 -Compress)
+    Check ((Get-ScheduledTaskInfo -TaskName "AltTabSucks AHK").LastRunTime -ge $smStarted.AddSeconds(-2)) "  ...through its elevated task"
+    Check ($n.status -eq "ready" -and $n.processMs -ge $n.launchMs -and $n.readyMs -ge $n.processMs) "  ...Notepad's process and first window timed" ($n | ConvertTo-Json -Compress)
+    Check ($c.status -eq "ready" -and $c.launchMs -ge $n.readyMs + 950) "  ...Charmap launched 1 s after Notepad was ready" ($c | ConvertTo-Json -Compress)
+    Check ($row.trigger -eq "manual" -and $row.allReadyMs -ge $c.readyMs -and @($row.items | Where-Object { $_.status -eq "off" }).Count -eq $row.items.Count - 3) "  ...the row has the run's totals, the other items off"
+    Check (Wait-Until { -not (Get-CimInstance Win32_Process -Filter "Name = 'AutoHotkey64.exe'" | Where-Object { $_.CommandLine -like "*StartupManager.ahk*" }) } 20) "  ...and the manager closes itself once everything is ready"
+    Check (-not (Test-Path $SmErrors)) "  ...without errors" (Get-Content $SmErrors -Raw -ErrorAction SilentlyContinue)
+    Stop-Process -Name notepad, charmap -ErrorAction SilentlyContinue
+
+    # ---- installs from before the startup manager get offered it ------------------------------
+    # Like an old install: the server task, no startup manager task. AltTabSucks.ahk asks 8 s
+    # after it starts; No is remembered, Yes runs installer.ps1 -Action startup-setup.
+    $declined = "$env:LOCALAPPDATA\AltTabSucks\startup-setup-declined"
+    function Restart-AltTabSucks {
+        if ($p = Get-AltTabSucks) { Stop-Process -Id $p.ProcessId -Force; Start-Sleep -Seconds 1 }
+        Start-OnDesktop $Ahk "`"$Repo\AltTabSucks.ahk`"" | Out-Null
+    }
+    $boxOut = Join-Path $Work "msgbox.txt"
+    Unregister-ScheduledTask -TaskName "AltTabSucks Startup" -Confirm:$false
+    Start-OnDesktop $Ahk "`"$Here\answer-msgbox.ahk`" `"$boxOut`" `"AltTabSucks: startup manager`" Button2 40" | Out-Null
+    Restart-AltTabSucks
+    Check (Wait-Until { (Get-Content $boxOut -Raw) -match "answered" } 45) "an install without the startup manager offers it" (Get-Content $boxOut -Raw -ErrorAction SilentlyContinue)
+    Check (Wait-Until { Test-Path $declined } 5) "  ...and remembers a No"
+    Start-OnDesktop $Ahk "`"$Here\answer-msgbox.ahk`" `"$boxOut`" `"AltTabSucks: startup manager`" Button2 20" | Out-Null
+    Restart-AltTabSucks
+    Check (-not (Wait-Until { (Get-Content $boxOut -Raw) -match "answered" } 20)) "  ...by not asking again"
+    Remove-Item $declined
+    Start-OnDesktop $Ahk "`"$Here\answer-msgbox.ahk`" `"$boxOut`" `"AltTabSucks: startup manager`" Button1 40" | Out-Null
+    Restart-AltTabSucks
+    Check (Wait-Until { Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue } 60) "  ...and Yes sets it up (installer.ps1 -Action startup-setup)" (Get-Content $boxOut -Raw -ErrorAction SilentlyContinue)
+    # It waits for Enter in its console at the end.
+    Get-CimInstance Win32_Process -Filter "Name = 'pwsh.exe'" | Where-Object { $_.CommandLine -like "*startup-setup*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+    Set-ItemProperty $RunKey "E2E Later" "notepad.exe"
+    $scan = @(& $Pwsh -NoProfile -ExecutionPolicy Bypass -File "$Repo\installer.ps1" -Action startup-scan)
+    Check (($scan -join "|") -eq "NEW`tE2E Later") "startup-scan finds a Windows startup entry added after install (for the manager's notice)" ($scan -join "|")
+
+    # Saying no to the takeover: the entry stays on in Windows, and the choice is remembered.
+    Invoke-OnDesktop "cmd.exe" "/c `"`"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Repo\installer.ps1`" -Action startup-setup -TakeOverStartup No < nul > `"$Work\setup-no.log`" 2>&1`"" 60
+    $sm = Get-Content $SmConfig -Raw | ConvertFrom-Json
+    Check ($sm.takeOver -eq $false -and -not @($sm.items | Where-Object { $_.name -eq "E2E Later" })) "startup-setup -TakeOverStartup No leaves new Windows startup apps out of the list" (Get-Content "$Work\setup-no.log" -Raw -ErrorAction SilentlyContinue)
+    Check ($null -eq (Get-ItemProperty $ApprovedRun -ErrorAction SilentlyContinue)."E2E Later") "  ...and on in Windows"
+
     # ---- uninstall ------------------------------------------------------------------------------
     & $Pwsh -NoProfile -ExecutionPolicy Bypass -File "$Repo\installer.ps1" -Action uninstall | Out-Null
     Check (-not (Get-ScheduledTask -TaskName "AltTabSucks" -ErrorAction SilentlyContinue)) "uninstall removes the scheduled task"
+    Check (-not (Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue) -and -not (Get-ScheduledTask -TaskName "AltTabSucks AHK" -ErrorAction SilentlyContinue)) "  ...and the startup manager's"
+    Check ($null -eq (Get-ItemProperty $ApprovedRun -ErrorAction SilentlyContinue)."E2E Notepad") "  ...and turns the Windows startup entries it took over back on"
     Check (Wait-Until { -not (Get-NetTCPConnection -LocalPort 9876 -State Listen -ErrorAction SilentlyContinue) } 10) "  ...and stops the server"
 } finally {
     Remove-E2eTasks

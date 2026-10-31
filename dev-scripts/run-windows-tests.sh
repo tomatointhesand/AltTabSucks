@@ -5,7 +5,10 @@
 #   3. tests/windows/e2e.ps1 - a fresh install with its first-run dialogs, starter hotkeys, the
 #      Hotkeys UI (API and the page itself in Edge) with save -> reload and broken edit -> no
 #      reload, the hotkeys.json fold-in, tab focus / profile cycling / split / merge through the
-#      extension in Edge, launching Edge when it's closed, folder hotkeys vs real Explorer, uninstall
+#      extension in Edge, launching Edge when it's closed, folder hotkeys vs real Explorer, the
+#      startup manager, uninstall
+#   4. tests/windows/logon.ps1 - install, switch UAC on, reboot, and check the startup manager at
+#      the real logon (AltTabSucks elevated without a prompt, the apps it starts not elevated)
 #
 # Usage: dev-scripts/run-windows-tests.sh [--no-reset]
 #   By default the VM is rolled back to its "browser" snapshot first, so the e2e tests always see
@@ -25,6 +28,9 @@ reset=1
 [ "${1:-}" = "--no-reset" ] && reset=0
 
 if [ "$reset" = 1 ]; then "$VM" reset; else "$VM" start; fi
+# The guest's resolution follows the QEMU window on the host, which can come up small; some tests
+# (two Edge windows side by side) need a wide screen.
+"$VM" resolution >/dev/null
 "$VM" sync "$REPO_ROOT"
 
 overall=0
@@ -41,8 +47,12 @@ run "AHK tests" '& "C:\Program Files\Git\bin\bash.exe" dev-scripts/run-ahk-tests
 run "PowerShell tests (PowerShell 7)" 'Get-ChildItem tests\ps\test-*.ps1 | % { pwsh -NoProfile -ExecutionPolicy Bypass -File $_.FullName | Select-String -NotMatch "^PASS"; if ($LASTEXITCODE) { $global:LASTEXITCODE = 1 } }'
 if [ "$reset" = 1 ]; then
     run "End-to-end (tests/windows/e2e.ps1)" 'pwsh -NoProfile -ExecutionPolicy Bypass -File tests\windows\e2e.ps1'
+    run "Logon, before the reboot (tests/windows/logon.ps1)" 'pwsh -NoProfile -ExecutionPolicy Bypass -File tests\windows\logon.ps1 -Phase prepare'
+    "$VM" reboot
+    "$VM" resolution >/dev/null
+    run "Logon (tests/windows/logon.ps1)" 'pwsh -NoProfile -ExecutionPolicy Bypass -File tests\windows\logon.ps1 -Phase check'
 else
-    echo; echo "=== End-to-end: skipped (needs a fresh VM; run without --no-reset) ==="
+    echo; echo "=== End-to-end and logon: skipped (need a fresh VM; run without --no-reset) ==="
 fi
 
 echo

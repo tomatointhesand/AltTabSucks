@@ -4,10 +4,13 @@
 # Usage:
 #   windows-vm.sh start         boot it (window opens) and wait until SSH answers
 #   windows-vm.sh stop          shut Windows down
+#   windows-vm.sh reboot        restart Windows and wait until SSH answers again (it logs on by itself)
 #   windows-vm.sh reset [NAME]  stop, roll the disk back to a snapshot (default "browser"), start
 #   windows-vm.sh ssh [cmd]     PowerShell over SSH (no cmd: interactive)
 #   windows-vm.sh sync [repo]   copy a git working tree (default: this repo) to C:\alttabsucks
 #   windows-vm.sh snapshot NAME save the (stopped) disk as a new snapshot
+#   windows-vm.sh resolution [WxH] set the display mode in Windows (default 1920x1080); snapshot
+#                               afterwards to keep it
 # Snapshots: "clean" = AutoHotkey v2, PowerShell 7.6, Git, OpenSSH (key: ./windows-11/id_ed25519),
 # Defender exclusions for C:\alttabsucks, automatic updates off; Windows is unactivated.
 # "browser" = clean + Edge (profile "Profile 1") with the extension loaded unpacked from
@@ -46,6 +49,11 @@ case "${1:-}" in
         running && { echo "still running" >&2; exit 1; }
         echo "win11 is stopped"
         ;;
+    reboot)
+        "${SSH[@]}" "Restart-Computer -Force" 2>/dev/null || true
+        for _ in $(seq 1 60); do "${SSH[@]}" "exit 0" 2>/dev/null || break; sleep 2; done  # until it's going down
+        wait_ssh && echo "win11 is back up"
+        ;;
     reset)
         "$0" stop
         qemu-img snapshot -a "${2:-browser}" "$DISK"
@@ -63,13 +71,28 @@ case "${1:-}" in
             | "${SSH[@]}" "tar -xf - -C C:\\alttabsucks"
         echo "synced $repo -> C:\\alttabsucks"
         ;;
+    resolution)
+        size="${2:-1920x1080}"
+        tar -cf - -C "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../tests/windows" set-resolution.ps1 \
+            | "${SSH[@]}" "New-Item C:\\vm-tools -ItemType Directory -Force | Out-Null; tar -xf - -C C:\\vm-tools"
+        # On the desktop, through a one-off task: display settings can't be changed from SSH.
+        "${SSH[@]}" "\$u = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+            \$a = New-ScheduledTaskAction -Execute \"\$env:LOCALAPPDATA\\Microsoft\\WindowsApps\\pwsh.exe\" -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\\vm-tools\\set-resolution.ps1 -Width ${size%x*} -Height ${size#*x}'
+            Register-ScheduledTask -TaskName vm-resolution -Action \$a -Principal (New-ScheduledTaskPrincipal -UserId \$u -LogonType Interactive -RunLevel Highest) -Force | Out-Null
+            Remove-Item \"\$env:TEMP\\set-resolution.txt\" -ErrorAction SilentlyContinue
+            Start-ScheduledTask vm-resolution
+            for (\$i = 0; \$i -lt 60 -and -not (Test-Path \"\$env:TEMP\\set-resolution.txt\"); \$i++) { Start-Sleep -Milliseconds 500 }
+            Unregister-ScheduledTask vm-resolution -Confirm:\$false
+            Get-Content \"\$env:TEMP\\set-resolution.txt\" -ErrorAction SilentlyContinue
+            Get-CimInstance Win32_VideoController | ForEach-Object { 'now ' + \$_.CurrentHorizontalResolution + 'x' + \$_.CurrentVerticalResolution }"
+        ;;
     snapshot)
         running && { echo "stop the VM first" >&2; exit 1; }
         qemu-img snapshot -c "${2:?snapshot name}" "$DISK"
         qemu-img snapshot -l "$DISK"
         ;;
     *)
-        sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
         exit 1
         ;;
 esac

@@ -93,9 +93,41 @@ On first launch, if `lib\app-hotkeys.ahk` has no hotkeys yet, AltTabSucks adds a
 | Alt+X / Alt+Z | In the browser: split the tab into its own window / merge it back |
 | Ctrl+Alt+Shift+N | Show/hide Notepad |
 | Ctrl+Alt+Shift+Enter | Cycle Windows Terminal windows |
-| Ctrl+Alt+Shift+Down | Open Downloads |
+| Ctrl+Alt+Shift+Down | Open Downloads (or switch to the Explorer window/tab already showing it) |
 
 Open your browser and switch tabs once so the extension reports them, then try a few.
+
+**Updating later?** New features can come with a starter hotkey of their own (tab search did).
+AltTabSucks adds each one to your `app-hotkeys.ahk` once, when it starts after the update, and
+tells you. If its key is already one of yours, yours stays as it is and the new hotkey is added
+switched off: give it another key on the Hotkeys page. Delete one you don't want and it stays
+deleted. Tab search is also in the tray menu.
+
+#### 5. Startup items
+
+Windows starts the apps in its Run keys and Startup folder late after logon, and then all of them
+at once. AltTabSucks can take that job over. The installer lists them and asks; if you agree, it
+moves them into its own list and turns them off in Windows, the way Task Manager's Startup apps page
+does. At logon its startup manager starts AltTabSucks first, then each app in order with its own
+delay. If you say no, the startup manager still starts AltTabSucks, and Windows keeps starting the
+rest.
+
+**Installed AltTabSucks before this existed?** AltTabSucks offers to set it up once, a few seconds
+after it starts. Or run `.\installer.ps1 -Action startup-setup`, which sets up only the startup
+manager and leaves your browser choice and everything else alone.
+
+While it runs, a small window in the bottom-right corner shows each item's countdown and status
+(launching, waiting for its window, ready) and when it was ready. It closes itself a few seconds
+after the last one; click it to keep it open. Edit the list right there, or later from the tray menu
+→ **Startup items**: tick items on and off, reorder them, and change the delay. The delay counts
+from the previous item's launch, or with "Count it from when the previous item is ready", from when
+the previous item's first window appeared. **History** shows every run (one row per logon, kept in
+`%LOCALAPPDATA%\AltTabSucks\startup-history.jsonl`): when each app was ready, and how long it took
+after launching, so you can see what a change in delays did. An app that starts in the tray never
+shows a window, so for that one set "Ready when" to "its process is running".
+
+Apps you install later may add themselves to Windows startup again. The window says so, and
+**Take over** moves them into the list. Uninstalling turns the Windows entries back on.
 
 **To change them, press Ctrl+Alt+/** (or tray menu → Hotkeys UI), paste your auth token (`Server\token.txt`), and add or edit app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. The page shows the hotkeys in `lib\app-hotkeys.ahk` itself: every single-line hotkey it recognizes, whether you wrote it by hand or saved it from the page. Saving rewrites just those lines, leaves the rest of the file alone (your own functions, multi-line hotkeys, comments) and keeps the previous version as `app-hotkeys.ahk.bak`; AltTabSucks then reloads itself within a second. Editing the file by hand works too. A change that wouldn't load is reported in a notification instead of reloading.
 
@@ -108,7 +140,11 @@ The config heals itself: a hotkey that's no longer valid (for example after an u
 1. Registers a Task Scheduler task named **AltTabSucks** that runs `AltTabSucksServer.ps1`:
    - Starts automatically at logon (runs hidden, no console window)
    - Runs with elevated privileges so `HttpListener` can bind to port 9876
-2. Writes `AltTabSucks.bat` to your `shell:startup` folder so `AltTabSucks.ahk` launches automatically on future logons.
+2. Sets up the startup manager (see [Startup items](#5-startup-items)):
+   - Registers an **AltTabSucks Startup** task that runs `StartupManager.ahk` at logon, without elevation.
+   - Registers an on-demand, elevated **AltTabSucks AHK** task. The startup manager starts `AltTabSucks.ahk` through it, so there's no UAC prompt at logon.
+   - Lists the Windows startup entries and asks whether to move them into `%LOCALAPPDATA%\AltTabSucks\startup.json` (`-TakeOverStartup Yes|No` answers in advance).
+   - Removes the `AltTabSucks.bat` startup script that older versions used.
 3. Creates `lib\app-hotkeys.ahk` from the template if you don't have one yet, and deletes `lib\config.ahk` so the browser is detected again on the next launch (see below).
 4. Disables the **Ctrl+Alt+Win+Shift** shortcut that opens Copilot/Office by redirecting the `ms-officeapp` protocol handler to a no-op (`rundll32`).
 5. Launches `AltTabSucks.ahk` immediately so the current session is live without a logon cycle.
@@ -124,8 +160,11 @@ On first launch (or after reinstalling), AltTabSucks scans for installed browser
 .\installer.ps1 -Action start     # Start manually (if stopped)
 .\installer.ps1 -Action stop      # Stop task and kill orphaned processes
 .\installer.ps1 -Action restart   # stop + start, waits until the server answers (what Ctrl+Alt+Shift+' runs)
-.\installer.ps1 -Action uninstall # Stop the server, remove task and startup script
+.\installer.ps1 -Action uninstall # Stop the server, remove the tasks, give the startup apps back to Windows
 ```
+
+Install while logged on as the account you use: if UAC asks for a different administrator's
+password, the tasks and startup items are set up for that account instead.
 
 You can also manage it in **Task Scheduler** (`taskschd.msc`) under **Task Scheduler Library > AltTabSucks**.
 

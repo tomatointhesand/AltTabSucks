@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hotkeys_generator import (  # noqa: E402
-    DISABLED_MARKER, HEADER, LEGACY_HEADER, fold_legacy_hotkeys_json, generate_binding_js,
-    normalize_key, parse_hotkeys_js, rewrite_hotkeys_js,
+    DISABLED_MARKER, HEADER, LEGACY_HEADER, STARTER_MARKER, add_starter_hotkeys, fold_legacy_hotkeys_json,
+    format_starter_notice, generate_binding_js, normalize_key, parse_hotkeys_js, rewrite_hotkeys_js,
 )
 
 
@@ -393,6 +393,65 @@ class FoldLegacyHotkeysJsonTestCase(unittest.TestCase):
         self.assertEqual([(b["title"], b["enabled"]) for b in parse_hotkeys_js(r["text"])["bindings"]],
                          [("Kate", True), ("Off", False)])
         self.assertEqual([d["title"] for d in r["dropped"]], ["Draft"])
+
+
+class FolderTestCase(unittest.TestCase):
+    def test_round_trip(self):
+        js = generate_binding_js({"type": "folder", "title": "Downloads", "key": "Ctrl+Alt+Shift+Down", "path": "~/Downloads"})
+        self.assertIn('focusOrOpenFolder("~/Downloads");', js)
+        b = parse_hotkeys_js(js + "\n")["bindings"][0]
+        self.assertEqual((b["type"], b["path"], b["title"]), ("folder", "~/Downloads", "Downloads"))
+
+    def test_needs_a_folder(self):
+        with self.assertRaisesRegex(ValueError, "missing folder"):
+            generate_binding_js({"type": "folder", "title": "x", "key": "Alt+F", "path": " "})
+
+
+class StarterHotkeysTestCase(unittest.TestCase):
+    SEARCH = {"id": "tabSearch", "type": "tabSearch", "title": "Search browser tabs", "key": "Ctrl+Alt+Shift+A"}
+    SPLIT = {"id": "splitTab", "type": "splitTab", "title": "Split browser tab", "key": "Alt+X", "profileName": "Personal"}
+    KATE = _stmt("Kate", "Alt+K", 'manageAppWindows("kate", "cycle");')
+
+    def add(self, text, starter=None, rc="brave-browser"):
+        return add_starter_hotkeys(text, starter or [self.SEARCH, self.SPLIT], rc)
+
+    def test_free_keys_are_added_once(self):
+        r = self.add(HEADER + "\n" + self.KATE + "\n")
+        self.assertEqual([(b["title"], b["enabled"]) for b in parse_hotkeys_js(r["text"])["bindings"]],
+                         [("Kate", True), ("Search browser tabs", True), ("Split browser tab", True)])
+        self.assertIn(STARTER_MARKER + "tabSearch splitTab - ", r["text"])
+        self.assertEqual(format_starter_notice(r),
+                         "New hotkey: Search browser tabs (Ctrl+Alt+Shift+A). New hotkey: Split browser tab (Alt+X).")
+        again = self.add(r["text"])
+        self.assertEqual((again["text"], again["added"]), (r["text"], []))
+
+    def test_deleted_ones_are_not_added_back(self):
+        r = self.add(HEADER + "\n" + STARTER_MARKER + "tabSearch splitTab - x\n")
+        self.assertEqual(parse_hotkeys_js(r["text"])["bindings"], [])
+
+    def test_taken_key_is_added_switched_off(self):
+        gmail = _stmt("gmail", "Ctrl+Alt+Shift+A", 'focusTab("brave-browser", "P", ["mail.google.com"], "https://mail.google.com");')
+        r = self.add(HEADER + "\n" + gmail + "\n", [self.SEARCH])
+        search = [b for b in parse_hotkeys_js(r["text"])["bindings"] if b["type"] == "tabSearch"]
+        self.assertEqual([b["enabled"] for b in search], [False])
+        self.assertEqual(format_starter_notice(r), "New: Search browser tabs. Ctrl+Alt+Shift+A is already used by 'gmail', "
+                                                   "so it was added switched off - give it a key on the Hotkeys page.")
+
+    def test_same_hotkey_under_another_key_is_not_added_again(self):
+        mine = _stmt("Find tab", "Meta+F", 'showTabSearch("brave-browser");')
+        r = self.add(HEADER + "\n" + mine + "\n", [self.SEARCH])
+        self.assertEqual([b["title"] for b in parse_hotkeys_js(r["text"])["bindings"]], ["Find tab"])
+        self.assertIn(STARTER_MARKER + "tabSearch - ", r["text"])
+
+    def test_not_yet_addable_is_offered_again(self):
+        r = self.add(HEADER + "\n", [self.SEARCH], rc="")
+        self.assertEqual([d["title"] for d in r["dropped"]], ["Search browser tabs"])
+        self.assertNotIn("tabSearch", r["text"])
+
+    def test_invalid_statements_are_left_alone(self):
+        broken = _stmt("Broken", "Alt+B", 'focusTab("brave-browser", "", [], "");')
+        r = self.add(HEADER + "\n" + broken + "\n", [self.SEARCH])
+        self.assertIn('focusTab("brave-browser", "", [], "")', r["text"])
 
 
 if __name__ == "__main__":
