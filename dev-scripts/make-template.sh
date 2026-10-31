@@ -66,7 +66,8 @@ else
   echo "Skipped: $root/config.template.ahk (config.ahk not present)"
 fi
 
-# Linux: hotkeys.js → hotkeys.template.js
+# Linux: hotkeys.js → hotkeys.template.js, minus local-only hotkeys (a statement ending in
+# "// local", see hotkeys_generator.py's public_template).
 # Deliberately *unsanitized* — a real, working example (this repo's own live config) instead of
 # generic "YOUR_BROWSER_RESOURCE_CLASS" placeholders, so a `git pull` always brings something
 # that actually works. hotkeys.js itself stays gitignored either way (see .gitignore's own
@@ -82,9 +83,11 @@ if [ -f "$linux_root/hotkeys.js" ]; then
     echo "// gitignored (a \`git pull\` never touches your own local edits to it); copy this file to"
     echo "// hotkeys.js and edit it to match your own setup. See linux/README.md and the porting"
     echo "// checklist for what each binding type does. YOUR_REPO_ROOT stands for this clone's path"
-    echo "// (installer.sh fills it in when it creates hotkeys.js from this file)."
+    echo "// (installer.sh fills it in when it creates hotkeys.js from this file). Hotkeys whose"
+    echo "// statement ends in \"// local\" in hotkeys.js are left out of this copy."
     echo
-    sed "s|$repo_root|YOUR_REPO_ROOT|g" "$linux_root/hotkeys.js"
+    python3 "$repo_root/linux/server/hotkeys_generator.py" --public-template < "$linux_root/hotkeys.js" \
+      | sed "s|$repo_root|YOUR_REPO_ROOT|g"
   } > "$linux_root/hotkeys.template.js"
   echo "Written: $linux_root/hotkeys.template.js (unsanitized)"
 else

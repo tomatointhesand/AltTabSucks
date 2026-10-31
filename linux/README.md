@@ -82,7 +82,10 @@ its template (`hotkeys.template.js`) is an **unsanitized** mirror of it, refresh
 on every commit (see `hooks/pre-commit`). That means a real, working example — this repo's own
 actual hotkey config as of the last commit, not generic placeholders — is what `installer.sh`
 seeds a missing `hotkeys.js` from on install/reload-hotkeys, without `hotkeys.js` itself ever
-being tracked (so a `git pull` never touches your own local edits to it). To pick up bindings a
+being tracked (so a `git pull` never touches your own local edits to it). A hotkey you don't want
+published (a dashboard on your own machine or network) stays out of the template if its statement
+in `hotkeys.js` ends in `// local`; the Hotkeys UI keeps that marker but doesn't show it, so add or
+remove it by hand. Each commit lists the hotkeys it adds to the template. To pick up bindings a
 pulled template gained, copy the ones you want across, or start over from it:
 ```bash
 cp linux/kwin/alttabsucks/contents/code/hotkeys.template.js linux/kwin/alttabsucks/contents/code/hotkeys.js

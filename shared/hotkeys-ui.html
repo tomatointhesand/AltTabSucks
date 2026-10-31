@@ -82,6 +82,14 @@
     font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
     color: var(--text-dim); padding: 0 4px 6px; margin-bottom: 4px; border-bottom: 1px solid var(--border);
   }
+  .group.collapsed .group-title { margin-bottom: 0; }
+  .group-toggle {
+    display: inline-flex; align-items: center; gap: 6px; background: none; border: none; padding: 2px 0;
+    font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer;
+  }
+  .group-toggle:hover { color: var(--text); }
+  .group-toggle .chevron { display: inline-block; width: 10px; }
+  .group-count { font-weight: 400; }
   .group-add-btn { font-size: 11px; font-weight: 600; padding: 3px 9px; text-transform: none; letter-spacing: normal; }
   .group-header { display: flex; gap: 6px 10px; flex-wrap: wrap; padding: 0 4px; margin-bottom: 2px; }
   .group-header label { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
@@ -828,18 +836,47 @@ function renderGroupHeader(group) {
   return header;
 }
 
+// Which sections are collapsed (GROUPS keys), remembered per browser — only a convenience, so a
+// blocked or empty localStorage just means every section starts expanded.
+let collapsedGroups = new Set();
+try { collapsedGroups = new Set(JSON.parse(localStorage.getItem("atsCollapsedGroups") || "[]")); } catch (e) {}
+function setCollapsed(group, collapsed) {
+  if (collapsed) collapsedGroups.add(group.key); else collapsedGroups.delete(group.key);
+  try { localStorage.setItem("atsCollapsedGroups", JSON.stringify([...collapsedGroups])); } catch (e) {}
+}
+
 function renderGroup(group, groupBindings) {
-  const section = el("div", { class: "group" });
+  const collapsed = collapsedGroups.has(group.key);
+  const section = el("div", { class: "group" + (collapsed ? " collapsed" : "") });
 
   const titleRow = el("div", { class: "group-title" });
-  titleRow.appendChild(el("span", {}, [group.title]));
+  const toggle = el("button", {
+    type: "button", class: "group-toggle", "aria-expanded": String(!collapsed),
+    title: collapsed ? "Show this section" : "Hide this section",
+  }, [el("span", { class: "chevron" }, [collapsed ? "▸" : "▾"]), group.title,
+      el("span", { class: "group-count" }, [`(${groupBindings.length})`])]);
+  toggle.addEventListener("click", () => { setCollapsed(group, !collapsed); renderAll(); });
+  titleRow.appendChild(toggle);
   const addBtn = el("button", { type: "button", class: "group-add-btn", title: `Add a "${group.title}" hotkey` }, ["+ Add"]);
-  addBtn.addEventListener("click", () => { bindings.push(newBindingOfType(group.defaultType)); renderAll(); });
+  addBtn.addEventListener("click", () => {
+    // New rows go at the top of their section: in front of the group's first binding in
+    // `bindings` (the section shows them in that order), or at the end when it has none.
+    const added = newBindingOfType(group.defaultType);
+    const first = bindings.findIndex((b) => group.types.includes(b.type));
+    bindings.splice(first === -1 ? bindings.length : first, 0, added);
+    setCollapsed(group, false);
+    renderAll();
+    const input = document.querySelector(`.group[data-group="${group.key}"] .binding input`);
+    if (input) input.focus();
+  });
   titleRow.appendChild(addBtn);
+  section.dataset.group = group.key;
   section.appendChild(titleRow);
 
-  section.appendChild(renderGroupHeader(group));
-  groupBindings.forEach((b, i) => section.appendChild(renderBindingRow(b, i)));
+  if (!collapsed) {
+    section.appendChild(renderGroupHeader(group));
+    groupBindings.forEach((b, i) => section.appendChild(renderBindingRow(b, i)));
+  }
   return section;
 }
 

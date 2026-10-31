@@ -4,7 +4,8 @@
 // gitignored (a `git pull` never touches your own local edits to it); copy this file to
 // hotkeys.js and edit it to match your own setup. See linux/README.md and the porting
 // checklist for what each binding type does. YOUR_REPO_ROOT stands for this clone's path
-// (installer.sh fills it in when it creates hotkeys.js from this file).
+// (installer.sh fills it in when it creates hotkeys.js from this file). Hotkeys whose
+// statement ends in "// local" in hotkeys.js are left out of this copy.
 
 // AltTabSucks hotkeys. Edit them here or in the Hotkeys UI (Ctrl+Alt+/, served at
 // http://localhost:9876/hotkeys-ui): the UI shows the registerShortcut(...) statements below

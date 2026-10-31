@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hotkeys_generator import (  # noqa: E402
     DISABLED_MARKER, HEADER, LEGACY_HEADER, STARTER_MARKER, add_starter_hotkeys, fold_legacy_hotkeys_json,
-    format_starter_notice, generate_binding_js, normalize_key, parse_hotkeys_js, rewrite_hotkeys_js,
+    format_starter_notice, generate_binding_js, normalize_key, parse_hotkeys_js, public_template, rewrite_hotkeys_js,
 )
 
 
@@ -378,6 +378,39 @@ class RewriteHotkeysJsTestCase(unittest.TestCase):
         text = rewrite_hotkeys_js("", [new])["text"]
         self.assertTrue(text.startswith(HEADER))
         self.assertEqual(len(parse_hotkeys_js(text)["bindings"]), 1)
+
+
+class LocalHotkeysTestCase(unittest.TestCase):
+    LOCAL = _stmt("Dash", "Alt+D", 'focusTab("b", "P", ["localhost:8081"], "http://localhost:8081");') + "  // local"
+
+    def test_local_marker_is_parsed_and_survives_a_save(self):
+        text = HEADER + "\n" + self.LOCAL + "\n"
+        (b,) = parse_hotkeys_js(text)["bindings"]
+        self.assertTrue(b["local"])
+        self.assertEqual(rewrite_hotkeys_js(text, [b], "b")["text"], text)
+
+    def test_local_survives_being_disabled(self):
+        (b,) = parse_hotkeys_js(self.LOCAL)["bindings"]
+        b["enabled"] = False
+        out = rewrite_hotkeys_js(self.LOCAL, [b], "b")["text"]
+        self.assertIn(DISABLED_MARKER, out)
+        (again,) = parse_hotkeys_js(out)["bindings"]
+        self.assertEqual((again["enabled"], again["local"]), (False, True))
+
+    def test_other_bindings_are_not_local(self):
+        self.assertNotIn("local", parse_hotkeys_js(SAMPLE)["bindings"][0])
+        self.assertNotIn("// local", rewrite_hotkeys_js(SAMPLE, parse_hotkeys_js(SAMPLE)["bindings"], "brave-browser")["text"])
+
+    def test_public_template_leaves_local_statements_out(self):
+        public = _stmt("Mail", "Alt+M", 'focusTab("b", "P", ["mail.google.com"], "https://mail.google.com");')
+        disabled = "\n".join(DISABLED_MARKER + l for l in self.LOCAL.split("\n"))
+        hand = 'registerShortcut("Mine", "x", "Alt+Q", function () { myThing(); });  // local'
+        text = "\n\n".join([HEADER.rstrip("\n"), self.LOCAL, public, disabled, hand, public.replace("Mail", "Mail2")]) + "\n"
+        out = public_template(text)
+        self.assertEqual([b["title"] for b in parse_hotkeys_js(out)["bindings"]], ["Mail", "Mail2"])
+        self.assertNotIn("Mine", out)
+        self.assertNotIn("\n\n\n", out, "each removed statement takes its blank separator line with it")
+        self.assertEqual(public_template(SAMPLE), SAMPLE)
 
 
 class FoldLegacyHotkeysJsonTestCase(unittest.TestCase):

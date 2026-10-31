@@ -16,6 +16,18 @@ if [ -f "$REPO_ROOT/lib/app-hotkeys.ahk" ] || [ -f "$REPO_ROOT/lib/config.ahk" ]
             "$LINUX_CODE_DIR/hotkeys.template.js"
 fi
 
+# hotkeys.template.js is public and unsanitized, so name every hotkey this commit adds to it:
+# one meant to stay private gets "// local" at the end of its statement in hotkeys.js (then
+# commit again) instead of slipping out unnoticed.
+template_rel="linux/kwin/alttabsucks/contents/code/hotkeys.template.js"
+template_titles() { grep -o '^registerShortcut("[^"]*"' | sed 's/^registerShortcut("//; s/"$//' | sort -u; }
+new_public="$(comm -13 <(git show "HEAD:$template_rel" 2>/dev/null | template_titles) \
+                       <(git show ":$template_rel" 2>/dev/null | template_titles))"
+if [ -n "$new_public" ]; then
+    echo "[pre-commit] New in the public hotkeys.template.js (end a statement with \"// local\" in hotkeys.js to keep it out):"
+    printf '%s\n' "$new_public" | sed 's/^/[pre-commit]   /'
+fi
+
 # hotkeys.template.js is unsanitized (see .gitignore's own comment on
 # why) — nothing redacts a credential accidentally pasted into a binding's argv/urlPatterns/etc.
 # the way the AHK sensitive-section sanitizer does below, so this scans the whole staged diff
