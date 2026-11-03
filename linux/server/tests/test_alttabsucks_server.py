@@ -706,6 +706,46 @@ class ServerTestCase(unittest.TestCase):
         status, _, _ = self.request("POST", "/hotkeys-config", token=None, json_body={"bindings": [], "fileHash": ""})
         self.assertEqual(status, 403)
 
+    # ---- the Hotkeys page's own requests (no token) ----------------------------
+
+    def page(self, method, path, site="same-origin", host=None, origin=None, json_body=None):
+        headers = {"Sec-Fetch-Site": site, "Host": host or f"localhost:{self.port}"}
+        return self.request(method, path, token=None, origin=origin, json_body=json_body, extra_headers=headers)[0]
+
+    def test_the_hotkeys_page_needs_no_token(self):
+        self.assertEqual(self.page("GET", "/hotkeys-config"), 200)
+        self.assertEqual(self.page("GET", "/hotkeys-config", host=f"127.0.0.1:{self.port}"), 200)
+        r = self.request("GET", "/hotkeys-config")[2]
+        posted = {"bindings": [], "fileHash": json.loads(r)["fileHash"]}
+        self.assertEqual(self.page("POST", "/hotkeys-config", origin=f"http://localhost:{self.port}", json_body=posted), 200)
+
+    def test_other_pages_still_need_the_token(self):
+        self.assertEqual(self.page("GET", "/hotkeys-config", site="cross-site", origin="https://evil.example.com"), 403)
+        self.assertEqual(self.page("GET", "/hotkeys-config", site="same-site", origin="http://localhost:3000"), 403)
+        self.assertEqual(self.page("GET", "/hotkeys-config", site="none"), 403, "typed into the address bar")
+        self.assertEqual(self.page("GET", "/hotkeys-config", host=f"evil.example.com:{self.port}"), 403, "DNS rebinding")
+        self.assertEqual(self.page("GET", "/hotkeys-config", host="localhost:1"), 403, "another port")
+        self.assertEqual(self.page("POST", "/hotkeys-config", origin="https://evil.example.com",
+                                   json_body={"bindings": [], "fileHash": ""}), 403, "mismatched Origin")
+
+    # ---- extension pairing ------------------------------------------------------
+
+    def test_extension_gets_the_token_only_while_pairing_is_open(self):
+        ask = lambda origin: self.request("POST", "/extension-token", token=None, origin=origin)
+        self.assertEqual(ask(EXT_ORIGIN)[0], 403, "closed by default")
+        self.assertEqual(self.request("POST", "/extension-pairing", token=None)[0], 403, "opening it needs the token")
+        status, _, body = self.request("POST", "/extension-pairing")
+        self.assertEqual((status, json.loads(body)["minutes"]), (200, 10))
+        status, headers, body = ask(EXT_ORIGIN)
+        self.assertEqual((status, json.loads(body)), (200, {"token": TOKEN}))
+        self.assertEqual(headers.get("Access-Control-Allow-Origin"), EXT_ORIGIN)
+        self.assertEqual(ask("moz-extension://1234-5678")[0], 200)
+        self.assertEqual(ask(PAGE_ORIGIN)[0], 403, "a web page")
+        self.assertEqual(ask(f"http://localhost:{self.port}")[0], 403, "the Hotkeys page")
+        self.assertEqual(ask(None)[0], 403, "no Origin")
+        self.state.pairing_until = 0
+        self.assertEqual(ask(EXT_ORIGIN)[0], 403, "closed again")
+
     # ---- /suggest-launch-command ---------------------------------------------
     # Patches launch_command_suggester.load_desktop_entries rather than touching this machine's
     # real installed apps — same reasoning as AppState.deploy_command/hotkeys_js_path's own
@@ -792,16 +832,18 @@ class TokenFileTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             token_path = Path(tmp) / "Server" / "token.txt"
             self.assertFalse(token_path.exists())
-            first = load_or_create_token(token_path)
+            first, new = load_or_create_token(token_path)
+            self.assertTrue(new)
             self.assertTrue(token_path.exists())
             self.assertEqual(token_path.read_text(encoding="utf-8").strip(), first)
 
     def test_reuses_existing_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             token_path = Path(tmp) / "Server" / "token.txt"
-            first = load_or_create_token(token_path)
-            second = load_or_create_token(token_path)
+            first, _ = load_or_create_token(token_path)
+            second, new = load_or_create_token(token_path)
             self.assertEqual(first, second)
+            self.assertFalse(new)
 
 
 if __name__ == "__main__":

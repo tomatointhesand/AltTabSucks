@@ -24,9 +24,9 @@ PowerShell HTTP server (`localhost:9876`) that bridges AHK ↔ browser extension
   - Manage: `.\installer.ps1 -Action status|start|stop|uninstall`
   - `stop` also kills any orphaned `AltTabSucksServer.ps1` processes holding the port
 - **Manual**: `.\Server\startServer.ps1`
-- **Load extension**: browser extensions page → Developer mode → Load unpacked → `BrowserExtension/` → set profile name and auth token in Options
+- **Load extension**: browser extensions page → Developer mode → Load unpacked → `BrowserExtension/` → set profile name in Options (the token arrives by itself, see below)
 
-**Auth token**: On first run, `AltTabSucksServer.ps1` generates `Server/token.txt` (gitignored) containing a random 32-byte base64 secret. All requests must include `X-AltTabSucks-Token: <secret>` or receive 403. AHK reads the token at startup from that file; the extension reads it from `chrome.storage.local` (set via Options page).
+**Auth token**: On first run, `AltTabSucksServer.ps1` generates `Server/token.txt` (gitignored) containing a random 32-byte base64 secret. All requests must include `X-AltTabSucks-Token: <secret>` or receive 403. AHK reads the token at startup from that file; the extension reads it from `chrome.storage.local`. **Nobody pastes it**: the Hotkeys page's own requests need no token (the browser marks them `Sec-Fetch-Site: same-origin` with `Host: localhost:9876`, which another site or a DNS-rebinding domain can't produce), and the extension fetches it with `POST /extension-token` (no token; answered only for `chrome-extension://`/`moz-extension://` origins while pairing is open: 10 minutes after the server generates a new token, or after `POST /extension-pairing` with the token, which `installer.ps1 -Action install|pair`, the tray menu's "Connect browser extension" and `installer.sh install|pair` call). Rules in `Server/RequestAuth.ps1` (tests: `tests/ps/test-request-auth.ps1`) and the same in `linux/server/alttabsucks_server.py` (`is_own_page_request`, `pairing_token`).
 
 ## Code Organization
 

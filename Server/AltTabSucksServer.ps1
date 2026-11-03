@@ -3,6 +3,10 @@
 $port = 9876
 $url  = "http://localhost:$port/"
 
+# Who may call without the token (the Hotkeys page, extensions while pairing is open).
+. (Join-Path $PSScriptRoot "RequestAuth.ps1")
+$pairingUntil = [DateTime]::MinValue
+
 # Generate token.txt on first run; read it on subsequent runs.
 $tokenPath = Join-Path $PSScriptRoot "token.txt"
 if (-not (Test-Path $tokenPath)) {
@@ -13,7 +17,8 @@ if (-not (Test-Path $tokenPath)) {
     $newToken = [Convert]::ToBase64String($bytes)
     Set-Content -Path $tokenPath -Value $newToken -Encoding UTF8 -NoNewline
     Write-Host "Generated new auth token: $newToken"
-    Write-Host "Paste this token into the extension Options page."
+    # A new install: the extension picks the token up by itself (POST /extension-token).
+    $pairingUntil = [DateTime]::Now + $PairingWindow
 }
 $secret = (Get-Content $tokenPath -Raw -Encoding UTF8).Trim()
 
@@ -135,7 +140,7 @@ try { while ($listener.IsListening) {
         $method = $req.HttpMethod
 
         # The hotkeys UI page itself is public (a browser navigation can't send the token header);
-        # it contains no secrets, and every API call it makes sends the token the user pastes in.
+        # it contains no secrets, and its API calls are let in as the page's own (Test-OwnPageRequest).
         if ($method -eq "GET" -and $path -eq "/hotkeys-ui") {
             if (Test-Path $hotkeysUiPath) {
                 Send-Body $res (Get-Content $hotkeysUiPath -Raw -Encoding UTF8) "text/html; charset=utf-8"
@@ -161,11 +166,20 @@ try { while ($listener.IsListening) {
             continue
         }
 
-        # Validate shared secret on every non-preflight request.
+        # The extension asks for the token while it has none (or a stale one): handed out only to
+        # extension origins, and only while pairing is open (see RequestAuth.ps1).
+        if ($method -eq "POST" -and $path -eq "/extension-token") {
+            $given = Get-PairingToken $origin $pairingUntil ([DateTime]::Now) $secret
+            if ($given) { Send-Json $res @{ token = $given } } else { $res.StatusCode = 403 }
+            $res.OutputStream.Close()
+            continue
+        }
+
+        # Validate shared secret on every non-preflight request, except the Hotkeys page's own.
         # AHK (WinHttp) sends no Origin header and is unaffected by CORS but still sends the token.
         if ($method -ne "OPTIONS") {
             $reqToken = $req.Headers["X-AltTabSucks-Token"]
-            if ($reqToken -ne $secret) {
+            if ($reqToken -ne $secret -and -not (Test-OwnPageRequest $req.Headers["Sec-Fetch-Site"] $req.Headers["Host"] $origin $port)) {
                 $res.StatusCode = 403
                 $res.OutputStream.Close()
                 continue
@@ -186,6 +200,12 @@ try { while ($listener.IsListening) {
                 $script:profileList = $body | ConvertFrom-Json
                 $res.StatusCode = 204
             }
+
+        } elseif ($method -eq "POST" -and $path -eq "/extension-pairing") {
+            # Opens pairing (installer, tray menu "Connect browser extension"): extensions without
+            # the token get it from POST /extension-token for the next few minutes.
+            $pairingUntil = [DateTime]::Now + $PairingWindow
+            Send-Json $res @{ minutes = $PairingWindow.TotalMinutes }
 
         } elseif ($method -eq "POST" -and $path -eq "/open-extension-page") {
             # The Hotkeys page's "Manage extension" link: a web page can't open edge://extensions

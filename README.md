@@ -44,7 +44,7 @@ cd "$env:USERPROFILE\Downloads"
 git clone https://github.com/tomatointhesand/AltTabSucks
 ```
 
-Then **double-click `Install.bat`** in the cloned folder. It will prompt for UAC (required to register the scheduled task) and display an auth token when done — **copy it to clipboard**. (Also saved to `Server\token.txt` for future reference.)
+Then **double-click `Install.bat`** in the cloned folder. It will prompt for UAC (required to register the scheduled task). Load the browser extension (below) within 10 minutes of installing and it connects to AltTabSucks by itself: there's no token to copy.
 
 <details>
 <summary>Advanced: run from PowerShell instead</summary>
@@ -73,7 +73,7 @@ pwsh -ExecutionPolicy Bypass -File .\installer.ps1 -Action install
 </details>
 
 Open the extension **Options** and set:
-- **Auth token** — paste the token from the installer, then click ↺ to refresh the profile dropdown
+- **Auth token** — filled in by itself. If it stays empty (you loaded the extension more than 10 minutes after installing, or in another browser), choose **Connect browser extension** in AltTabSucks' tray menu and it connects within a few seconds
 - **Profile name** — select the active profile from the dropdown
   - Firefox: see **about:profiles**
   - Chrome-like: the top-right Profile menu shows the active profile name
@@ -129,7 +129,7 @@ shows a window, so for that one set "Ready when" to "its process is running".
 Apps you install later may add themselves to Windows startup again. The window says so, and
 **Take over** moves them into the list. Uninstalling turns the Windows entries back on.
 
-**To change them, press Ctrl+Alt+/** (or tray menu → Hotkeys UI), paste your auth token (`Server\token.txt`), and add or edit app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. The page shows the hotkeys in `lib\app-hotkeys.ahk` itself: every single-line hotkey it recognizes, whether you wrote it by hand or saved it from the page. Saving rewrites just those lines, leaves the rest of the file alone (your own functions, multi-line hotkeys, comments) and keeps the previous version as `app-hotkeys.ahk.bak`; AltTabSucks then reloads itself within a second. Editing the file by hand works too. A change that wouldn't load is reported in a notification instead of reloading.
+**To change them, press Ctrl+Alt+/** (or tray menu → Hotkeys UI), and add or edit app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. The page shows the hotkeys in `lib\app-hotkeys.ahk` itself: every single-line hotkey it recognizes, whether you wrote it by hand or saved it from the page. Saving rewrites just those lines, leaves the rest of the file alone (your own functions, multi-line hotkeys, comments) and keeps the previous version as `app-hotkeys.ahk.bak`; AltTabSucks then reloads itself within a second. Editing the file by hand works too. A change that wouldn't load is reported in a notification instead of reloading.
 
 The config heals itself: a hotkey that's no longer valid (for example after an update removes or changes an action) is flagged on the page and removed on the next save, and a save drops and reports anything invalid or any key bound twice instead of writing it. Upgrading from the earlier version, where the page saved to `lib\hotkeys.json`: those hotkeys are moved back into `app-hotkeys.ahk` on the first start.
 
@@ -196,11 +196,7 @@ netstat -ano | findstr :9876
 
 **Extension shows "server: error (403)"**
 
-Auth token mismatch. Retrieve the correct token and paste it into extension Options:
-
-```powershell
-Get-Content ".\Server\token.txt"
-```
+The extension doesn't have the server's token (a reinstall made a new one, or it was loaded long after installing). Choose **Connect browser extension** in AltTabSucks' tray menu: it fetches the token by itself within a few seconds. Or paste the token from `Server\token.txt` into extension Options.
 
 **Extension shows "server offline" but the task is Running**
 

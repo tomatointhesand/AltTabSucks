@@ -51,6 +51,22 @@ try {
     $serverProc = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*AltTabSucksServer.ps1*" } | Select-Object -First 1
     Check ($serverProc.Name -eq "pwsh.exe") "  ...running under PowerShell 7" "process: $($serverProc.Name)"
     Check ((Get-Token) -eq $TestToken) "server keeps an existing token.txt"
+    Check ((Get-Content $installLog -Raw) -match "connects by itself") "  ...and the installer says the extension connects by itself (no token to paste)" (Get-Content $installLog -Raw)
+
+    # ---- who may call without the token (Server/RequestAuth.ps1) -----------------------------
+    # Headers a browser sets itself, faked here; the page and extension sections below send real ones.
+    function Get-Status([string]$method, [string]$path, [hashtable]$headers) {
+        try { [int](Invoke-WebRequest "$Server$path" -Method $method -Headers $headers -UseBasicParsing -TimeoutSec 10 -SkipHttpErrorCheck).StatusCode } catch { 0 }
+    }
+    Check ((Get-Status GET "/hotkeys-config" @{}) -eq 403) "no token: refused"
+    Check ((Get-Status GET "/hotkeys-config" @{ "Sec-Fetch-Site" = "same-origin" }) -eq 200) "  ...but the Hotkeys page's own requests (same-origin) need none"
+    Check ((Get-Status GET "/hotkeys-config" @{ "Sec-Fetch-Site" = "cross-site"; Origin = "https://evil.example.com" }) -eq 403) "  ...while another site's are refused"
+    Check ((Get-Status POST "/extension-pairing" @{}) -eq 403) "opening extension pairing needs the token"
+    $pair = Invoke-Api POST "/extension-pairing"
+    Check ($pair.Status -eq 200 -and $pair.Json.minutes -eq 10) "  ...with it, it opens for 10 minutes" "HTTP $($pair.Status): $($pair.Json | ConvertTo-Json -Compress)"
+    $given = try { (Invoke-RestMethod "$Server/extension-token" -Method Post -Headers @{ Origin = "chrome-extension://e2e" } -TimeoutSec 10).token } catch { $_.Exception.Message }
+    Check ($given -eq $TestToken) "  ...and a browser extension asking for the token gets it" $given
+    Check ((Get-Status POST "/extension-token" @{ Origin = "https://evil.example.com" }) -eq 403) "  ...but a web page doesn't"
     Check (Test-Path $AppHk) "installer created lib\app-hotkeys.ahk from the template"
 
     $smTask = Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue
@@ -366,8 +382,7 @@ try {
     Start-OnDesktop "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe" `
         "--remote-debugging-port=$cdpPort --user-data-dir=`"$Work\edge-cdp`" --no-first-run --no-default-browser-check --load-extension=`"$Repo\BrowserExtension`" --disable-features=CalculateNativeWinOcclusion http://localhost:9876/hotkeys-ui" | Out-Null
     Connect-Cdp $cdpPort "*localhost:9876/hotkeys-ui*" 30
-    # Edge lists the tab under its URL while still navigating; until then it holds a blank
-    # placeholder document that isn't allowed localStorage.
+    # Edge lists the tab under its URL while still navigating, with a blank placeholder document.
     Wait-Until { (Invoke-Js 'location.origin + " " + document.readyState') -eq "http://localhost:9876 complete" } 20 | Out-Null
     # Page helpers, prefixed to each script: a row by its title, a row's text inputs, typing, status.
     # Assignments rather than const: every evaluation runs in the page's global scope, so these are
@@ -385,10 +400,9 @@ blankRow = () => [...document.querySelectorAll(".binding")].find(r => inputs(r).
     function Wait-Status([string]$pattern, [int]$seconds = 15) { Wait-Until { (Page 'statusEl().textContent') -match $pattern } $seconds }
     function Save-Page { Page 'document.getElementById("save").click(); true' | Out-Null }
 
-    Page "localStorage.setItem('atsToken', '$TestToken'); location.reload(); true" | Out-Null
-    Start-Sleep -Seconds 1
-    Wait-Until { (Invoke-Js 'document.readyState') -eq "complete" } 20 | Out-Null
-    Check (Wait-Status "^Loaded \d+ hotkey") "the Hotkeys page loads with the token" (Page 'statusEl().textContent')
+    # A new Edge profile: the page has never been given a token, and needs none.
+    Check (Wait-Status "^Loaded \d+ hotkey") "the Hotkeys page loads with no token" (Page 'statusEl().textContent')
+    Check ((Page '!document.getElementById("token") && !document.querySelector("input[placeholder*=token]")') -eq $true) "  ...and has no token box"
     Check ((Page 'fetch([...document.querySelectorAll("link[rel=icon]")].find(l => l.sizes.value === "48x48").href).then(r => r.status + " " + r.headers.get("content-type"))') -eq "200 image/png") `
         "  ...with the extension's icon as its favicon"
     $apiCount = @((Invoke-Api GET "/hotkeys-config").Json.bindings | Where-Object { $_ }).Count
@@ -422,7 +436,9 @@ blankRow = () => [...document.querySelectorAll(".binding")].find(r => inputs(r).
 
     Start-Sleep -Seconds 2
     Add-Content $AppHk '^!+F3:: FocusTab("Profile 1", [], "https://example.com")  ; Broken in the file'
-    Page 'document.getElementById("reload").click(); true' | Out-Null
+    # The page has no Reload button (the browser's own refresh does the same); deferred so the
+    # evaluation returns before the navigation tears the page's context down.
+    Page 'setTimeout(() => location.reload(), 0); true' | Out-Null
     Check (Wait-Status "aren't valid any more") "an invalid hotkey in the file is flagged on load" (Page 'statusEl().textContent')
     Check ((Page 'statusEl().textContent') -match "Broken in the file") "  ...by name"
     Save-Page
@@ -437,6 +453,13 @@ blankRow = () => [...document.querySelectorAll(".binding")].find(r => inputs(r).
     $text = Get-Content $AppHk -Raw
     Check ($text -match "edited by hand while the page was open" -and $text -notmatch "Renamed after a hand edit") "  ...leaving the hand edit intact"
     Disconnect-Cdp
+
+    # ---- a new browser profile's extension connects by itself -------------------------------------
+    # This Edge profile's extension has never been given a token. With pairing open (the tray
+    # menu's "Connect browser extension", like the installer), it fetches it and starts reporting
+    # tabs, under the profile name it hasn't been told yet: "Default".
+    Invoke-Api POST "/extension-pairing" | Out-Null
+    Check (Wait-Until { (Invoke-Api GET "/debugtabs").Json -match "=== Default ===" } 30) "an extension with no token, in a new Edge profile, connects by itself" ((Invoke-Api GET "/debugtabs").Json)
 
     # ---- the extension popup's "Hotkeys page" link ----------------------------------------------
     # This Edge loaded the extension too (--load-extension), so its popup page can be opened as a

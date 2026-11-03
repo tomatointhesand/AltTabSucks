@@ -60,7 +60,7 @@ registerShortcut("gemini web", "AltTabSucks: gemini web",
     "Ctrl+Shift+Meta+G", function () { focusTab("brave-browser", "Personal", ["https://gemini.google.com"], "https://gemini.google.com"); });
 
 registerShortcut("reddit", "AltTabSucks: reddit",
-    "Ctrl+Alt+Shift+R", function () { focusTab("brave-browser", "Personal", ["https://reddit.com"], "https://reddit.com/r/sailing"); });
+    "Ctrl+Alt+Shift+R", function () { focusTab("brave-browser", "Personal", ["https://reddit.com", "https://old.reddit.com"], "https://old.reddit.com/r/sailing"); });
 
 registerShortcut("steam", "AltTabSucks: steam",
     "Ctrl+Alt+Shift+S", function () { manageAppWindows("steam", "cycle", ["steam"]); });
@@ -87,7 +87,7 @@ registerShortcut("google photos", "AltTabSucks: google photos",
     "Ctrl+Shift+Meta+P", function () { focusTab("brave-browser", "Personal", ["https://photos.google.com"], "https://photos.google.com"); });
 
 registerShortcut("Search browser tabs", "AltTabSucks: Search browser tabs",
-    "Ctrl+Alt+Shift+A", function () { showTabSearch("brave-browser"); });
+    "Alt+A", function () { showTabSearch("brave-browser"); });
 
 registerShortcut("Restart AltTabSucks", "AltTabSucks: Restart AltTabSucks",
     "Ctrl+Alt+\"", function () { runCommandWithToast("Restart AltTabSucks", ["YOUR_REPO_ROOT/installer.sh", "restart"]); });

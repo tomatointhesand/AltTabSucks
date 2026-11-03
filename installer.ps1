@@ -33,7 +33,7 @@
 #>
 
 param(
-    [ValidateSet("install", "uninstall", "status", "start", "stop", "restart", "startup-scan", "startup-import", "startup-setup")]
+    [ValidateSet("install", "uninstall", "status", "start", "stop", "restart", "pair", "startup-scan", "startup-import", "startup-setup")]
     [string]$Action = "install",
     [ValidateSet("Ask", "Yes", "No")]
     [string]$TakeOverStartup = "Ask"
@@ -155,6 +155,30 @@ if ($Action -eq "startup-setup") {
     exit 0
 }
 
+# Opens pairing: for the next few minutes the browser extension fetches the token from the server
+# by itself (POST /extension-token), so nobody has to paste it into its Options page.
+function Open-ExtensionPairing {
+    $tokenPath = Join-Path $PSScriptRoot "Server\token.txt"
+    $deadline = (Get-Date).AddSeconds(15)
+    while ($true) {
+        try {
+            $token = (Get-Content $tokenPath -Raw -Encoding UTF8 -ErrorAction Stop).Trim()
+            $r = Invoke-RestMethod "http://localhost:9876/extension-pairing" -Method Post -Headers @{ "X-AltTabSucks-Token" = $token } -TimeoutSec 2
+            Write-Host "Browser extension: load BrowserExtension\ unpacked in your browser (extensions page,"
+            Write-Host "Developer mode, Load unpacked) within the next $($r.minutes) minutes, and it connects by itself."
+            Write-Host "Already loaded? It connects within a few seconds. Later: tray menu > Connect browser extension."
+            return
+        } catch {
+            if ((Get-Date) -gt $deadline) { Write-Warning "Couldn't reach the server to connect the browser extension ($($_.Exception.Message))."; return }
+            Start-Sleep -Milliseconds 250
+        }
+    }
+}
+if ($Action -eq "pair") {
+    Open-ExtensionPairing
+    exit 0
+}
+
 if ($Action -eq "restart") {
     & $PSCommandPath -Action stop
     & $PSCommandPath -Action start
@@ -257,14 +281,7 @@ switch ($Action) {
         Write-Host "Task state: $state"
         if ($state -eq "Running") {
             Write-Host "AltTabSucks server is running."
-            $tokenPath = Join-Path $PSScriptRoot "Server\token.txt"
-            if (Test-Path $tokenPath) {
-                $token = (Get-Content $tokenPath -Raw -Encoding UTF8).Trim()
-                Write-Host "Auth token (paste into extension Options): $token"
-            } else {
-                Write-Host "token.txt not yet created — the server generates it on first start."
-                Write-Host "Wait a moment, then run: Get-Content '$tokenPath'"
-            }
+            Open-ExtensionPairing
         } else {
             Write-Warning "Task did not reach Running state. Check Event Viewer > Task Scheduler."
         }

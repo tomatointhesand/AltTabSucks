@@ -223,6 +223,25 @@ function postBookmarksSoon() {
   postBookmarksTimer = setTimeout(postBookmarks, 2000);
 }
 
+// No token yet, or the server refused it (a reinstall made a new one): ask the server for it. It
+// answers only browser extensions, and only while pairing is open (for a few minutes after an
+// install, or after "Connect browser extension"), so this tries again every few seconds.
+let lastTokenAsk = 0;
+async function pairWithServer() {
+  if (Date.now() - lastTokenAsk < 5000) return false;
+  lastTokenAsk = Date.now();
+  try {
+    const res = await fetch('http://localhost:9876/extension-token', { method: 'POST' });
+    if (!res.ok) return false;
+    const { token } = await res.json();
+    if (!token) return false;
+    await chrome.storage.local.set({ authToken: token });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // True while the server is unreachable — so the first successful poll after a restart re-pushes
 // the full tab state right away instead of waiting for the next tab event or keepAlive (20s).
 let serverDown = false;
@@ -234,6 +253,10 @@ async function pollSwitchQueue() {
       headers: { 'X-AltTabSucks-Token': authToken }
     });
     if (serverDown) { serverDown = false; postTabs(); postRecentlyClosed(); postBookmarks(); }
+    if (res.status === 403) {
+      if (await pairWithServer()) { postTabs(); postRecentlyClosed(); postBookmarks(); }
+      return;
+    }
     if (res.status === 200) {
       const cmd = await res.json();
       if (cmd && cmd.openUrl && /^https?:\/\//i.test(cmd.openUrl)) {

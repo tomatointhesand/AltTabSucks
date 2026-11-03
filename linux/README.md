@@ -58,7 +58,8 @@ guessed table), then:
    listening on `localhost:9876` — same port as Windows.
 2. Installs and enables the KWin script that owns your global hotkeys.
 3. Installs the toast daemon.
-4. Prints an **auth token** at the end — copy it (also saved to `Server/token.txt` for later).
+4. Opens extension pairing: load the extension (next step) within 10 minutes and it connects
+   by itself, with no token to copy (`./installer.sh pair` opens it again later).
 
 ### 2. Load the browser extension
 
@@ -69,7 +70,7 @@ Same extension as Windows, loaded the same way:
 3. **Load unpacked** → select the `BrowserExtension/` folder in this clone
 
 Open the extension's **Options** page and set:
-- **Auth token** — paste the token the installer printed
+- **Auth token** — filled in by itself (see above); `./installer.sh pair` if it stays empty
 - **Profile name** — pick from the dropdown (Linux self-discovers your browser's profiles each
   time the server starts — unlike Windows, there's no `P1`/`P2` variable to set by hand anywhere;
   a profile added after the server's already running needs a restart, `./installer.sh stop &&
@@ -94,7 +95,7 @@ cp linux/kwin/alttabsucks/contents/code/hotkeys.template.js linux/kwin/alttabsuc
 Two ways to edit them:
 
 **The Hotkeys UI (recommended)** — with the server running, open
-**`http://localhost:9876/hotkeys-ui`**, paste your auth token, and edit bindings there. The page
+**`http://localhost:9876/hotkeys-ui`** and edit bindings there (no token needed). The page
 shows the `registerShortcut(...)` statements in `hotkeys.js` it recognizes, hand-written or not;
 saving rewrites just those (everything else in the file is left alone, the previous version is
 kept as `hotkeys.js.bak`) and redeploys the KWin script automatically — no terminal step needed.
@@ -261,10 +262,9 @@ from scratch) — so this shouldn't come up at all through normal use. If it som
 
 **Extension shows a 403 / auth error**
 
-Token mismatch. Get the real one and re-paste it into extension Options:
-```bash
-cat ~/git/alttabsucks/Server/token.txt
-```
+The extension doesn't have the server's token (a reinstall made a new one, or it was loaded
+long after installing). Run `./installer.sh pair`: it fetches the token by itself within a few
+seconds. Or paste the token from `Server/token.txt` into extension Options.
 
 **Port 9876 already in use**
 

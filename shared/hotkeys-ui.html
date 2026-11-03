@@ -48,16 +48,13 @@
   h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
   .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 20px; }
   .sub.warn { color: var(--err); }
-  .token-row { display: flex; gap: 8px; flex: 0 0 auto; }
+  .header-actions { display: flex; gap: 8px; flex: 0 0 auto; }
   label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
   input[type=text], select {
     width: 100%; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border);
     background: var(--bg); color: var(--text); font: inherit; font-size: 13px;
   }
-  /* Same specificity as input[type=text] above (class+tag either way) — declared after it so
-     this wins the cascade and the token input doesn't stretch to fill the header row. */
-  .token-row input { width: 220px; }
-  .token-row .ext-link { align-self: center; color: var(--accent); font-size: 13px; white-space: nowrap; }
+  .header-actions .ext-link { align-self: center; color: var(--accent); font-size: 13px; white-space: nowrap; }
   /* The key-sequence field is the only readonly input on the page — it's a hotkey recorder,
      not free text (see recordKeyField()), so it gets a distinct affordance. */
   input[readonly] { cursor: pointer; }
@@ -179,10 +176,8 @@
       <div class="sub" id="subtitle">Saving regenerates <code>hotkeys.js</code> and deploys it to the running KWin script automatically.</div>
       <div class="sub" id="browserInfo"></div>
     </div>
-    <div class="token-row">
+    <div class="header-actions">
       <a href="#" id="manageExtension" class="ext-link" title="Open the AltTabSucks extension in your browser's extension manager">Manage extension</a>
-      <input type="text" id="token" placeholder="auth token (Server/token.txt)">
-      <button id="reload" type="button">Reload</button>
     </div>
   </div>
 
@@ -231,7 +226,7 @@ let HINTS = {
   command: "/path/to/installer.sh, reload-hotkeys",
   folder: "~/Downloads",
   browserConfigured: (b) => `Browser: ${b} — change with ./installer.sh configure (applies to every browser hotkey below, not per-row)`,
-  browserMissing: "No browser configured yet — run ./installer.sh configure, then Reload. Browser hotkeys below won't save until then.",
+  browserMissing: "No browser configured yet — run ./installer.sh configure, then reload this page. Browser hotkeys below won't save until then.",
 };
 let runningResourceClasses = []; // [{resourceClass, resourceName}, ...] — see GET
                                   // /running-resource-classes; resourceName is search/display
@@ -248,23 +243,10 @@ function el(tag, attrs, children) {
   return e;
 }
 
-function authHeaders() {
-  return { "X-AltTabSucks-Token": actualToken };
-}
-
-// The token input displays a masked value (first 8 chars, then a dot per remaining char) so
-// the full secret isn't sitting on screen for a screenshot/share to catch — but the real
-// value has to live somewhere other than the input's own .value, since that's what's on
-// display. actualToken is that real value; the input unmasks to it on focus (so it's still
-// editable/selectable/copyable) and re-masks on blur.
-let actualToken = "";
-
-function maskToken(v) {
-  return v.length <= 8 ? v : v.slice(0, 8) + "•".repeat(v.length - 8);
-}
-
+// No auth token here: the server lets this page's own requests in (the browser marks them
+// same-origin, which no other site's can be), so there's nothing to paste.
 async function apiGet(path) {
-  const res = await fetch(path, { headers: authHeaders() });
+  const res = await fetch(path);
   if (!res.ok) throw new Error(`${path} -> HTTP ${res.status}`);
   return res.json();
 }
@@ -709,7 +691,7 @@ TYPE_COLUMNS.folder = SPLIT_MERGE_COLUMNS.slice(0, 2).concat([
 
 // Windows (Server/AppHotkeys.ps1 -> lib/app-hotkeys.ahk) differs in a few places: windows are matched by
 // process name rather than resourceClass, split/merge detect the profile from the focused window
-// themselves (no Profile column). Idempotent — load() calls this on every Reload.
+// themselves (no Profile column). Idempotent — load() calls this on every load.
 function applyPlatform(platform) {
   if (platform !== "windows") return;
   document.getElementById("subtitle").innerHTML =
@@ -903,7 +885,7 @@ document.getElementById("save").addEventListener("click", async () => {
   try {
     const res = await fetch("/hotkeys-config", {
       method: "POST",
-      headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bindings, fileHash }),
     });
     const result = await res.json();
@@ -975,13 +957,13 @@ async function load(after) {
     }
     setStatus(msg, (after && after.isError) || invalid.length > 0);
   } catch (e) {
-    setStatus("Load failed (check your token, and that the server is running): " + e.message, true);
+    setStatus("Load failed (is the AltTabSucks server running?): " + e.message, true);
     return;
   }
   // Separate, best-effort fetch: main.js only pushes this every 10s (see its own comment), so a
   // very-first load right after install could still race an empty list — that's fine, it just
   // means the typeahead has nothing to suggest until the next push, not a reason to fail the
-  // whole page load the way a missing token genuinely should above.
+  // whole page load the way an unreachable server genuinely should above.
   await refreshRunningResourceClasses();
 }
 
@@ -1001,29 +983,15 @@ async function refreshRunningResourceClasses() {
   }
 }
 
-// The token field starts empty on a fresh page load (nothing to prefill from server-side
-// state), so the very first load() below always runs with no token and fails — that's
-// expected, not a bug. What pastes the token in also has to be what triggers the retry:
-// "change" (fires on blur/Enter) covers paste-then-click-away, and the Reload button covers
-// paste-then-click-Reload. Neither call is "load once at page load and hope" like before.
-const tokenInput = document.getElementById("token");
-actualToken = (localStorage.getItem("atsToken") || "").trim();
-tokenInput.value = maskToken(actualToken);
-tokenInput.addEventListener("focus", () => { tokenInput.value = actualToken; });
-tokenInput.addEventListener("blur", () => { tokenInput.value = maskToken(actualToken); });
-tokenInput.addEventListener("input", (e) => {
-  actualToken = e.target.value.trim();
-  localStorage.setItem("atsToken", actualToken);
-});
-tokenInput.addEventListener("change", () => load());
+// Pages saved by an older version kept the token here; it's no longer needed.
+try { localStorage.removeItem("atsToken"); } catch (e) {}
 
 // A web page can't link to brave://extensions (or chrome://, edge://) itself, but the extension
 // may open its own entry there: the server asks the extension in the browser you're using.
 document.getElementById("manageExtension").addEventListener("click", async (e) => {
   e.preventDefault();
   try {
-    const res = await fetch("/open-extension-page", { method: "POST", headers: authHeaders() });
-    if (res.status === 403) throw new Error("enter the auth token first");
+    const res = await fetch("/open-extension-page", { method: "POST" });
     if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
     setStatus("Opening the AltTabSucks extension in your browser's extension manager…", false);
   } catch (err) {
@@ -1031,7 +999,6 @@ document.getElementById("manageExtension").addEventListener("click", async (e) =
       "(e.g. brave://extensions) and look for AltTabSucks.", true);
   }
 });
-document.getElementById("reload").addEventListener("click", () => load());
 
 load();
 </script>

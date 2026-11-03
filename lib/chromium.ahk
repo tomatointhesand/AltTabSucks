@@ -485,6 +485,23 @@ _WaitForTabOrOpen(profileName, cleanPatterns, openUrl, deadline) {
     }
 }
 
+; Tray menu "Connect browser extension": opens pairing on the server, so for the next few minutes
+; an extension without the token (newly loaded, or another browser) fetches it by itself.
+ConnectBrowserExtension() {
+    try {
+        http := ComObject("WinHttp.WinHttpRequest.5.1")
+        http.Open("POST", "http://localhost:9876/extension-pairing", false)
+        http.SetRequestHeader("X-AltTabSucks-Token", _serverToken)
+        http.Send()
+        if (http.Status != 200)
+            throw Error("HTTP " http.Status)
+        minutes := Json_Parse(http.ResponseText).Get("minutes", 10)
+        TrayTip("Load or reload the AltTabSucks extension in your browser within " minutes " minutes: it connects by itself.", "Connect browser extension")
+    } catch as e {
+        TrayTip("Couldn't reach the AltTabSucks server (" e.Message ").", "Connect browser extension")
+    }
+}
+
 ; Returns true if the server has tab data for any profile.
 ; Used to distinguish "server just restarted / extension hasn't posted yet" (no data at all)
 ; from "this profile is not open" (data exists for other profiles but not this one).

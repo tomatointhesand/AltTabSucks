@@ -43,7 +43,8 @@ function populateSelect(profiles, savedName) {
 async function fetchProfiles(token, savedName) {
   if (!token) {
     populateSelect([], savedName);
-    setHint('Enter your auth token, then click ↺ to load profiles.');
+    setHint('Waiting for the token: the extension gets it from AltTabSucks by itself right after an install, '
+      + 'or after "Connect browser extension" in its tray menu (Linux: ./installer.sh pair). Or paste it from Server/token.txt.');
     return;
   }
   setHint('Fetching…');
@@ -66,6 +67,14 @@ async function fetchProfiles(token, savedName) {
 chrome.storage.local.get(['profileName', 'authToken'], ({ profileName, authToken }) => {
   tokenInput.value = authToken ?? '';
   fetchProfiles(authToken, profileName);
+});
+
+// The extension fetches the token from the server by itself (background.js pairWithServer), so
+// it can arrive while this page is open: show it.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.authToken || !changes.authToken.newValue) return;
+  tokenInput.value = changes.authToken.newValue;
+  fetchProfiles(changes.authToken.newValue, profileSelect.value || undefined);
 });
 
 document.getElementById('fetch-profiles').addEventListener('click', () => {

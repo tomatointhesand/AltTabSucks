@@ -8,7 +8,7 @@
 # is the hotkey layer here (no separate "launch AHK at login" step exists on this side either —
 # the KWin script runs inside the always-running compositor once installed).
 #
-# Usage: ./installer.sh [install|uninstall|status|start|stop|restart|configure|reload-hotkeys]  (default: install)
+# Usage: ./installer.sh [install|uninstall|status|start|stop|restart|configure|reload-hotkeys|pair]  (default: install)
 # `restart` restarts the server and toast daemon, then redeploys the KWin script — everything a
 # code change needs; the Linux side of AltTabSucks.ahk's Ctrl+Alt+Shift+' (bind it as a runCommand).
 # `configure` re-runs just the interactive browser wizard (choose_browser) to regenerate
@@ -513,15 +513,41 @@ do_install() {
     done
     if [ -f "$TOKEN_PATH" ]; then
         echo
-        echo "Auth token (paste into the extension Options page): $(tr -d '\n' < "$TOKEN_PATH")"
+        do_pair
     else
         echo
         echo "token.txt still not created after 10s — something's wrong with the server; check:"
         echo "  journalctl --user -u $SERVICE_NAME -e"
     fi
-    echo
-    echo "Next: load BrowserExtension/ unpacked in your browser, open its Options page, and"
-    echo "paste in the token above."
+}
+
+# Opens pairing: for the next few minutes the browser extension fetches the token from the
+# server by itself (POST /extension-token), so nobody has to paste it into its Options page.
+do_pair() {
+    local minutes
+    if ! minutes=$(python3 - "$TOKEN_PATH" <<'PYEOF'
+import json, sys, time, urllib.request
+token = open(sys.argv[1], encoding="utf-8").read().strip()
+req = urllib.request.Request("http://127.0.0.1:9876/extension-pairing", data=b"", method="POST",
+                             headers={"X-AltTabSucks-Token": token})
+deadline = time.time() + 15
+while True:
+    try:
+        print(json.load(urllib.request.urlopen(req, timeout=2))["minutes"])
+        break
+    except OSError:
+        if time.time() > deadline:
+            raise SystemExit(1)
+        time.sleep(0.25)
+PYEOF
+    ); then
+        echo "Couldn't reach the server to connect the browser extension; check:" >&2
+        echo "  journalctl --user -u $SERVICE_NAME -e" >&2
+        return 1
+    fi
+    echo "Browser extension: load BrowserExtension/ unpacked in your browser (extensions page,"
+    echo "Developer mode, Load unpacked) within the next $minutes minutes, and it connects by itself."
+    echo "Already loaded? It connects within a few seconds. Later: ./installer.sh pair"
 }
 
 do_uninstall() {
@@ -638,8 +664,9 @@ case "$ACTION" in
     restart)         do_restart ;;
     configure)       do_configure ;;
     reload-hotkeys)  do_reload_hotkeys ;;
+    pair)            do_pair ;;
     *)
-        echo "Usage: $0 [install|uninstall|status|start|stop|restart|configure|reload-hotkeys]"
+        echo "Usage: $0 [install|uninstall|status|start|stop|restart|configure|reload-hotkeys|pair]"
         exit 1
         ;;
 esac

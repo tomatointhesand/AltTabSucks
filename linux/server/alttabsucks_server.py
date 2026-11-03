@@ -64,19 +64,42 @@ EXTENSION_ICONS_DIR = REPO_ROOT / "BrowserExtension" / "icons"
 EXTENSION_ICON_NAMES = ("icon-16.png", "icon-48.png", "icon-128.png")
 
 
-def load_or_create_token(token_path: Path) -> str:
+def load_or_create_token(token_path: Path) -> tuple[str, bool]:
+    """(token, whether it was just generated)."""
     if token_path.exists():
-        return token_path.read_text(encoding="utf-8").strip()
+        return token_path.read_text(encoding="utf-8").strip(), False
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token = base64.b64encode(secrets.token_bytes(32)).decode("ascii")
     token_path.write_text(token, encoding="utf-8")
     print(f"Generated new auth token: {token}")
-    print("Paste this token into the extension Options page.")
-    return token
+    return token, True
 
 
 def is_extension_origin(origin: str | None) -> bool:
     return bool(origin) and (origin.startswith("chrome-extension://") or origin.startswith("moz-extension://"))
+
+
+def is_own_page_request(sec_fetch_site: str | None, host: str | None, origin: str | None, port: int) -> bool:
+    """The Hotkeys page's own requests, let in without the token. The browser marks them
+    same-origin (Sec-Fetch-Site, a header page scripts can't set; any other site's request says
+    cross-site or same-site), and Host is this server's own name: a DNS-rebinding attacker's domain
+    pointed at 127.0.0.1 arrives with its own name. Nothing else is served from this origin, so
+    same-origin means our page. A local program could fake these headers, but it could read
+    token.txt just as well. Same rules as Server/RequestAuth.ps1's Test-OwnPageRequest."""
+    hosts = {f"localhost:{port}", f"127.0.0.1:{port}"}
+    return (sec_fetch_site == "same-origin" and (host or "").lower() in hosts
+            and (not origin or origin.lower() in {"http://" + h for h in hosts}))
+
+
+# How long POST /extension-token hands out the token after the server generates it or someone asks
+# for pairing (installer.sh pair): long enough to load the extension.
+PAIRING_SECONDS = 600
+
+
+def pairing_token(origin: str | None, pairing_until: float, now: float, secret: str) -> str | None:
+    """POST /extension-token: the token, for a browser extension (its Origin, which web pages
+    can't fake) while pairing is open; None otherwise. Same as RequestAuth.ps1's Get-PairingToken."""
+    return secret if is_extension_origin(origin) and now < pairing_until else None
 
 
 class AppState:
@@ -85,6 +108,7 @@ class AppState:
 
     def __init__(self, secret: str):
         self.secret = secret
+        self.pairing_until = 0.0  # time.time() until which POST /extension-token answers (see pairing_token)
         self.store: dict[str, list] = {}         # profile -> windows (list of {id, focused, tabs:[...]})
         self.switch_queue: dict[str, dict] = {}   # profile -> pending switch command, or absent/None
         self.profile_list: list[str] = []         # display names — self-discovered at startup on
@@ -211,7 +235,11 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
         def _check_auth(self) -> bool:
             # AHK/the KWin script send no Origin header and are unaffected by CORS but must still
             # send the token; OPTIONS preflights are exempt (checked by caller before this runs).
-            return self.headers.get("X-AltTabSucks-Token") == state.secret
+            # The Hotkeys page's own requests need none (is_own_page_request).
+            if self.headers.get("X-AltTabSucks-Token") == state.secret:
+                return True
+            return is_own_page_request(self.headers.get("Sec-Fetch-Site"), self.headers.get("Host"),
+                                       self._origin(), self.server.server_address[1])
 
         def _drain_unread_body(self):
             """Consumes any declared-but-unread request body (bounded by DRAIN_CAP) so a
@@ -257,11 +285,9 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
 
         def do_GET(self):
             # /hotkeys-ui is a public static page, not an API call — a plain browser navigation
-            # can't attach the X-AltTabSucks-Token header the way the page's own fetch() calls to
-            # /hotkeys-config do, so it can't be behind the same auth check. Nothing sensitive
-            # lives in the page itself (no token baked in); the token is entered by hand in the
-            # UI and used only for its own subsequent /hotkeys-config calls, same pattern as
-            # BrowserExtension/options.js.
+            # can't attach the X-AltTabSucks-Token header, so it can't be behind the same auth
+            # check. Nothing sensitive lives in the page itself (no token baked in); its own API
+            # calls are let in by _check_auth's is_own_page_request instead.
             if urlsplit(self.path).path == "/hotkeys-ui":
                 try:
                     html = HOTKEYS_UI_PATH.read_text(encoding="utf-8")
@@ -411,13 +437,29 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 self._end(404)
 
         def do_POST(self):
+            # The extension asks for the token while it has none (or a stale one): handed out only
+            # to extension origins, and only while pairing is open (pairing_token).
+            if urlsplit(self.path).path == "/extension-token":
+                self._drain_unread_body()
+                given = pairing_token(self._origin(), state.pairing_until, time.time(), state.secret)
+                if given:
+                    self._end_json(200, {"token": given})
+                else:
+                    self._end(403)
+                return
             if not self._check_auth():
                 self._drain_unread_body()
                 self._end(403)
                 return
             path = urlsplit(self.path).path
 
-            if path == "/profiles":
+            if path == "/extension-pairing":
+                # Opens pairing (installer.sh pair): extensions without the token get it from
+                # POST /extension-token for the next few minutes.
+                self._drain_unread_body()
+                state.pairing_until = time.time() + PAIRING_SECONDS
+                self._end_json(200, {"minutes": PAIRING_SECONDS // 60})
+            elif path == "/profiles":
                 body = self._read_body(SMALL_MAX_BODY)
                 if body is None:
                     return
@@ -721,8 +763,10 @@ def _load_chromium_config(state):
 
 
 def main():
-    secret = load_or_create_token(TOKEN_PATH)
+    secret, new_token = load_or_create_token(TOKEN_PATH)
     state = AppState(secret)
+    if new_token:  # a new install: the extension picks the token up by itself (POST /extension-token)
+        state.pairing_until = time.time() + PAIRING_SECONDS
     _load_chromium_config(state)
     state.tab_search.load()
     fold_legacy_hotkeys_json(state)

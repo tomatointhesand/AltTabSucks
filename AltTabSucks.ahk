@@ -34,4 +34,5 @@ A_TrayMenu.Insert("2&", "Hotkeys UI", (*) => Run("http://localhost:9876/hotkeys-
 A_TrayMenu.Insert("3&", "Search browser tabs", (*) => ShowTabSearch())
 ; Through Explorer, so the editor (and its "Run startup now") runs as a normal user, not elevated like this script.
 A_TrayMenu.Insert("4&", "Startup items", (*) => Run('explorer.exe "' A_ScriptDir '\StartupManager.ahk"'))
-A_TrayMenu.Insert("5&")
+A_TrayMenu.Insert("5&", "Connect browser extension", (*) => ConnectBrowserExtension())
+A_TrayMenu.Insert("6&")
