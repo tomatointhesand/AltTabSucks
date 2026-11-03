@@ -96,13 +96,6 @@ notification:
 | `Ctrl+Alt+Shift+'` | Restart AltTabSucks |
 
 Change or delete them freely; they aren't added again.
-
-`hotkeys.template.js` is a different thing: an **unsanitized** mirror of this repo owner's own
-`hotkeys.js`, refreshed on every commit (see `hooks/pre-commit`), as a real, working example to
-copy hotkeys from. A hotkey you don't want published (a dashboard on your own machine or network)
-stays out of it if its statement in `hotkeys.js` ends in `// local`; the Hotkeys UI keeps that
-marker but doesn't show it, so add or remove it by hand. Each commit lists the hotkeys it adds to
-the template.
 Two ways to edit them:
 
 **The Hotkeys UI (recommended)** — with the server running, open
@@ -123,8 +116,8 @@ launch it once and start typing its name into that field. Every other binding ty
 about the one browser this install manages, so there's nothing to type there at all — see
 **Managing the service** below for how that's configured instead.
 
-**By hand** — edit `hotkeys.js` directly (see `hotkeys.template.js` for examples of every
-binding type), then run `./installer.sh reload-hotkeys` to deploy.
+**By hand** — edit `hotkeys.js` directly (the binding types are documented at the top of
+`linux/server/hotkeys_generator.py`), then run `./installer.sh reload-hotkeys` to deploy.
 
 **Folder hotkeys** ("Open folder" on the Hotkeys page, `focusOrOpenFolder("~/Downloads")` in
 `hotkeys.js`) switch to the Dolphin window and tab already showing the folder, or open it. Use

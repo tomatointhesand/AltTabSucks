@@ -16,7 +16,7 @@
 # automatically too, but only the first time (an existing config.py is left alone otherwise).
 # `reload-hotkeys` re-runs just install_kwin_script (rebuild + force-reload, no deps/config/
 # service touched) — not a special case, just what a "Reload Hotkeys" runCommand binding's argv
-# points at (see hotkeys_generator.py's runCommand docs and hotkeys.template.js), the Linux side
+# points at (see hotkeys_generator.py's runCommand docs), the Linux side
 # of AltTabSucks.ahk's own built-in `^!+'::Reload`. Picks up hotkeys.js edits, by hand or saved via the
 # hotkeys-ui page without a manual terminal step — run it by hand too, any time.
 
@@ -385,8 +385,8 @@ build_staged_kwin_package() {
         echo "// --- hotkeys.js (concatenated in by installer.sh) ---------------------------------------"
         cat "$HOTKEYS_PATH"
     } > "$staging/contents/code/main.js"
-    # hotkeys.js/hotkeys.template.js (plus hotkeys.js.bak, and any hotkeys.json left over from the
-    # earlier UI) are source material only, not part of the shipped script — drop them from the
+    # hotkeys.js (plus hotkeys.js.bak, a hotkeys.template.js left over from older versions, and
+    # any hotkeys.json left over from the earlier UI) are source material only, not part of the shipped script — drop them from the
     # staged copy so there's exactly one script file KWin could ever load.
     rm -f "$staging/contents/code/hotkeys.js" "$staging/contents/code/hotkeys.template.js" \
           "$staging/contents/code/hotkeys.js.bak" "$staging/contents/code"/hotkeys*.json*

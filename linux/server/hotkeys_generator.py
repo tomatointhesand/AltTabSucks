@@ -11,11 +11,8 @@ Server/AppHotkeys.ps1, same shape and rules.
 Recognized: registerShortcut(title, text, key, function () { CALL; }) (or an arrow function), where
 CALL is one of the actions below with plain string / array-of-strings arguments. A statement whose
 every line starts with "// [disabled] " is a disabled binding. A recognized statement that fails
-validation is reported as invalid (shown by the UI) and removed by the next save. A statement
-ending in "// local" is local-only: the binding gets "local": true (the UI never shows it, only
-posts it back, so it's edited here by hand), and public_template leaves it out of the public
-hotkeys.template.js; a posted binding
-that fails validation, or reuses an enabled binding's title or key, is left out and reported as
+validation is reported as invalid (shown by the UI) and removed by the next save. A posted
+binding that fails validation, or reuses an enabled binding's title or key, is left out and reported as
 dropped. Self-healing either way: nothing invalid is ever written, and nothing invalid survives a
 save.
 
@@ -88,9 +85,6 @@ LEGACY_HEADER = (
     "// hotkeys.json (or just use the UI) instead, unless you never use the UI at all.\n"
 )
 DISABLED_MARKER = "// [disabled] "
-# Ends a local-only statement (see the module docstring). Matched on the statement's last line.
-LOCAL_MARKER = "// local"
-_LOCAL_END = re.compile(r";?\s*//\s*local\s*$")
 
 # A profileCycle binding's profileName sentinel meaning "cycle every open window of this browser,
 # regardless of profile" — see the module docstring above. Must exactly match main.js's own
@@ -468,8 +462,6 @@ def _file_model(text: str) -> dict:
             b = _binding_from_call(title, key, name, args)
             if b is not None:
                 b["enabled"] = not disabled
-                if _LOCAL_END.search(src):
-                    b["local"] = True
                 generate_binding_js(b, b.get("resourceClass", ""))  # validate
         except ValueError as e:
             entry["invalid"] = {"line": i + 1, "text": lines[i].strip(), "title": title, "key": key, "reason": str(e)}
@@ -501,8 +493,6 @@ def parse_hotkeys_js(text: str) -> dict:
 def _statement_js(b: dict, browser_resource_class: str) -> str:
     # The browser the file already names is the fallback when none is configured (yet).
     js = generate_binding_js(b, browser_resource_class or b.get("resourceClass", ""))
-    if b.get("local") is True:
-        js += "  " + LOCAL_MARKER
     if b.get("enabled") is False:
         js = "\n".join(DISABLED_MARKER + l for l in js.split("\n"))
     return js
@@ -601,27 +591,6 @@ def rewrite_hotkeys_js(text: str, posted: list, browser_resource_class: str = ""
     if at_end:
         result = result.rstrip("\n") + "\n\n" + "\n\n".join(at_end) + "\n"
     return {"text": result, "saved": len(kept), "dropped": dropped}
-
-
-def public_template(text: str) -> str:
-    """hotkeys.js without its local-only statements (recognized or hand-written, enabled or not),
-    each taking one blank separator line with it: what make-template.sh publishes as
-    hotkeys.template.js."""
-    lines, out, i = text.split("\n"), [], 0
-    while i < len(lines):
-        t = lines[i].lstrip()
-        disabled = t.startswith(DISABLED_MARKER + "registerShortcut(")
-        if disabled or t.startswith("registerShortcut("):
-            strip = _strip_disabled if disabled else (lambda l: l)
-            end = _statement_extent(lines, i, strip)
-            if end is not None and _LOCAL_END.search(strip(lines[end - 1]) or ""):
-                i = end
-                if i < len(lines) and lines[i].strip() == "":
-                    i += 1
-                continue
-        out.append(lines[i])
-        i += 1
-    return "\n".join(out)
 
 
 def fold_legacy_hotkeys_json(text: str, json_bindings: list, browser_resource_class: str = "") -> dict:
@@ -736,12 +705,3 @@ def format_starter_notice(r: dict) -> str:
     parts += [f"New: {o['title']}. {o['key']} is already used by {o['takenBy']}, so it was added switched off "
               "- give it a key on the Hotkeys page." for o in r["switchedOff"]]
     return " ".join(parts)
-
-
-if __name__ == "__main__":
-    # make-template.sh: hotkeys.js on stdin -> its public template (local-only hotkeys left out).
-    import sys
-    if sys.argv[1:] == ["--public-template"]:
-        sys.stdout.write(public_template(sys.stdin.read()))
-    else:
-        sys.exit("usage: hotkeys_generator.py --public-template < hotkeys.js")

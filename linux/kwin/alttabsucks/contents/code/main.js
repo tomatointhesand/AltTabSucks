@@ -907,8 +907,8 @@ pushRunningResourceClasses();
 // two halves can't be combined at *run* time. installer.sh's install_kwin_script() concatenates
 // this file with hotkeys.js (gitignored — created with the starter hotkeys if missing, by
 // linux/server/starter_hotkeys.py, as the server does for app-hotkeys.ahk on Windows) into
-// the actual deployed contents/code/main.js at *install* time instead. See hotkeys.template.js
-// for the registerShortcut calls that used to live here as dev-test stubs — including "Reload
+// the actual deployed contents/code/main.js at *install* time instead. The registerShortcut
+// calls that used to live here as dev-test stubs are in hotkeys.js now — including "Reload
 // Hotkeys" (the Linux equivalent of AltTabSucks.ahk's built-in `^!+'::Reload`), which used to be
 // hardcoded here as a special case but is now just an ordinary runCommand binding like any other
 // (see hotkeys_generator.py's runCommand docs) — editable/removable in the hotkeys-ui page same

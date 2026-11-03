@@ -6,12 +6,8 @@ Server/token.txt
 lib/star-citizen.ahk
 __pycache__/
 linux/server/config.py
-# hotkeys.js is gitignored, same as lib/app-hotkeys.ahk on the Windows side — but unlike
-# lib/app-hotkeys.ahk, its template (hotkeys.template.js) is an *unsanitized* mirror of it,
-# refreshed by dev-scripts/make-template.sh on every commit (see hooks/pre-commit), as an
-# example. A new install's hotkeys.js starts from linux/server/hotkeys.starter.json instead, and
-# git never touches your own local hotkeys.js — no merge conflicts, no risk of a pull clobbering
-# local edits, since it's never staged/tracked at all.
+# hotkeys.js is gitignored, same as lib/app-hotkeys.ahk on the Windows side: a new install's
+# starts from linux/server/hotkeys.starter.json, and a pull never touches your own edits.
 linux/kwin/alttabsucks/contents/code/hotkeys.js
 *.pub.key
 # Hotkeys UI saves keep the previous file as .bak (real URLs/paths)

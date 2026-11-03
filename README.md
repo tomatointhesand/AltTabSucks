@@ -222,23 +222,6 @@ cd ~/git/alttabsucks
 
 ## For Developers
 
-**Triggering template regeneration**
-
-The pre-commit hook (`hooks/pre-commit`) runs `dev-scripts/make-template.sh` automatically on every commit, keeping the templates in sync with your gitignored local files: `lib/app-hotkeys.template.ahk` and `lib/config.template.ahk` (sanitized: URLs, paths and profile names redacted) and, on Linux, `hotkeys.template.js` (an unsanitized copy, checked for anything that looks like a credential). After editing `lib/app-hotkeys.ahk`:
-
-```bash
-git commit --amend --no-edit
-# Hook fires, regenerates the templates, stages them into the amend automatically.
-```
-
-To regenerate manually without committing:
-
-```bash
-./dev-scripts/make-template.sh
-```
-
-Run `bash dev-scripts/install-hooks.sh` once after cloning to activate the hook.
-
 **Running the tests**
 
 Everything runs from a Linux checkout; the Windows parts run under Wine, portable PowerShell, or a local Windows 11 VM.
