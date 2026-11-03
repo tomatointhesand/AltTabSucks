@@ -31,7 +31,6 @@ KWIN_PLUGIN_ID="alttabsucks"
 CONFIG_PATH="$REPO_ROOT/linux/server/config.py"
 CONFIG_TEMPLATE="$REPO_ROOT/linux/server/config.template.py"
 HOTKEYS_PATH="$KWIN_SCRIPT_DIR/contents/code/hotkeys.js"
-HOTKEYS_TEMPLATE="$KWIN_SCRIPT_DIR/contents/code/hotkeys.template.js"
 TOKEN_PATH="$REPO_ROOT/Server/token.txt"
 TOAST_SERVICE_SRC="$REPO_ROOT/linux/systemd/alttabsucks-toast.service"
 TOAST_SERVICE_NAME="alttabsucks-toast.service"
@@ -99,11 +98,6 @@ BROWSER_EXE_CANDIDATES=(
     "vivaldi-stable vivaldi"
     "chromium chromium-browser"
 )
-
-# Set by choose_browser on success; consumed by ensure_hotkeys to pre-fill hotkeys.js when it
-# seeds a fresh copy from the template. Left unset if choose_browser wasn't run this invocation
-# (config.py already existed) or the user picked manual entry without giving a resourceClass.
-CHOSEN_RESOURCE_CLASS=""
 
 # Returns the first candidate (space-separated in $1) actually found on PATH, or empty.
 find_on_path() {
@@ -211,7 +205,6 @@ choose_browser() {
         echo "CHROMIUM_EXTRA_FLAGS = []"
     } > "$CONFIG_PATH"
     echo "Wrote linux/server/config.py (CHROMIUM_USERDATA=$userdata, CHROMIUM_EXE=$exe, CHROMIUM_RESOURCE_CLASS=$resource_class)."
-    CHOSEN_RESOURCE_CLASS="$resource_class"
 
     # Only ever regenerates the *file on disk* — never redeploys anything itself, matching
     # do_configure's own existing pattern of leaving that to an explicit `install` afterward.
@@ -369,32 +362,12 @@ uninstall_toast_service() {
 # the hard way — see the checklist's Phase 2 notes); loadScript unload + reconfigure is what
 # actually forces a fresh load, so that's what's used here rather than relying on --upgrade alone.
 
+# Last resort when starter_hotkeys.py (which creates a new hotkeys.js with the starter set)
+# failed: a hotkeys.js with just the header, so the KWin script still builds.
 ensure_hotkeys() {
-    if [ -f "$HOTKEYS_PATH" ]; then
-        return
-    fi
-    cp "$HOTKEYS_TEMPLATE" "$HOTKEYS_PATH"
-    # Unconditional (unlike CHOSEN_RESOURCE_CLASS below, which depends on the browser wizard
-    # having run) — $REPO_ROOT is always known, so if the template still has this placeholder at
-    # all (see below — it usually won't), any "Reload Hotkeys"-style example ends up pointing at
-    # this exact clone's installer.sh, no user input required.
-    sed -i "s|YOUR_REPO_ROOT|$REPO_ROOT|g" "$HOTKEYS_PATH"
-    # hotkeys.template.js is dev-scripts/make-template.sh's *unsanitized* mirror of the repo
-    # owner's own real hotkeys.js by default now (see .gitignore's own comment) — a working
-    # example with real resourceClass/URL values already in it, not "YOUR_BROWSER_RESOURCE_CLASS"
-    # placeholders, so there's usually nothing here for CHOSEN_RESOURCE_CLASS to fill in at all.
-    # Checked rather than assumed either way, so the printed message stays accurate regardless of
-    # which kind of template a given checkout happens to have.
-    if [ -n "$CHOSEN_RESOURCE_CLASS" ] && grep -q "YOUR_BROWSER_RESOURCE_CLASS" "$HOTKEYS_PATH"; then
-        sed -i "s/YOUR_BROWSER_RESOURCE_CLASS/$CHOSEN_RESOURCE_CLASS/g" "$HOTKEYS_PATH"
-        echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.js from the template, with your"
-        echo "browser's resourceClass ('$CHOSEN_RESOURCE_CLASS') already filled in — still edit in"
-        echo "your real profile name(s) and URLs before the examples do anything."
-    else
-        echo "Created linux/kwin/alttabsucks/contents/code/hotkeys.js from hotkeys.template.js — this"
-        echo "mirrors the repo owner's own real config as of the last commit (a working example, not"
-        echo "generic placeholders), so edit it to match your own setup before relying on it."
-    fi
+    [ -f "$HOTKEYS_PATH" ] && return
+    python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import hotkeys_generator as h; open(sys.argv[2], "w", encoding="utf-8").write(h.HEADER)' \
+        "$REPO_ROOT/linux/server" "$HOTKEYS_PATH"
 }
 
 # Builds a staging copy of the KWin script package whose contents/code/main.js is the tracked
@@ -446,10 +419,11 @@ for info in comp.allShortcutInfos():
 }
 
 install_kwin_script() {
-    ensure_hotkeys
-    # Starter hotkeys for features added since hotkeys.js was created, each offered once
-    # (switched off if its key is taken) — see linux/server/starter_hotkeys.py.
+    # Starter hotkeys, each offered once (switched off if its key is taken): the whole set to a
+    # new hotkeys.js, which this creates, and hotkeys for new features to an existing one — see
+    # linux/server/starter_hotkeys.py.
     python3 "$REPO_ROOT/linux/server/starter_hotkeys.py" || echo "Couldn't check for new starter hotkeys (see above); carrying on." >&2
+    ensure_hotkeys
     local staged
     staged="$(build_staged_kwin_package)"
     if qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.isScriptLoaded "$KWIN_PLUGIN_ID" 2>/dev/null | grep -q true; then

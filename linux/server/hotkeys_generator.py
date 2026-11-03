@@ -658,13 +658,14 @@ def starter_identity(b: dict) -> str:
 
 
 def _starter_offered(lines):
+    """The ids in the marker line, or None when the file has no marker at all."""
     for line in lines:
         if line.startswith(STARTER_MARKER):
             ids = line[len(STARTER_MARKER):]
             if ids.endswith(STARTER_SUFFIX):
                 ids = ids[:-len(STARTER_SUFFIX)]
             return ids.split()
-    return []
+    return None
 
 
 def _set_starter_marker(text: str, ids) -> str:
@@ -683,17 +684,22 @@ def add_starter_hotkeys(text: str, starter: list, browser_resource_class: str = 
     any key; otherwise it's added, and if its key (or title — kglobalaccel's action ID) is taken
     it's added switched off ("switchedOff" says by what), so nothing the user set up changes. One
     that can't be added at all ("dropped", e.g. no browser configured yet) is offered again next
-    time. Unlike Windows there's no first-run set: installer.sh starts a new hotkeys.js from
-    hotkeys.template.js, so the starter file only lists hotkeys for new features.
-    Returns {"text", "added", "switchedOff", "dropped"}."""
+    time. First run (no hotkeys and no marker yet: installer.sh starts a new hotkeys.js with just
+    HEADER) gets the whole set; any other file only the entries marked "upgrade": true (hotkeys for
+    new features, not examples). Same rules as Add-StarterHotkeys in Server/AppHotkeys.ps1.
+    Returns {"text", "firstRun", "added", "switchedOff", "dropped"}."""
     offered = _starter_offered(text.split("\n"))
-    result = {"text": text, "added": [], "switchedOff": [], "dropped": []}
-    todo = [t for t in starter if isinstance(t, dict) and t.get("id") and t["id"] not in offered]
+    m = _file_model(text)
+    first_run = offered is None and not m["stmts"] and not m["custom"]
+    offered = offered or []
+    result = {"text": text, "firstRun": first_run, "added": [], "switchedOff": [], "dropped": []}
+    todo = [t for t in starter if isinstance(t, dict) and t.get("id") and t["id"] not in offered
+            and (first_run or t.get("upgrade") is True)]
     if not todo:
         return result
     cur = text
     for t in todo:
-        c = {k: v for k, v in t.items() if k != "id"}
+        c = {k: v for k, v in t.items() if k not in ("id", "upgrade")}
         c.setdefault("enabled", True)
         existing = parse_hotkeys_js(cur)["bindings"]
         if any(starter_identity(b) == starter_identity(c) for b in existing):
@@ -722,6 +728,10 @@ def add_starter_hotkeys(text: str, starter: list, browser_resource_class: str = 
 
 def format_starter_notice(r: dict) -> str:
     """The notification for what add_starter_hotkeys did, "" for nothing worth saying."""
+    if r.get("firstRun"):
+        if r["added"] or r["switchedOff"]:
+            return "Suggested hotkeys added to hotkeys.js. Press Ctrl+Alt+/ to view and edit them."
+        return ""
     parts = [f"New hotkey: {a['title']} ({a['key']})." for a in r["added"]]
     parts += [f"New: {o['title']}. {o['key']} is already used by {o['takenBy']}, so it was added switched off "
               "- give it a key on the Hotkeys page." for o in r["switchedOff"]]

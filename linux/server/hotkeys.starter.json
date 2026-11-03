@@ -1,8 +1,21 @@
 {
   "bindings": [
-    { "id": "tabSearch", "type": "tabSearch", "title": "Search browser tabs", "key": "Ctrl+Alt+Shift+A" },
-    { "id": "hotkeyConfig", "type": "tabFocus", "title": "Hotkey config", "key": "Ctrl+Alt+/", "profileName": "__PROFILE__", "urlPatterns": ["localhost:9876/hotkeys-ui"], "openUrl": "http://localhost:9876/hotkeys-ui" },
-    { "id": "splitTab", "type": "splitTab", "title": "Split browser tab", "key": "Alt+X", "profileName": "__PROFILE__" },
-    { "id": "mergeTabs", "type": "mergeTabs", "title": "Merge browser tab", "key": "Alt+Z", "profileName": "__PROFILE__" }
+    { "id": "editor", "type": "windowToggle", "title": "Text editor", "key": "Ctrl+Alt+Shift+N", "resourceClass": "org.kde.kate", "launchArgv": ["kate"], "ifInstalled": "kate" },
+    { "id": "terminal", "type": "windowCycle", "title": "Terminal", "key": "Ctrl+Alt+Shift+Return", "resourceClass": "org.kde.konsole", "launchArgv": ["konsole"], "ifInstalled": "konsole" },
+
+    { "id": "browserWindows", "type": "profileCycle", "title": "Browser windows", "key": "Ctrl+Alt+Shift+B", "profileName": "__all__", "launchProfileName": "__PROFILE__" },
+    { "id": "tabSearch", "upgrade": true, "type": "tabSearch", "title": "Search browser tabs", "key": "Ctrl+Alt+Shift+A" },
+
+    { "id": "hotkeyConfig", "upgrade": true, "type": "tabFocus", "title": "Hotkey config", "key": "Ctrl+Alt+/", "profileName": "__PROFILE__", "urlPatterns": ["localhost:9876/hotkeys-ui"], "openUrl": "http://localhost:9876/hotkeys-ui" },
+    { "id": "gmail", "type": "tabFocus", "title": "Gmail", "key": "Ctrl+Alt+Shift+G", "profileName": "__PROFILE__", "urlPatterns": ["mail.google.com"], "openUrl": "https://mail.google.com" },
+    { "id": "calendar", "type": "tabFocus", "title": "Calendar", "key": "Ctrl+Alt+Shift+C", "profileName": "__PROFILE__", "urlPatterns": ["calendar.google.com"], "openUrl": "https://calendar.google.com" },
+    { "id": "youtube", "type": "tabFocus", "title": "YouTube", "key": "Ctrl+Alt+Shift+Y", "profileName": "__PROFILE__", "urlPatterns": ["www.youtube.com"], "openUrl": "https://www.youtube.com" },
+    { "id": "maps", "type": "tabFocus", "title": "Maps", "key": "Ctrl+Alt+Shift+M", "profileName": "__PROFILE__", "urlPatterns": ["google.com/maps"], "openUrl": "https://www.google.com/maps" },
+
+    { "id": "splitTab", "upgrade": true, "type": "splitTab", "title": "Split browser tab", "key": "Alt+X", "profileName": "__PROFILE__" },
+    { "id": "mergeTabs", "upgrade": true, "type": "mergeTabs", "title": "Merge browser tab", "key": "Alt+Z", "profileName": "__PROFILE__" },
+
+    { "id": "downloads", "type": "folder", "title": "Downloads folder", "key": "Ctrl+Alt+Shift+Down", "path": "__DOWNLOADS__" },
+    { "id": "restart", "type": "runCommand", "title": "Restart AltTabSucks", "key": "Ctrl+Alt+\"", "argv": ["__REPO_ROOT__/installer.sh", "restart"] }
   ]
 }

@@ -1,10 +1,10 @@
 // This file is an unsanitized copy of the repo owner's own real hotkeys.js, refreshed
 // automatically by dev-scripts/make-template.sh on every commit (see hooks/pre-commit) —
 // a real, working example instead of generic placeholders. hotkeys.js itself stays
-// gitignored (a `git pull` never touches your own local edits to it); copy this file to
-// hotkeys.js and edit it to match your own setup. See linux/README.md and the porting
-// checklist for what each binding type does. YOUR_REPO_ROOT stands for this clone's path
-// (installer.sh fills it in when it creates hotkeys.js from this file). Hotkeys whose
+// gitignored (a `git pull` never touches your own local edits to it). A new install
+// doesn't start from this file but from the starter set (linux/server/hotkeys.starter.json);
+// copy hotkeys from here into your hotkeys.js if you want them. See linux/README.md for
+// what each binding type does. YOUR_REPO_ROOT stands for this clone's path. Hotkeys whose
 // statement ends in "// local" in hotkeys.js are left out of this copy.
 
 // AltTabSucks hotkeys. Edit them here or in the Hotkeys UI (Ctrl+Alt+/, served at

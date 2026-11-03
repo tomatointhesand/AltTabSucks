@@ -905,8 +905,8 @@ pushRunningResourceClasses();
 // scripting sandbox can't read a sibling file at runtime (no file-read primitive, confirmed
 // empirically — see the sandbox notes above), so unlike AHK's #Include lib\app-hotkeys.ahk, the
 // two halves can't be combined at *run* time. installer.sh's install_kwin_script() concatenates
-// this file with hotkeys.js (gitignored — seeded from hotkeys.template.js if missing, same
-// "seed from template on first install" behavior as installer.ps1 uses for app-hotkeys.ahk) into
+// this file with hotkeys.js (gitignored — created with the starter hotkeys if missing, by
+// linux/server/starter_hotkeys.py, as the server does for app-hotkeys.ahk on Windows) into
 // the actual deployed contents/code/main.js at *install* time instead. See hotkeys.template.js
 // for the registerShortcut calls that used to live here as dev-test stubs — including "Reload
 // Hotkeys" (the Linux equivalent of AltTabSucks.ahk's built-in `^!+'::Reload`), which used to be

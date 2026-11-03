@@ -78,20 +78,31 @@ Open the extension's **Options** page and set:
 
 ### 3. Add your hotkeys
 
-`hotkeys.js` is gitignored, same as `lib/app-hotkeys.ahk` on Windows — but unlike that AHK file,
-its template (`hotkeys.template.js`) is an **unsanitized** mirror of it, refreshed automatically
-on every commit (see `hooks/pre-commit`). That means a real, working example — this repo's own
-actual hotkey config as of the last commit, not generic placeholders — is what `installer.sh`
-seeds a missing `hotkeys.js` from on install/reload-hotkeys, without `hotkeys.js` itself ever
-being tracked (so a `git pull` never touches your own local edits to it). A hotkey you don't want
-published (a dashboard on your own machine or network) stays out of the template if its statement
-in `hotkeys.js` ends in `// local`; the Hotkeys UI keeps that marker but doesn't show it, so add or
-remove it by hand. Each commit lists the hotkeys it adds to the template. To pick up bindings a
-pulled template gained, copy the ones you want across, or start over from it:
-```bash
-cp linux/kwin/alttabsucks/contents/code/hotkeys.template.js linux/kwin/alttabsucks/contents/code/hotkeys.js
-./installer.sh reload-hotkeys
-```
+`hotkeys.js` is gitignored, same as `lib/app-hotkeys.ahk` on Windows, so a `git pull` never touches
+your own edits to it. `./installer.sh install` creates it with a set of suggested hotkeys
+(`linux/server/hotkeys.starter.json`, using your browser's default profile) and shows a
+notification:
+
+| Hotkey | What it does |
+|---|---|
+| `Ctrl+Alt+Shift+N` | Kate: show/hide (only if Kate is installed) |
+| `Ctrl+Alt+Shift+Enter` | Konsole: cycle windows, or open it (only if Konsole is installed) |
+| `Ctrl+Alt+Shift+B` | Cycle through all browser windows |
+| `Ctrl+Alt+Shift+A` | Search browser tabs |
+| `Ctrl+Alt+/` | This Hotkeys page |
+| `Ctrl+Alt+Shift+G` / `C` / `Y` / `M` | Gmail / Google Calendar / YouTube / Google Maps tab |
+| `Alt+X` / `Alt+Z` | Split the current tab into its own window / merge it back |
+| `Ctrl+Alt+Shift+Down` | Downloads folder in Dolphin |
+| `Ctrl+Alt+Shift+'` | Restart AltTabSucks |
+
+Change or delete them freely; they aren't added again.
+
+`hotkeys.template.js` is a different thing: an **unsanitized** mirror of this repo owner's own
+`hotkeys.js`, refreshed on every commit (see `hooks/pre-commit`), as a real, working example to
+copy hotkeys from. A hotkey you don't want published (a dashboard on your own machine or network)
+stays out of it if its statement in `hotkeys.js` ends in `// local`; the Hotkeys UI keeps that
+marker but doesn't show it, so add or remove it by hand. Each commit lists the hotkeys it adds to
+the template.
 Two ways to edit them:
 
 **The Hotkeys UI (recommended)** — with the server running, open
@@ -112,16 +123,16 @@ launch it once and start typing its name into that field. Every other binding ty
 about the one browser this install manages, so there's nothing to type there at all — see
 **Managing the service** below for how that's configured instead.
 
-**By hand** — edit `hotkeys.js` directly (see its own comments, and `hotkeys.template.js` for
-every binding type with inline docs), then run `./installer.sh reload-hotkeys` to deploy.
+**By hand** — edit `hotkeys.js` directly (see `hotkeys.template.js` for examples of every
+binding type), then run `./installer.sh reload-hotkeys` to deploy.
 
 **Folder hotkeys** ("Open folder" on the Hotkeys page, `focusOrOpenFolder("~/Downloads")` in
 `hotkeys.js`) switch to the Dolphin window and tab already showing the folder, or open it. Use
 them instead of a "Run command" `dolphin <folder>`, which opens a new window on every press when
 Dolphin isn't already showing it, and can't bring Dolphin forward when it is.
 
-**New starter hotkeys.** New features can come with a starter hotkey of their own
-(`linux/server/hotkeys.starter.json`). Every KWin script install (`./installer.sh install`,
+**New starter hotkeys.** New features can come with a starter hotkey of their own (the entries
+marked `"upgrade": true` in `linux/server/hotkeys.starter.json`). Every KWin script install (`./installer.sh install`,
 `restart` or `reload-hotkeys`, so `Ctrl+Alt+Shift+'` after a `git pull`) adds each one to your
 `hotkeys.js` once, with a notification. If its key or title is already taken, yours stays as it
 is and the new hotkey is added switched off, so give it another key on the Hotkeys page. Delete one

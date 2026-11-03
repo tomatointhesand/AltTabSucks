@@ -441,8 +441,8 @@ class FolderTestCase(unittest.TestCase):
 
 
 class StarterHotkeysTestCase(unittest.TestCase):
-    SEARCH = {"id": "tabSearch", "type": "tabSearch", "title": "Search browser tabs", "key": "Ctrl+Alt+Shift+A"}
-    SPLIT = {"id": "splitTab", "type": "splitTab", "title": "Split browser tab", "key": "Alt+X", "profileName": "Personal"}
+    SEARCH = {"id": "tabSearch", "upgrade": True, "type": "tabSearch", "title": "Search browser tabs", "key": "Ctrl+Alt+Shift+A"}
+    SPLIT = {"id": "splitTab", "upgrade": True, "type": "splitTab", "title": "Split browser tab", "key": "Alt+X", "profileName": "Personal"}
     KATE = _stmt("Kate", "Alt+K", 'manageAppWindows("kate", "cycle");')
 
     def add(self, text, starter=None, rc="brave-browser"):
@@ -475,6 +475,49 @@ class StarterHotkeysTestCase(unittest.TestCase):
         r = self.add(HEADER + "\n" + mine + "\n", [self.SEARCH])
         self.assertEqual([b["title"] for b in parse_hotkeys_js(r["text"])["bindings"]], ["Find tab"])
         self.assertIn(STARTER_MARKER + "tabSearch - ", r["text"])
+
+    GMAIL = {"id": "gmail", "type": "tabFocus", "title": "Gmail", "key": "Ctrl+Alt+Shift+G", "profileName": "Personal",
+             "urlPatterns": ["mail.google.com"], "openUrl": "https://mail.google.com"}
+
+    def test_a_new_file_gets_the_whole_set(self):
+        r = self.add(HEADER, [self.GMAIL, self.SEARCH])
+        self.assertTrue(r["firstRun"])
+        self.assertEqual([b["title"] for b in parse_hotkeys_js(r["text"])["bindings"]], ["Gmail", "Search browser tabs"])
+        self.assertNotIn("upgrade", r["text"])
+        self.assertEqual(format_starter_notice(r),
+                         "Suggested hotkeys added to hotkeys.js. Press Ctrl+Alt+/ to view and edit them.")
+
+    def test_an_existing_file_gets_only_upgrades(self):
+        r = self.add(HEADER + "\n" + self.KATE + "\n", [self.GMAIL, self.SEARCH])
+        self.assertFalse(r["firstRun"])
+        self.assertEqual([b["title"] for b in parse_hotkeys_js(r["text"])["bindings"]], ["Kate", "Search browser tabs"])
+        self.assertIn(STARTER_MARKER + "tabSearch - ", r["text"])
+
+    def test_a_file_with_a_marker_is_not_a_first_run(self):
+        r = self.add(HEADER + "\n" + STARTER_MARKER + "tabSearch - x\n", [self.GMAIL])
+        self.assertEqual(parse_hotkeys_js(r["text"])["bindings"], [])
+
+    def test_the_shipped_starter_set_is_all_valid(self):
+        import starter_hotkeys
+        starter = starter_hotkeys.load_starter(starter_hotkeys.STARTER_PATH, "Personal", "~/Downloads",
+                                               "/home/me/alttabsucks", installed=lambda c: True)
+        self.assertEqual(len({t["id"] for t in starter}), len(starter))
+        r = self.add(HEADER, starter)
+        self.assertEqual((r["dropped"], r["switchedOff"]), ([], []))
+        got = parse_hotkeys_js(r["text"])["bindings"]
+        self.assertEqual(len(got), len(starter))
+        by_type = {b["type"]: b for b in got}
+        self.assertEqual(by_type["folder"]["path"], "~/Downloads")
+        self.assertEqual(by_type["runCommand"]["argv"], ["/home/me/alttabsucks/installer.sh", "restart"])
+        self.assertEqual(by_type["splitTab"]["profileName"], "Personal")
+
+    def test_apps_that_are_not_installed_are_left_out(self):
+        import starter_hotkeys
+        starter = starter_hotkeys.load_starter(starter_hotkeys.STARTER_PATH, "P", installed=lambda c: c == "konsole")
+        ids = [t["id"] for t in starter]
+        self.assertIn("terminal", ids)
+        self.assertNotIn("editor", ids)
+        self.assertTrue(all("ifInstalled" not in t for t in starter))
 
     def test_not_yet_addable_is_offered_again(self):
         r = self.add(HEADER + "\n", [self.SEARCH], rc="")
