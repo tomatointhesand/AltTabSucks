@@ -13,6 +13,7 @@
 
 #Include lib\json.ahk
 #Include lib\startup-logic.ahk
+#Include lib\tray-icon.ahk
 #Include lib\startup-manager.ahk
 
 StartupManagerMain(A_Args)

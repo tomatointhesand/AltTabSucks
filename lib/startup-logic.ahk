@@ -105,9 +105,9 @@ StartupStatusText(item, st, planned, nowMs) {
             remaining := planned.at - nowMs
             return remaining > 0 ? "in " Format("{:.1f} s", Ceil(remaining / 100) / 10) : "launching"  ; up: never "in 0.0 s"
         case "launched": return "starting"
-        case "running":  return "waiting for window"
+        case "running":  return item.Get("builtin", "") = "alttabsucks" ? "waiting for tray icon" : "waiting for window"
         case "ready":    return STARTUP_CHECK
-        case "nowindow": return "no window yet (Ready: process?)"
+        case "nowindow": return item.Get("builtin", "") = "alttabsucks" ? "no tray icon yet" : "no window yet (Ready: process?)"
         case "noprocess":
             p := item.Get("process", "")
             return p = "" ? STARTUP_CHECK " launched" : "no " p " seen yet"

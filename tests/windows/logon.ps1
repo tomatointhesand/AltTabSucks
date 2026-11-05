@@ -80,6 +80,12 @@ try {
         Check ($it["AltTabSucks"].readyMs -gt $it["AltTabSucks"].launchMs) "  ...ready after it was launched (each time is taken when it happens)" ($it["AltTabSucks"] | ConvertTo-Json -Compress)
         Check ($ats -and [Elevation]::Of($ats.ProcessId) -eq 1) "  ...elevated"
         Check ((Get-ScheduledTaskInfo -TaskName "AltTabSucks AHK").LastRunTime -ge $boot) "  ...through the AltTabSucks AHK task"
+        # It starts within a second or so of Explorer, before the taskbar: its tray icon has to get
+        # there anyway (lib\tray-icon.ahk), and the manager only calls it ready once it has.
+        $trayOut = Join-Path $Work "tray-icon.txt"
+        Remove-Item $trayOut -ErrorAction SilentlyContinue
+        Invoke-OnDesktop $Ahk "`"$Repo\tests\windows\tray-icon.ahk`" `"$trayOut`"" 30 | Out-Null
+        Check ((Get-Content $trayOut -Raw -ErrorAction SilentlyContinue) -eq "1") "  ...with its tray icon in the taskbar"
         Check (-not (Get-Process consent -ErrorAction SilentlyContinue)) "  ...with no UAC prompt waiting"
 
         $notepad = Get-Process notepad -ErrorAction SilentlyContinue | Select-Object -First 1

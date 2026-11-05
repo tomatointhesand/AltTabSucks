@@ -9,6 +9,7 @@
 DetectHiddenWindows 1
 if not A_IsAdmin
     Run '*RunAs "' A_ScriptFullPath '"'
+TrayIconKeep()  ; lib\tray-icon.ahk: at logon this can start before the taskbar exists
 
 ^!+':: RestartAltTabSucks()  ; restart the server, then reload this script
 
@@ -27,6 +28,7 @@ FIREFOX_PROFILE_INI := ""
 #Include lib\json.ahk         ; Json_Parse, Json_Stringify
 #Include lib\hotkeys-ui.ahk   ; runtime for hotkeys saved from the web UI (localhost:9876/hotkeys-ui)
 #Include lib\startup-upgrade.ahk ; offers the startup manager to installs from before it existed
+#Include lib\tray-icon.ahk    ; keeps the tray icon there when this starts before the taskbar
 #Include *i lib\SC.ahk ; SC automation (scoped to SC window) — optional
 
 A_TrayMenu.Insert("1&", "Settings", (*) => ShowSettingsGui())

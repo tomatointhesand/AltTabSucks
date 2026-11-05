@@ -16,7 +16,7 @@ SM_W := 700, SM_H := 570
 global _sm := {gui: 0, items: [], states: Map(), config: Map(), running: false, trigger: "", runStart: 0,
                skipDelays: false, historyWritten: false, keepOpen: true, closeAt: 0, sel: 0, filling: false,
                plan: Map(), cells: Map(), hidden: false, moved: false, nextPlace: 0, mode: "", scanPid: 0, scanOut: "", newEntries: [], view: "items",
-               configError: "", outcomes: [], textColor: 0, colors: Map(), backs: [], drawSelected: false}
+               configError: "", outcomes: [], textColor: 0, colors: Map()}
 
 StartupManagerMain(args) {
     OnError(_SmLogError)
@@ -152,7 +152,7 @@ _SmWatch() {
             continue
         if (s = "launched" || s = "noprocess") && _SmProcessRunning(proc)
             st["processMs"] := _SmNow(), s := st["status"] := late ? "nowindow" : "running"
-        if (s = "running" || s = "nowindow") && (item.Get("ready", "window") = "process" || _SmWindowShown(proc)) {
+        if (s = "running" || s = "nowindow") && _SmIsReady(item, proc) {
             st["readyMs"] := _SmNow(), st["status"] := "ready"
             if !late
                 st["doneMs"] := st["readyMs"]
@@ -221,6 +221,19 @@ _SmProcessRunning(proc) {
         return found != 0
     }
     return ProcessExist(proc) != 0
+}
+
+; AltTabSucks.ahk is ready once its tray icon is there: its process alone shows up long before
+; that, and at logon the icon can go missing (see lib/tray-icon.ahk). Others: by their "ready".
+_SmIsReady(item, proc) {
+    if item.Get("builtin", "") = "alttabsucks" {
+        prev := A_DetectHiddenWindows
+        DetectHiddenWindows(true)
+        hwnd := WinExist("\AltTabSucks.ahk - AutoHotkey ahk_class AutoHotkey")
+        DetectHiddenWindows(prev)
+        return hwnd && TrayIconShown(hwnd)
+    }
+    return item.Get("ready", "window") = "process" || _SmWindowShown(proc)
 }
 
 ; Ready: a visible, uncloaked window of the process that's at least 50x50 (or minimized).
@@ -345,7 +358,7 @@ _SmBuildGui(mode) {
     dark := false
     try dark := RegRead("HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme") = 0
     fg := dark ? "cE8E8E8" : "c000000"
-    g := Gui((mode = "edit" ? "" : "+AlwaysOnTop ") "-MaximizeBox", SM_TITLE)
+    g := Gui((mode = "edit" ? "" : "+AlwaysOnTop ") "+Resize +MinSize560x420", SM_TITLE)
     _sm.gui := g
     g.SetFont("s10 " fg, "Segoe UI")
     if dark {
@@ -376,8 +389,6 @@ _SmBuildGui(mode) {
         _sm.textColor := DllCall("GetSysColor", "int", 8, "uint")
     _sm.colors := dark ? Map("ok", 0x50B93F, "warn", 0x30A0E0, "error", 0x4951F8)
                        : Map("ok", 0x2A8A1F, "warn", 0x0070C0, "error", 0x2020C8)  ; COLORREF: 0xBBGGRR
-    ; Backgrounds: normal, selected (list focused), selected (not focused) - the theme's own.
-    _sm.backs := dark ? [0x1E1E1E, 0x4D4D4D, 0x3A3A3A] : [0xFFFFFF, 0xFFE8CC, 0xF0F0F0]
     _sm.lv.OnNotify(-12, _SmLvCustomDraw)  ; NM_CUSTOMDRAW
 
     editCtrls := []
@@ -400,7 +411,7 @@ _SmBuildGui(mode) {
     _sm.fDelay := add(edit("x96 y390 w60"))
     _sm.fAfter := add(g.AddCheckbox("x168 y393 w520", "Count it from when the previous item is ready, not launched"))
     add(g.AddText("x12 y424 w80", "Ready when"))
-    _sm.fReady := add(g.AddDropDownList("x96 y420 w250", ["its first window appears", "its process is running"]))
+    _sm.fReady := add(g.AddDropDownList("x96 y420 w250", ["its first window appears", "its process is running", "its tray icon appears"]))
     _sm.editCtrls := editCtrls
     for f in [_sm.fName, _sm.fProcess, _sm.fCommand, _sm.fDelay]
         f.OnEvent("Change", _SmOnEdit)
@@ -420,7 +431,8 @@ _SmBuildGui(mode) {
     _sm.launchAll.OnEvent("Click", (*) => (_SmKeepOpen(), _sm.skipDelays := true))
     _sm.runNow := g.AddButton("x400 y502 w180 Hidden", "Run startup now")
     _sm.runNow.OnEvent("Click", (*) => (_SmKeepOpen(), _SmStartRun("manual")))
-    g.AddButton("x588 y502 w100", "Close").OnEvent("Click", _SmClose)
+    _sm.closeBtn := g.AddButton("x588 y502 w100", "Close")
+    _sm.closeBtn.OnEvent("Click", _SmClose)
     g.OnEvent("Close", _SmClose)
     g.OnEvent("Escape", _SmClose)
     ; Real input on the window keeps it open. Not activation: at logon Windows activates this window
@@ -431,12 +443,109 @@ _SmBuildGui(mode) {
 
     _SmFillList()
     _SmSelect(_sm.items.Length ? 1 : 0)
+    ; Laid out for SM_W x SM_H; shown hidden at that size first, so every control's position is
+    ; recorded in the same units the Size event works in. Then shown tall enough for every item.
+    g.Show("Hide w" SM_W " h" SM_H)
+    _SmRecordLayout()
+    g.OnEvent("Size", _SmOnSize)
+    h := SM_H + _SmListExtraHeight()
     if mode = "edit" {
-        g.Show("w" SM_W " h" SM_H)
+        g.Show("w" SM_W " h" h)
     } else {  ; bottom right, without taking the focus from whatever the user starts using
-        g.Show("NA w" SM_W " h" SM_H)
-        _SmPlace()
+        g.Show("NA w" SM_W " h" h)
     }
+    _SmFitToScreen()
+    if mode != "edit"
+        _SmPlace()
+}
+
+; ---- resizing ---------------------------------------------------------------------------------
+; Each control is anchored by flags: x/y move it with the window's right/bottom edge, w/h stretch
+; it. The lists stretch both ways; everything under them moves down; the buttons on the right and
+; the long fields follow the right edge.
+_SmRecordLayout() {
+    g := _sm.gui
+    g.GetClientPos(, , &cw, &ch)
+    _sm.baseW := cw, _sm.baseH := ch
+    _sm.lv.GetPos(, &lvY, , &lvH)
+    below := lvY + lvH  ; controls under the items list move down with the window's bottom edge
+    special := Map(_sm.summary.Hwnd, "w", _sm.lv.Hwnd, "wh", _sm.lvHist.Hwnd, "wh",
+                   _sm.fProcess.Hwnd, "yw", _sm.fCommand.Hwnd, "yw", _sm.notice.Hwnd, "yw", _sm.footer.Hwnd, "yw")
+    for c in [_sm.viewBtn, _sm.fBrowse, _sm.takeOver, _sm.launchAll, _sm.runNow, _sm.closeBtn]
+        special[c.Hwnd] := "xy"
+    _sm.anchors := []
+    for hwnd, ctrl in g {
+        ctrl.GetPos(&x, &y, &w, &h)
+        flags := special.Has(ctrl.Hwnd) ? special[ctrl.Hwnd] : y >= below ? "y" : ""
+        if flags != ""
+            _sm.anchors.Push({ctrl: ctrl, f: flags, x: x, y: y, w: w, h: h})
+    }
+}
+
+_SmOnSize(g, minMax, *) {
+    if minMax = -1 || !_sm.HasOwnProp("anchors")  ; minimized, or not laid out yet
+        return
+    g.GetClientPos(, , &cw, &ch)
+    dx := cw - _sm.baseW, dy := ch - _sm.baseH
+    for a in _sm.anchors
+        a.ctrl.Move(a.x + (InStr(a.f, "x") ? dx : 0), a.y + (InStr(a.f, "y") ? dy : 0),
+                    a.w + (InStr(a.f, "w") ? dx : 0), a.h + (InStr(a.f, "h") ? dy : 0))
+    _SmFitStatusColumn()
+    WinRedraw(g.Hwnd)
+}
+
+; The Status column takes whatever width the other columns leave (all in pixels, from the list).
+_SmFitStatusColumn() {
+    lv := _sm.lv
+    rc := Buffer(16)
+    DllCall("GetClientRect", "ptr", lv.Hwnd, "ptr", rc)
+    others := 0
+    for i in [0, 1, 3, 4]
+        others += SendMessage(0x101D, i, 0, lv)  ; LVM_GETCOLUMNWIDTH
+    w := Max(NumGet(rc, 8, "int") - others, Round(180 * A_ScreenDPI / 96))
+    SendMessage(0x101E, 2, w, lv)  ; LVM_SETCOLUMNWIDTH
+}
+
+; How much taller than its designed 250 the items list must be to show every row without a
+; scrollbar (in the units Gui.Show takes), 0 if it already fits.
+_SmListExtraHeight() {
+    lv := _sm.lv
+    if !_sm.items.Length
+        return 0
+    rc := Buffer(16, 0)
+    if !SendMessage(0x100E, 0, rc.Ptr, lv)  ; LVM_GETITEMRECT, item 0, LVIR_BOUNDS
+        return 0
+    rowPx := NumGet(rc, 12, "int") - NumGet(rc, 4, "int")
+    WinGetPos(, , , &headerPx, SendMessage(0x101F, 0, 0, lv))  ; LVM_GETHEADER
+    lv.GetPos(, , , &lvH)
+    WinGetPos(, , , &lvPx, lv.Hwnd)
+    scale := lvH / lvPx  ; pixels -> the units GetPos/Show use
+    needPx := headerPx + rowPx * _sm.items.Length + (lvPx - _SmClientHeight(lv.Hwnd)) + 2
+    return Max(0, Ceil(needPx * scale) - lvH)
+}
+
+_SmClientHeight(hwnd) {
+    rc := Buffer(16)
+    DllCall("GetClientRect", "ptr", hwnd, "ptr", rc)
+    return NumGet(rc, 12, "int")
+}
+
+; No taller than the work area of the monitor it's on (pixels throughout).
+_SmFitToScreen() {
+    hwnd := _sm.gui.Hwnd
+    WinGetPos(&x, &y, &w, &h, hwnd)
+    MonitorGetWorkArea(_SmMonitorOf(x + w // 2, y + h // 2), &left, &top, &right, &bottom)
+    if h > bottom - top
+        WinMove(, top, , bottom - top, hwnd)
+}
+
+_SmMonitorOf(x, y) {
+    loop MonitorGetCount() {
+        MonitorGet(A_Index, &l, &t, &r, &b)
+        if x >= l && x < r && y >= t && y < b
+            return A_Index
+    }
+    return MonitorGetPrimary()
 }
 
 _SmFillList() {
@@ -510,8 +619,9 @@ _SmOnStayOpen(ctrl, *) {
 
 ; NM_CUSTOMDRAW for the items list: the Status column (subitem 2) in its outcome's color, the
 ; other cells in the list's own text color (a color set for one cell carries over to the next).
-; The theme draws a selected row's text in its own color, ignoring ours, so a selected row is
-; drawn as unselected here, with the theme's selection color as the cells' background.
+; A row flagged selected gets its text in the theme's color, ignoring ours, so the flag is cleared
+; here. The theme still draws the selection highlight behind it (from the row's real state; the flag
+; itself is set on every row in dark mode, so it couldn't tell which row is selected anyway).
 _SmLvCustomDraw(lv, lParam) {
     x64 := A_PtrSize = 8
     stage := NumGet(lParam, x64 ? 24 : 12, "uint")
@@ -519,8 +629,7 @@ _SmLvCustomDraw(lv, lParam) {
         return 0x20  ; CDRF_NOTIFYITEMDRAW
     if stage = 0x10001 {  ; CDDS_ITEMPREPAINT
         state := NumGet(lParam, x64 ? 64 : 40, "uint")  ; uItemState
-        _sm.drawSelected := state & 0x1  ; CDIS_SELECTED
-        NumPut("uint", state & ~0x1, lParam, x64 ? 64 : 40)
+        NumPut("uint", state & ~0x1, lParam, x64 ? 64 : 40)  ; CDIS_SELECTED
         return 0x20  ; CDRF_NOTIFYSUBITEMDRAW
     }
     if stage != 0x30001  ; CDDS_ITEMPREPAINT | CDDS_SUBITEM
@@ -529,8 +638,6 @@ _SmLvCustomDraw(lv, lParam) {
     sub := NumGet(lParam, x64 ? 88 : 56, "int")
     outcome := sub = 2 && row <= _sm.outcomes.Length ? _sm.outcomes[row] : ""
     NumPut("uint", outcome != "" && _sm.colors.Has(outcome) ? _sm.colors[outcome] : _sm.textColor, lParam, x64 ? 80 : 48)
-    back := !_sm.drawSelected ? _sm.backs[1] : DllCall("GetFocus", "ptr") = lv.Hwnd ? _sm.backs[2] : _sm.backs[3]
-    NumPut("uint", back, lParam, x64 ? 84 : 52)  ; clrTextBk
     return 0x2  ; CDRF_NEWFONT
 }
 
@@ -546,10 +653,10 @@ _SmPlace() {
     if _sm.moved || _sm.mode = "edit" || _sm.hidden
         return
     MonitorGetWorkArea(MonitorGetPrimary(), &left, &top, &right, &bottom)
-    _sm.gui.GetPos(&x, &y, &w, &h)
+    WinGetPos(&x, &y, &w, &h, _sm.gui.Hwnd)  ; pixels, like the work area
     nx := Max(left, right - w - 12), ny := Max(top, bottom - h - 12)
     if nx != x || ny != y
-        _sm.gui.Move(nx, ny)
+        WinMove(nx, ny, , , _sm.gui.Hwnd)
 }
 
 _SmOnMoved(wParam, lParam, msg, hwnd) {
@@ -622,11 +729,11 @@ _SmSelect(row) {
     _sm.fProcess.Value := row ? item.Get("process", "") : ""
     _sm.fDelay.Value := row ? RegExReplace(Format("{:.1f}", _StartupNum(item, "delay")), "\.0$") : ""
     _sm.fAfter.Value := row ? (item.Get("afterReady", 0) ? 1 : 0) : 0
-    _sm.fReady.Value := row && item.Get("ready", "window") = "process" ? 2 : 1
+    _sm.fReady.Value := builtin ? 3 : row && item.Get("ready", "window") = "process" ? 2 : 1  ; 3: AltTabSucks only
     _sm.filling := false
-    for f in [_sm.fName, _sm.fDelay, _sm.fAfter, _sm.fReady]
+    for f in [_sm.fName, _sm.fDelay, _sm.fAfter]
         f.Enabled := row != 0
-    for f in [_sm.fCommand, _sm.fProcess, _sm.fBrowse]
+    for f in [_sm.fCommand, _sm.fProcess, _sm.fBrowse, _sm.fReady]
         f.Enabled := row != 0 && !builtin
     if row && !(_sm.lv.GetNext(0) = row)
         _sm.lv.Modify(row, "Select Focus Vis")
@@ -674,6 +781,8 @@ _SmOnEdit(ctrl, *) {
         case _sm.fAfter:
             item["afterReady"] := ctrl.Value ? 1 : 0
         case _sm.fReady:
+            if ctrl.Value = 3  ; the tray icon is AltTabSucks' own (that item can't be edited here)
+                ctrl.Value := 1
             item["ready"] := ctrl.Value = 2 ? "process" : "window"
     }
     SetTimer(_SmSave, -500)

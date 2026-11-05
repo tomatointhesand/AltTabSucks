@@ -95,6 +95,9 @@ AssertEq(StartupStatusText(Map("name", "x", "enabled", 1), State("off"), "", 0),
 AssertEq(StartupStatusText(b, State("ready"), "", 0), STARTUP_CHECK, "ready is a check mark")
 AssertEq(StartupStatusText(b, State("already"), "", 0), STARTUP_CHECK " already running", "  ...already running too")
 AssertEq(StartupStatusText(Map("process", "x.exe"), State("noprocess"), "", 0), "no x.exe seen yet", "a timed-out item is still watched")
+ats := Map("name", "AltTabSucks", "builtin", "alttabsucks", "process", "AltTabSucks.ahk")
+AssertEq(StartupStatusText(ats, State("running"), "", 0) " | " StartupStatusText(ats, State("nowindow"), "", 0),
+         "waiting for tray icon | no tray icon yet", "AltTabSucks waits for its tray icon")
 
 ; ---- StartupOutcome / StartupAllUp ---------------------------------------------------------------
 AssertEq(StartupOutcome(b, State("ready")) StartupOutcome(b, State("already")), "okok", "ready and already running are up")
