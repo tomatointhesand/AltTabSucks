@@ -1,7 +1,7 @@
 # set-resolution.ps1 - sets the test VM's display mode and saves it in the registry, so the
 # snapshots keep it (the VirtIO GPU driver ignores the size QEMU suggests and starts at 640x480).
 # Must run on the desktop, not over SSH: windows-vm.sh resolution runs it through a one-off task.
-param([int]$Width = 1920, [int]$Height = 1080)
+param([int]$Width = 1440, [int]$Height = 900)
 
 Add-Type @"
 using System;

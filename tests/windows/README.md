@@ -47,12 +47,14 @@ Tested on Arch/CachyOS with KVM. About 30 minutes, mostly the Windows install.
    cpu_cores="8"
    ram="12G"
    gl="off"
-   width="1920"
-   height="1080"
+   width="1440"
+   height="900"
    ```
 
    (`gl="off"`: Windows can't use VirGL anyway, and it avoids GL crashes on some host GPUs.
-   `width`/`height`: the display size QEMU offers; Windows still has to be set to it, in step 5.)
+   `width`/`height`: the display size QEMU offers, the largest mode Windows' VirtIO display driver offers
+   (it has a fixed list) that fits on a 1080p screen with the window's title bar; Windows still has
+   to be set to it, in step 5.)
 
 3. **Install Windows**: `cd ~/VMs && quickemu --vm windows-11.conf`. Press Enter on the
    language and keyboard screens; the rest is unattended (account `Quickemu`, password
@@ -100,7 +102,7 @@ Tested on Arch/CachyOS with KVM. About 30 minutes, mostly the Windows install.
    $V ssh 'reg add HKLM\SOFTWARE\OpenSSH /v DefaultShell /t REG_SZ /d C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe /f'
    $V ssh 'foreach ($id in "AutoHotkey.AutoHotkey","Microsoft.PowerShell","Git.Git") { winget install --id $id -e --silent --accept-package-agreements --accept-source-agreements --disable-interactivity }'
    $V ssh 'Add-MpPreference -ExclusionPath C:\alttabsucks,"C:\Program Files\AutoHotkey"; $au = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"; New-Item $au -Force | Out-Null; Set-ItemProperty $au NoAutoUpdate 1 -Type DWord; Set-ItemProperty $au NoAutoRebootWithLoggedOnUsers 1 -Type DWord'
-   $V resolution          # 1920x1080: the VirtIO GPU driver starts at 640x480 otherwise
+   $V resolution          # 1440x900: the VirtIO GPU driver starts at 640x480 otherwise
    $V stop && $V snapshot clean
    ```
 
@@ -127,11 +129,15 @@ Tested on Arch/CachyOS with KVM. About 30 minutes, mostly the Windows install.
    extensions page, it keeps running the copy it loaded before.
 
    Finally, uninstall AltTabSucks again (runs must start from a fresh install), keep Edge from
-   running in the background (it would hold that folder open during a sync), and snapshot:
+   running in the background (it would hold that folder open during a sync), switch Windows to
+   dark mode (the tests run in dark mode by default; `browser-light` is the same snapshot in light
+   mode, for `$V reset browser-light`), and snapshot:
 
    ```bash
    $V ssh '& "$env:LOCALAPPDATA\Microsoft\WindowsApps\pwsh.exe" -File C:\alttabsucks\installer.ps1 -Action uninstall; $e = "HKLM:\SOFTWARE\Policies\Microsoft\Edge"; New-Item $e -Force | Out-Null; Set-ItemProperty $e StartupBoostEnabled 0 -Type DWord; Set-ItemProperty $e BackgroundModeEnabled 0 -Type DWord'
-   $V stop && $V snapshot browser
+   $V stop && $V snapshot browser-light && $V start
+   $V ssh '$p = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"; Set-ItemProperty $p AppsUseLightTheme 0 -Type DWord; Set-ItemProperty $p SystemUsesLightTheme 0 -Type DWord'
+   $V reboot && $V stop && $V snapshot browser
    ```
 
 ## Day to day
@@ -144,7 +150,7 @@ dev-scripts/windows-vm.sh stop                     # when done
 ```
 
 Windows' resolution follows the size of the VM's window on the host, so shrinking that window
-shrinks the guest's screen. `dev-scripts/windows-vm.sh resolution` sets it back to 1920x1080 (the
+shrinks the guest's screen. `dev-scripts/windows-vm.sh resolution` sets it back to 1440x900 (the
 test runner does this at the start of each run).
 
 To look at the VM's screen without the window, QEMU's monitor can save a screenshot:

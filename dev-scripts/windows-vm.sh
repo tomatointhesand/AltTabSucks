@@ -9,12 +9,13 @@
 #   windows-vm.sh ssh [cmd]     PowerShell over SSH (no cmd: interactive)
 #   windows-vm.sh sync [repo]   copy a git working tree (default: this repo) to C:\alttabsucks
 #   windows-vm.sh snapshot NAME save the (stopped) disk as a new snapshot
-#   windows-vm.sh resolution [WxH] set the display mode in Windows (default 1920x1080); snapshot
+#   windows-vm.sh resolution [WxH] set the display mode in Windows (default 1440x900: the largest mode the VirtIO driver offers that fits on a 1080p screen with the window's title bar); snapshot
 #                               afterwards to keep it
 # Snapshots: "clean" = AutoHotkey v2, PowerShell 7.6, Git, OpenSSH (key: ./windows-11/id_ed25519),
 # Defender exclusions for C:\alttabsucks, automatic updates off; Windows is unactivated.
 # "browser" = clean + Edge (profile "Profile 1") with the extension loaded unpacked from
 # C:\alttabsucks\BrowserExtension and token "alttabsucks-vm-test", startup boost off.
+# Windows in dark mode, 1440x900; "browser-light" = the same in light mode.
 set -euo pipefail
 
 VMS="${ALTTABSUCKS_VM_DIR:-$HOME/VMs}"
@@ -72,7 +73,7 @@ case "${1:-}" in
         echo "synced $repo -> C:\\alttabsucks"
         ;;
     resolution)
-        size="${2:-1920x1080}"
+        size="${2:-1440x900}"
         tar -cf - -C "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../tests/windows" set-resolution.ps1 \
             | "${SSH[@]}" "New-Item C:\\vm-tools -ItemType Directory -Force | Out-Null; tar -xf - -C C:\\vm-tools"
         # On the desktop, through a one-off task: display settings can't be changed from SSH.
