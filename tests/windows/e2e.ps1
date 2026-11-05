@@ -260,7 +260,7 @@ try {
     function Get-EdgeRects([hashtable]$r) {  # press.ahk's "edge=hwnd:x,y,w,h;..." -> objects
         @("$($r['edge'])" -split ';' | Where-Object { $_ } | ForEach-Object {
             $h, $rect = $_ -split ':'; $x, $y, $w, $hh = $rect -split ','
-            [PSCustomObject]@{ Hwnd = $h; X = [int]$x; W = [int]$w } })
+            [PSCustomObject]@{ Hwnd = $h; X = [int]$x; W = [int]$w; H = [int]$hh } })
     }
     # @(...).Count throughout: in 5.1 a function returning one object hands back the object itself,
     # and a lone PSCustomObject has no .Count.
@@ -274,7 +274,8 @@ try {
     $splitWin = @(Get-EdgeWindows | Where-Object { @($_.tabs).Count -eq 1 -and @($_.tabs)[0].id -eq $splitTabId })
     Check ($splitWin.Count -eq 1) "  ...holding just that tab"
     $r = Press ""
-    $rects = Get-EdgeRects $r
+    # Browser windows only: Edge sometimes has a small popup or bubble window up as well.
+    $rects = @(Get-EdgeRects $r | Where-Object { $_.W -ge 400 -and $_.H -ge 300 })
     $half = [int]$r["screen"] * 0.6
     # Two Edge windows only fit side by side on a reasonably wide screen (Edge won't go much
     # narrower than ~500px), and the VM's resolution follows its window on the host.
@@ -533,6 +534,41 @@ blankRow = () => [...document.querySelectorAll(".binding")].find(r => inputs(r).
     Check (Wait-Until { -not (Get-CimInstance Win32_Process -Filter "Name = 'AutoHotkey64.exe'" | Where-Object { $_.CommandLine -like "*StartupManager.ahk*" }) } 20) "  ...and the manager closes itself once everything is ready"
     Check (-not (Test-Path $SmErrors)) "  ...without errors" (Get-Content $SmErrors -Raw -ErrorAction SilentlyContinue)
     Stop-Process -Name notepad, charmap -ErrorAction SilentlyContinue
+
+    # A slow item: Notepad shows up 8 s after its launch, with a 2 s timeout. The run finishes at
+    # the timeout (the history row says so), but the window waits for Notepad, then closes itself.
+    function Get-StartupManager { Get-CimInstance Win32_Process -Filter "Name = 'AutoHotkey64.exe'" | Where-Object { $_.CommandLine -like "*StartupManager.ahk*" } }
+    $smSaved = Get-Content $SmConfig -Raw
+    $sm = $smSaved | ConvertFrom-Json -AsHashtable
+    foreach ($i in $sm.items) { $i.enabled = $false }
+    $sm.items += @{ name = "E2E Slow Notepad"; command = 'powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Sleep 8; Start-Process notepad.exe"'
+                    workingDir = ""; process = "notepad.exe"; delay = 0; afterReady = 0; ready = "window"; enabled = 1 }
+    $sm.readyTimeoutSeconds = 2; $sm.autoCloseSeconds = 2
+    [IO.File]::WriteAllText($SmConfig, (ConvertTo-Json $sm -Depth 10))
+    $runs = @(Get-Content $SmHistory).Count
+    Start-OnDesktop $Ahk "`"$Repo\StartupManager.ahk`" --run" | Out-Null
+    Check (Wait-Until { @(Get-Content $SmHistory).Count -gt $runs } 20) "a slow item times out, and the run is recorded"
+    $slow = (Get-Content $SmHistory -Tail 1 | ConvertFrom-Json).items | Where-Object name -eq "E2E Slow Notepad"
+    Check ($slow.status -eq "noprocess") "  ...as not seen in time" ($slow | ConvertTo-Json -Compress)
+    Start-Sleep -Seconds 3  # past the 2 s auto-close
+    Check ((Get-StartupManager) -and -not (Get-Process notepad -ErrorAction SilentlyContinue)) "  ...but the window stays open while it's missing"
+    Check ((Wait-Until { Get-Process notepad -ErrorAction SilentlyContinue } 15) -and (Wait-Until { -not (Get-StartupManager) } 15)) `
+        "  ...and closes itself once it shows up"
+    Stop-Process -Name notepad -ErrorAction SilentlyContinue
+
+    # "Keep this window open after startup" (stayOpen): everything is up, and it stays anyway.
+    $sm.items[-1].command = "notepad.exe"
+    $sm.stayOpen = 1
+    [IO.File]::WriteAllText($SmConfig, (ConvertTo-Json $sm -Depth 10))
+    $runs = @(Get-Content $SmHistory).Count
+    Start-OnDesktop $Ahk "`"$Repo\StartupManager.ahk`" --run" | Out-Null
+    Check (Wait-Until { @(Get-Content $SmHistory).Count -gt $runs } 20) "with stayOpen set, the run finishes"
+    Start-Sleep -Seconds 5
+    Check ([bool](Get-StartupManager)) "  ...and the window stays open"
+    Get-StartupManager | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    Stop-Process -Name notepad -ErrorAction SilentlyContinue
+    [IO.File]::WriteAllText($SmConfig, $smSaved)
+    Check (-not (Test-Path $SmErrors)) "  ...without errors" (Get-Content $SmErrors -Raw -ErrorAction SilentlyContinue)
 
     # ---- installs from before the startup manager get offered it ------------------------------
     # Like an old install: the server task, no startup manager task. AltTabSucks.ahk asks 8 s

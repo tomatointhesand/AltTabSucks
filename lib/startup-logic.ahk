@@ -15,14 +15,39 @@
 ;   launched  - launched, its process not seen yet
 ;   running   - process seen, waiting for its first window (ready = "window")
 ;   ready     - first window seen (or process seen, for ready = "process")
-;   nowindow  - process seen, but no window before the timeout
-;   noprocess - its process never showed up before the timeout
+;   nowindow  - process seen, but no window before the timeout (still watched: it can turn ready)
+;   noprocess - its process never showed up before the timeout (likewise)
 ;   failed    - the launch itself failed (state["error"] says why)
 ;   already   - was already running, so not launched
 ;   off       - disabled, or not launched because this isn't a startup run (the editor)
 
 StartupIsDone(status) {
     return status = "ready" || status = "nowindow" || status = "noprocess" || status = "failed" || status = "already"
+}
+
+STARTUP_CHECK := Chr(0x2714)  ; heavy check mark, shown green
+
+; How an item's start went: "ok" (it's up), "warn" (timed out), "error" (the launch failed), "" (not
+; done yet, or off). Colors the status column, and only a run where everything is "ok" closes the
+; window by itself.
+StartupOutcome(item, st) {
+    switch st["status"] {
+        case "ready", "already": return "ok"
+        case "noprocess":        return item.Get("process", "") = "" ? "ok" : "warn"
+        case "nowindow":         return "warn"
+        case "failed":           return "error"
+    }
+    return ""
+}
+
+; True when every item taking part in the run (not "off") is up.
+StartupAllUp(items, states) {
+    for item in items {
+        st := states[item]
+        if st["status"] != "off" && StartupOutcome(item, st) != "ok"
+            return false
+    }
+    return true
 }
 
 ; When each pending item launches. Items launch in order: an item's countdown starts when the
@@ -81,13 +106,13 @@ StartupStatusText(item, st, planned, nowMs) {
             return remaining > 0 ? "in " Format("{:.1f} s", Ceil(remaining / 100) / 10) : "launching"  ; up: never "in 0.0 s"
         case "launched": return "starting"
         case "running":  return "waiting for window"
-        case "ready":    return "ready"
-        case "nowindow": return "no window (set Ready to process?)"
+        case "ready":    return STARTUP_CHECK
+        case "nowindow": return "no window yet (Ready: process?)"
         case "noprocess":
             p := item.Get("process", "")
-            return p = "" ? "launched (no process to watch)" : "no " p " seen"
+            return p = "" ? STARTUP_CHECK " launched" : "no " p " seen yet"
         case "failed":   return "failed: " st.Get("error", "")
-        case "already":  return "already running"
+        case "already":  return STARTUP_CHECK " already running"
         case "off":      return item.Get("enabled", 1) ? "" : "off"
     }
     return st["status"]

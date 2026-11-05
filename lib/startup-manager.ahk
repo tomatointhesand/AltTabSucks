@@ -12,11 +12,11 @@
 ; The scheduling decisions are in lib/startup-logic.ahk, tested on their own.
 
 SM_TITLE := "AltTabSucks Startup"
-SM_W := 700, SM_H := 540
+SM_W := 700, SM_H := 570
 global _sm := {gui: 0, items: [], states: Map(), config: Map(), running: false, trigger: "", runStart: 0,
                skipDelays: false, historyWritten: false, keepOpen: true, closeAt: 0, sel: 0, filling: false,
                plan: Map(), cells: Map(), hidden: false, moved: false, nextPlace: 0, mode: "", scanPid: 0, scanOut: "", newEntries: [], view: "items",
-               configError: ""}
+               configError: "", outcomes: [], textColor: 0, colors: Map(), backs: [], drawSelected: false}
 
 StartupManagerMain(args) {
     OnError(_SmLogError)
@@ -41,7 +41,7 @@ StartupManagerMain(args) {
     for item in _sm.items
         _sm.states[item] := Map("status", "off")
     if mode != "edit" {
-        _sm.keepOpen := false
+        _sm.keepOpen := _sm.config.Get("stayOpen", 0) ? true : false
         _SmStartRun(mode)
         _SmTick()  ; launch whatever is due at 0 s before spending time on the window
     }
@@ -118,24 +118,16 @@ _SmTick() {
             _SmLaunch(due)
         }
         _sm.plan := plan
-        timeoutMs := _StartupNum(_sm.config, "readyTimeoutSeconds") * 1000 || 30000
-        allDone := true
-        for item in _sm.items {
-            st := _sm.states[item], s := st["status"]
-            if s = "launched" || s = "running" {
-                proc := item.Get("process", "")
-                if s = "launched" && _SmProcessRunning(proc)
-                    st["processMs"] := _SmNow(), s := st["status"] := "running"
-                if s = "running" && (item.Get("ready", "window") = "process" || _SmWindowShown(proc))
-                    st["readyMs"] := st["doneMs"] := _SmNow(), s := st["status"] := "ready"
-                else if _SmNow() - st["launchMs"] > timeoutMs
-                    st["doneMs"] := _SmNow(), s := st["status"] := s = "running" ? "nowindow" : "noprocess"
-            }
-            allDone := allDone && (s = "off" || StartupIsDone(s))
-        }
-        if allDone
-            _SmRunFinished()
     }
+    _SmWatch()
+    if _sm.running && _SmAllDone()
+        _SmRunFinished()
+    ; The countdown starts once everything is up, even if that's after the run finished (an item
+    ; that timed out showed up late). Not while something is still missing: the window stays open
+    ; so you can see what.
+    if !_sm.running && _sm.historyWritten && !_sm.closeAt && !_sm.keepOpen && !_sm.hidden
+            && StartupAllUp(_sm.items, _sm.states)
+        _sm.closeAt := A_TickCount + (_StartupNum(_sm.config, "autoCloseSeconds") || 5) * 1000
     if _sm.scanPid && !ProcessExist(_sm.scanPid)
         _SmScanDone()
     if _sm.gui {
@@ -145,6 +137,38 @@ _SmTick() {
     }
     if _sm.closeAt && !_sm.keepOpen && !_sm.newEntries.Length && A_TickCount >= _sm.closeAt
         ExitApp()
+}
+
+; Moves launched items along: process seen, then ready, or timed out. A timed-out item (nowindow,
+; noprocess with a process to watch for) keeps being watched and turns ready if it shows up late;
+; its doneMs stays the timeout, which is what the items after it were scheduled from.
+_SmWatch() {
+    timeoutMs := _StartupNum(_sm.config, "readyTimeoutSeconds") * 1000 || 30000
+    for item in _sm.items {
+        st := _sm.states[item], s := st["status"]
+        proc := item.Get("process", "")
+        late := s = "nowindow" || s = "noprocess"
+        if !(s = "launched" || s = "running" || late) || proc = ""
+            continue
+        if (s = "launched" || s = "noprocess") && _SmProcessRunning(proc)
+            st["processMs"] := _SmNow(), s := st["status"] := late ? "nowindow" : "running"
+        if (s = "running" || s = "nowindow") && (item.Get("ready", "window") = "process" || _SmWindowShown(proc)) {
+            st["readyMs"] := _SmNow(), st["status"] := "ready"
+            if !late
+                st["doneMs"] := st["readyMs"]
+        } else if !late && _SmNow() - st["launchMs"] > timeoutMs {
+            st["doneMs"] := _SmNow(), st["status"] := s = "running" ? "nowindow" : "noprocess"
+        }
+    }
+}
+
+_SmAllDone() {
+    for item in _sm.items {
+        s := _sm.states[item]["status"]
+        if s != "off" && !StartupIsDone(s)
+            return false
+    }
+    return true
 }
 
 ; ms since the run started. Taken at each event rather than once per tick: a launch can block for a
@@ -238,8 +262,6 @@ _SmRunFinished() {
         if _sm.view = "history"
             _SmShowHistory()
     }
-    if !_sm.keepOpen
-        _sm.closeAt := A_TickCount + (_StartupNum(_sm.config, "autoCloseSeconds") || 5) * 1000
     ; Declined at install (takeOver: false): don't bring it up at every logon, only in the editor.
     if _sm.config.Get("takeOver", 1) || _sm.mode = "edit"
         _SmScanWindowsStartup()
@@ -348,6 +370,15 @@ _SmBuildGui(mode) {
     _sm.lv.OnEvent("ItemSelect", _SmOnSelect)
     _sm.lv.OnEvent("ItemCheck", _SmOnCheck)
     _sm.lv.OnEvent("Click", (*) => _SmKeepOpen())
+    ; Status colors: green check mark, amber timeouts, red failures (custom draw, per cell).
+    _sm.textColor := SendMessage(0x1023, 0, 0, _sm.lv)  ; LVM_GETTEXTCOLOR
+    if _sm.textColor = 0xFF000000  ; CLR_DEFAULT: the system's window text color
+        _sm.textColor := DllCall("GetSysColor", "int", 8, "uint")
+    _sm.colors := dark ? Map("ok", 0x50B93F, "warn", 0x30A0E0, "error", 0x4951F8)
+                       : Map("ok", 0x2A8A1F, "warn", 0x0070C0, "error", 0x2020C8)  ; COLORREF: 0xBBGGRR
+    ; Backgrounds: normal, selected (list focused), selected (not focused) - the theme's own.
+    _sm.backs := dark ? [0x1E1E1E, 0x4D4D4D, 0x3A3A3A] : [0xFFFFFF, 0xFFE8CC, 0xF0F0F0]
+    _sm.lv.OnNotify(-12, _SmLvCustomDraw)  ; NM_CUSTOMDRAW
 
     editCtrls := []
     add(ctrl) => (editCtrls.Push(ctrl), ctrl)
@@ -379,7 +410,10 @@ _SmBuildGui(mode) {
     _sm.notice := g.AddText("x12 y456 w566 h40 Hidden cE0A030")
     _sm.takeOver := g.AddButton("x588 y458 w100 Hidden", "Take over")
     _sm.takeOver.OnEvent("Click", _SmTakeOver)
-    _sm.footer := g.AddText("x12 y508 w380")
+    _sm.stayOpen := g.AddCheckbox("x12 y540 w260", "Keep this window open after startup")
+    _sm.stayOpen.Value := _sm.config.Get("stayOpen", 0) ? 1 : 0
+    _sm.stayOpen.OnEvent("Click", _SmOnStayOpen)
+    _sm.footer := g.AddText("x280 y540 w408")
     _sm.histFile := g.AddButton("x274 y502 w120 Hidden", "Open history file")
     _sm.histFile.OnEvent("Click", (*) => FileExist(_sm.historyPath) && Run('notepad.exe "' _sm.historyPath '"'))
     _sm.launchAll := g.AddButton("x400 y502 w180", "Launch the rest now")
@@ -417,11 +451,17 @@ _SmFillList() {
 
 _SmUpdateUi() {
     now := A_TickCount - _sm.runStart
-    ready := 0, total := 0
+    ready := 0, total := 0, up := 0, lastUpMs := 0
     for i, item in _sm.items {
         st := _sm.states.Has(item) ? _sm.states[item] : Map("status", "off")
+        outcome := StartupOutcome(item, st)
+        if _sm.outcomes.Length < i
+            _sm.outcomes.Length := i
+        _sm.outcomes[i] := outcome
         if st["status"] != "off"
             total++, ready += StartupIsDone(st["status"])
+        if st["status"] != "off" && outcome = "ok"
+            up++, lastUpMs := Max(lastUpMs, st.Get("readyMs", st.Get("doneMs", 0)))
         d := RegExReplace(Format("{:.1f}", _StartupNum(item, "delay")), "\.0$")
         readyAt := st.Get("readyMs", st["status"] = "nowindow" ? st.Get("processMs", "") : "")
         cells := [item.Get("name", ""), d " s" (item.Get("afterReady", 0) ? " after ready" : ""),
@@ -437,14 +477,17 @@ _SmUpdateUi() {
         summary := _sm.configError
     else if _sm.running
         summary := "Starting up: " ready " of " total " ready, " StartupFormatSeconds(now)
+    else if _sm.historyWritten && up = total
+        summary := "Startup done: everything up after " StartupFormatSeconds(lastUpMs)
     else if _sm.historyWritten
-        summary := "Startup done: everything ready after " StartupFormatSeconds(_sm.lastAllReadyMs)
+        summary := "Startup: " up " of " total " up, still watching for the rest"
     else
         summary := _sm.items.Length " startup items, launched in this order at logon. Changes save as you make them."
     if _sm.summary.Value != summary
         _sm.summary.Value := summary
     footer := _sm.closeAt && !_sm.keepOpen && !_sm.newEntries.Length
-        ? "Closing in " Ceil((_sm.closeAt - A_TickCount) / 1000) " s (click here to keep it open)" : ""
+        ? "Closing in " Ceil((_sm.closeAt - A_TickCount) / 1000) " s (click here to keep it open)"
+        : _sm.historyWritten && !_sm.running && !_sm.keepOpen && up < total ? "Staying open until everything is up" : ""
     if _sm.footer.Value != footer && SubStr(_sm.footer.Value, 1, 13) != "Couldn't save"
         _sm.footer.Value := footer
     if _sm.view = "items" {
@@ -455,6 +498,40 @@ _SmUpdateUi() {
 
 _SmKeepOpen() {
     _sm.keepOpen := true, _sm.closeAt := 0
+}
+
+; The saved preference (startup.json's stayOpen). Checking it keeps this window open now too;
+; unchecking it applies from the next startup (you're using the window right now).
+_SmOnStayOpen(ctrl, *) {
+    _SmKeepOpen()
+    _sm.config["stayOpen"] := ctrl.Value ? 1 : 0
+    _SmSave()
+}
+
+; NM_CUSTOMDRAW for the items list: the Status column (subitem 2) in its outcome's color, the
+; other cells in the list's own text color (a color set for one cell carries over to the next).
+; The theme draws a selected row's text in its own color, ignoring ours, so a selected row is
+; drawn as unselected here, with the theme's selection color as the cells' background.
+_SmLvCustomDraw(lv, lParam) {
+    x64 := A_PtrSize = 8
+    stage := NumGet(lParam, x64 ? 24 : 12, "uint")
+    if stage = 0x1  ; CDDS_PREPAINT
+        return 0x20  ; CDRF_NOTIFYITEMDRAW
+    if stage = 0x10001 {  ; CDDS_ITEMPREPAINT
+        state := NumGet(lParam, x64 ? 64 : 40, "uint")  ; uItemState
+        _sm.drawSelected := state & 0x1  ; CDIS_SELECTED
+        NumPut("uint", state & ~0x1, lParam, x64 ? 64 : 40)
+        return 0x20  ; CDRF_NOTIFYSUBITEMDRAW
+    }
+    if stage != 0x30001  ; CDDS_ITEMPREPAINT | CDDS_SUBITEM
+        return 0
+    row := NumGet(lParam, x64 ? 56 : 36, "uptr") + 1
+    sub := NumGet(lParam, x64 ? 88 : 56, "int")
+    outcome := sub = 2 && row <= _sm.outcomes.Length ? _sm.outcomes[row] : ""
+    NumPut("uint", outcome != "" && _sm.colors.Has(outcome) ? _sm.colors[outcome] : _sm.textColor, lParam, x64 ? 80 : 48)
+    back := !_sm.drawSelected ? _sm.backs[1] : DllCall("GetFocus", "ptr") = lv.Hwnd ? _sm.backs[2] : _sm.backs[3]
+    NumPut("uint", back, lParam, x64 ? 84 : 52)  ; clrTextBk
+    return 0x2  ; CDRF_NEWFONT
 }
 
 _SmOnInput(wParam, lParam, msg, hwnd) {

@@ -92,6 +92,20 @@ AssertEq(StartupStatusText(b, State("pending"), {at: 2000, after: "", why: ""}, 
 AssertEq(StartupStatusText(b, State("failed", "error", "not found"), "", 0), "failed: not found", "failed shows the error")
 AssertEq(StartupStatusText(Map("name", "x", "enabled", 0), State("off"), "", 0), "off", "disabled item")
 AssertEq(StartupStatusText(Map("name", "x", "enabled", 1), State("off"), "", 0), "", "enabled item in the editor: no status")
+AssertEq(StartupStatusText(b, State("ready"), "", 0), STARTUP_CHECK, "ready is a check mark")
+AssertEq(StartupStatusText(b, State("already"), "", 0), STARTUP_CHECK " already running", "  ...already running too")
+AssertEq(StartupStatusText(Map("process", "x.exe"), State("noprocess"), "", 0), "no x.exe seen yet", "a timed-out item is still watched")
+
+; ---- StartupOutcome / StartupAllUp ---------------------------------------------------------------
+AssertEq(StartupOutcome(b, State("ready")) StartupOutcome(b, State("already")), "okok", "ready and already running are up")
+AssertEq(StartupOutcome(Map("process", ""), State("noprocess")), "ok", "  ...and launched with nothing to watch")
+AssertEq(StartupOutcome(Map("process", "x.exe"), State("noprocess")) StartupOutcome(b, State("nowindow")), "warnwarn", "timeouts are warnings")
+AssertEq(StartupOutcome(b, State("failed")), "error", "a failed launch is an error")
+AssertEq(StartupOutcome(b, State("running")) StartupOutcome(b, State("pending")), "", "not done yet")
+two := [Item("A"), Item("B")]
+AssertEq(StartupAllUp(two, StatesFor(two, State("ready"), State("off"))), true, "everything up (off items don't count)")
+AssertEq(StartupAllUp(two, StatesFor(two, State("ready"), State("nowindow"))), false, "  ...not while one timed out")
+AssertEq(StartupAllUp(two, StatesFor(two, State("ready"), State("running"))), false, "  ...or is still starting")
 
 ; ---- history ------------------------------------------------------------------------------------
 st := StatesFor(items, State("ready", "launchMs", 10, "processMs", 40, "readyMs", 900, "doneMs", 900),

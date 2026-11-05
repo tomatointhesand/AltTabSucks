@@ -117,8 +117,10 @@ after it starts. Or run `.\installer.ps1 -Action startup-setup`, which sets up o
 manager and leaves your browser choice and everything else alone.
 
 While it runs, a small window in the bottom-right corner shows each item's countdown and status
-(launching, waiting for its window, ready) and when it was ready. It closes itself a few seconds
-after the last one; click it to keep it open. Edit the list right there, or later from the tray menu
+(launching, waiting for its window, then a green check mark once it's up) and when it was ready.
+It closes itself a few seconds after everything is up; click it to keep it open, or tick **Keep
+this window open after startup** to keep it open every time. An app that hasn't shown up within 30
+seconds is marked in amber and still watched, and the window waits for it. Edit the list right there, or later from the tray menu
 → **Startup items**: tick items on and off, reorder them, and change the delay. The delay counts
 from the previous item's launch, or with "Count it from when the previous item is ready", from when
 the previous item's first window appeared. **History** shows every run (one row per logon, kept in
