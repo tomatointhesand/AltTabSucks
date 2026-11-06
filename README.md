@@ -230,7 +230,7 @@ Everything runs from a Linux checkout; the Windows parts run under Wine, portabl
 
 | Suite | Command | Covers |
 |---|---|---|
-| Linux server, toast | `python3 -m unittest discover -s linux/server/tests` and `-s linux/toast/tests` | The Python server and its endpoints, `hotkeys.js` parsing/rewriting (`hotkeys_generator.py`), launch-command suggestions, profile discovery, toast colors |
+| Linux server, toast, startup manager | `python3 -m unittest discover -s linux/server/tests`, `-s linux/toast/tests` and `-s linux/startup/tests` | The Python server and its endpoints, `hotkeys.js` parsing/rewriting (`hotkeys_generator.py`), launch-command suggestions, profile discovery, toast colors, the startup manager's scheduling, run and autostart takeover |
 | AHK logic | `bash dev-scripts/run-ahk-tests.sh` | Pure AHK decision logic (`tests/ahk/`, e.g. which Explorer window a folder hotkey should use). Runs under Wine on Linux, fetching a portable AutoHotkey v2 into its own Wine prefix on first use; natively from Git Bash on Windows |
 | Windows server logic | `bash dev-scripts/run-ps-tests.sh` | `Server/AppHotkeys.ps1`: parsing and rewriting `app-hotkeys.ahk` (`tests/ps/`). Uses `pwsh` if installed, else fetches portable PowerShell 7 on first use |
 | Real Windows | `bash dev-scripts/run-windows-tests.sh` | The two suites above natively (PowerShell 7, what the server runs on), plus end-to-end tests on a Windows desktop: install and first-run dialogs, the Hotkeys UI and its page in Edge, tab focus / profile cycling / split / merge through the extension, Explorer folder hotkeys, uninstall. Needs a one-time VM setup: [tests/windows/README.md](tests/windows/README.md) |

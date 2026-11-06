@@ -8,7 +8,7 @@
 # is the hotkey layer here (no separate "launch AHK at login" step exists on this side either —
 # the KWin script runs inside the always-running compositor once installed).
 #
-# Usage: ./installer.sh [install|uninstall|status|start|stop|restart|configure|reload-hotkeys|pair]  (default: install)
+# Usage: ./installer.sh [install|uninstall|status|start|stop|restart|configure|reload-hotkeys|pair|startup|startup-import]  (default: install)
 # `restart` restarts the server and toast daemon, then redeploys the KWin script — everything a
 # code change needs; the Linux side of AltTabSucks.ahk's Ctrl+Alt+Shift+' (bind it as a runCommand).
 # `configure` re-runs just the interactive browser wizard (choose_browser) to regenerate
@@ -35,6 +35,11 @@ TOKEN_PATH="$REPO_ROOT/Server/token.txt"
 TOAST_SERVICE_SRC="$REPO_ROOT/linux/systemd/alttabsucks-toast.service"
 TOAST_SERVICE_NAME="alttabsucks-toast.service"
 TOAST_SERVICE_DEST="$HOME/.config/systemd/user/$TOAST_SERVICE_NAME"
+STARTUP_SERVICE_SRC="$REPO_ROOT/linux/systemd/alttabsucks-startup.service"
+STARTUP_SERVICE_NAME="alttabsucks-startup.service"
+STARTUP_SERVICE_DEST="$HOME/.config/systemd/user/$STARTUP_SERVICE_NAME"
+STARTUP_DESKTOP="${XDG_DATA_HOME:-$HOME/.local/share}/applications/org.alttabsucks.Startup.desktop"
+AUTOSTART_ITEMS="$REPO_ROOT/linux/startup/autostart_items.py"
 
 ACTION="${1:-install}"
 
@@ -357,6 +362,70 @@ uninstall_toast_service() {
     pkill -f "python3 .*alttabsucks_toast\.py" 2>/dev/null || true
 }
 
+# ---- startup manager (linux/startup/startup_manager.py) --------------------------------------
+# Starts your startup apps at logon in order, with delays, in place of Plasma's autostart — the
+# Linux side of the Windows startup manager. A logon unit runs it; an app-menu entry opens its
+# editor. Taking the autostart entries over (Hidden=true in ~/.config/autostart, see
+# linux/startup/autostart_items.py) asks first: $1 is ask|yes|no|none ("none": decide nothing
+# now, the manager's own notice offers it at the next logon). ALTTABSUCKS_TAKE_OVER=yes|no
+# answers the question without asking.
+
+install_startup_manager() {
+    local mode="${ALTTABSUCKS_TAKE_OVER:-${1:-ask}}" staged
+    mkdir -p "$(dirname "$STARTUP_SERVICE_DEST")" "$(dirname "$STARTUP_DESKTOP")"
+    staged="$(mktemp)"
+    sed -e "s|YOUR_REPO_ROOT|$REPO_ROOT|g" "$STARTUP_SERVICE_SRC" > "$staged"
+    cp "$staged" "$STARTUP_SERVICE_DEST"
+    rm -f "$staged"
+    systemctl --user daemon-reload
+    # Enabled, not started: starting it now would launch every startup app right away.
+    systemctl --user enable "$STARTUP_SERVICE_NAME" >/dev/null 2>&1
+    cat > "$STARTUP_DESKTOP" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=AltTabSucks Startup
+Comment=The apps AltTabSucks starts at logon, in order, with their delays and timings
+Exec=/usr/bin/python3 $REPO_ROOT/linux/startup/startup_manager.py
+Icon=system-run
+Categories=Settings;Utility;
+DESKTOP
+    echo "Startup manager installed: runs at logon ($STARTUP_SERVICE_NAME); app menu → AltTabSucks Startup."
+
+    local names
+    names="$(python3 "$AUTOSTART_ITEMS" scan 2>/dev/null | paste -sd, - | sed 's/,/, /g')"
+    if [ "$mode" = ask ]; then
+        if [ -z "$names" ]; then
+            mode=none
+        elif [ -t 0 ]; then
+            echo
+            echo "Your autostart apps: $names."
+            read -r -p "Have AltTabSucks start them at logon instead of Plasma, one after another with delays? [Y/n] " answer
+            case "$answer" in [nN]*) mode=no ;; *) mode=yes ;; esac
+        else
+            mode=no
+        fi
+    fi
+    case "$mode" in
+        yes) python3 "$AUTOSTART_ITEMS" import ;;
+        no)  python3 "$AUTOSTART_ITEMS" import --no
+             [ -n "$names" ] && echo "Left your autostart apps to Plasma (the startup manager's editor can take them over later)." ;;
+        *)   python3 "$AUTOSTART_ITEMS" init ;;
+    esac
+}
+
+uninstall_startup_manager() {
+    # Gives Plasma's autostart back every entry it took over (startup.json keeps them, so a
+    # reinstall takes them over again with their settings).
+    python3 "$AUTOSTART_ITEMS" restore 2>/dev/null || true
+    if [ -f "$STARTUP_SERVICE_DEST" ]; then
+        systemctl --user disable "$STARTUP_SERVICE_NAME" 2>/dev/null || true
+        rm -f "$STARTUP_SERVICE_DEST"
+        systemctl --user daemon-reload
+        echo "Startup manager removed: $STARTUP_SERVICE_NAME"
+    fi
+    rm -f "$STARTUP_DESKTOP"
+}
+
 # ---- KWin script -----------------------------------------------------------------------------
 # kpackagetool6 --upgrade on an already-*loaded* script does NOT make KWin reload its JS (learned
 # the hard way — see the checklist's Phase 2 notes); loadScript unload + reconfigure is what
@@ -472,6 +541,7 @@ do_install() {
     install_service
     install_kwin_script
     install_toast_service
+    install_startup_manager ask
 
     # token.txt is written by the server process itself on its first run (load_or_create_token),
     # not by anything in this script — `systemctl --user enable --now` only guarantees the
@@ -525,6 +595,7 @@ PYEOF
 }
 
 do_uninstall() {
+    uninstall_startup_manager
     uninstall_service
     uninstall_kwin_script
     uninstall_toast_service
@@ -538,6 +609,9 @@ do_status() {
     echo
     echo "--- toast daemon ---"
     systemctl --user status "$TOAST_SERVICE_NAME" --no-pager -l 2>&1 || echo "$TOAST_SERVICE_NAME is not installed."
+    echo
+    echo "--- startup manager (runs at logon) ---"
+    systemctl --user is-enabled "$STARTUP_SERVICE_NAME" 2>/dev/null || echo "not installed"
     echo
     echo "--- kwin script ---"
     local loaded
@@ -618,6 +692,9 @@ PYEOF2
         echo "$detail" >&2
     fi
     install_kwin_script
+    # Installs from before the startup manager get it here (a git pull, then this restart); its
+    # notice offers taking the autostart apps over at the next logon.
+    [ -f "$STARTUP_SERVICE_DEST" ] || install_startup_manager none
     # The toast daemon was just restarted; give it a moment to claim its D-Bus name.
     for _ in $(seq 1 20); do
         gdbus call --session --dest com.github.tomatointhesand.AltTabSucksToast \
@@ -639,8 +716,10 @@ case "$ACTION" in
     configure)       do_configure ;;
     reload-hotkeys)  do_reload_hotkeys ;;
     pair)            do_pair ;;
+    startup)         (python3 "$REPO_ROOT/linux/startup/startup_manager.py" >/dev/null 2>&1 &) ;;
+    startup-import)  python3 "$AUTOSTART_ITEMS" import ;;
     *)
-        echo "Usage: $0 [install|uninstall|status|start|stop|restart|configure|reload-hotkeys|pair]"
+        echo "Usage: $0 [install|uninstall|status|start|stop|restart|configure|reload-hotkeys|pair|startup|startup-import]"
         exit 1
         ;;
 esac

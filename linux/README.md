@@ -58,7 +58,9 @@ guessed table), then:
    listening on `localhost:9876` — same port as Windows.
 2. Installs and enables the KWin script that owns your global hotkeys.
 3. Installs the toast daemon.
-4. Opens extension pairing: load the extension (next step) within 10 minutes and it connects
+4. Installs the **startup manager** (see [Startup apps](#5-startup-apps)) and asks whether it
+   should start your autostart apps instead of Plasma.
+5. Opens extension pairing: load the extension (next step) within 10 minutes and it connects
    by itself, with no token to copy (`./installer.sh pair` opens it again later).
 
 ### 2. Load the browser extension
@@ -161,6 +163,37 @@ recently closed tabs and bookmarks (saved copies), and picking one starts the br
 "Search browser tabs" hotkey on the Hotkeys page. It needs the extension's sessions, bookmarks and
 favicon permissions; reload the extension after updating to approve them.
 
+### 5. Startup apps
+
+The startup manager starts your autostart apps at logon **one after another, with a delay
+between them**, instead of Plasma starting them all at once, and times how long each took. It's
+the Linux side of the Windows startup manager, with the same `startup.json` and history format.
+
+`./installer.sh install` asks whether to take your autostart apps over
+(`~/.config/autostart`; Plasma's own components in `/etc/xdg/autostart` are left alone). Taking an
+app over adds it to the list and switches it off in Plasma's autostart (`Hidden=true` in its
+`.desktop` file), so it isn't started twice. Uninstalling gives every entry back as it was.
+Answer without being asked with `ALTTABSUCKS_TAKE_OVER=yes ./installer.sh install` (or `no`).
+
+At logon a small window in the bottom-right corner shows each app's countdown and status
+(launching, waiting for its window, then a green check mark once it's up) and when it was ready.
+It closes itself a few seconds after everything is up; click it to keep it open, or tick **Keep
+this window open after startup**. An app that hasn't shown up within 30 seconds is marked in
+amber and still watched, and the window waits for it.
+
+Open it any time from the app menu → **AltTabSucks Startup** (or `./installer.sh startup`) to
+edit the list: tick apps on and off, reorder them, change the delay. The delay counts from the
+previous app's launch, or with "Count it from when the previous item is ready", from when the
+previous app's first window appeared. Apps started with a flag like `--tray`, `--minimized` or
+`--hidden` never show a window, so for them "ready" means their process is running. **History**
+shows every run (`~/.local/state/alttabsucks/startup-history.jsonl`). A notice lists autostart
+apps that aren't in the list yet, with **Take over** and **Leave them to Plasma** buttons.
+Removing a taken-over app gives it back to Plasma's autostart.
+
+Installs from before the startup manager get it with the next `Ctrl+Alt+Shift+'` (or
+`./installer.sh restart`): nothing is taken over then, and the window's notice asks at the next
+logon.
+
 ## Managing the service
 
 ```bash
@@ -170,6 +203,8 @@ favicon permissions; reload the extension after updating to approve them.
 ./installer.sh restart          # restart both, then redeploy the KWin script (what Ctrl+Alt+Shift+' runs)
 ./installer.sh configure        # re-run just the browser picker (e.g. after switching browsers)
 ./installer.sh reload-hotkeys   # rebuild + redeploy the KWin script from hotkeys.js
+./installer.sh startup          # open the startup manager's editor
+./installer.sh startup-import   # take your autostart apps over now
 ./installer.sh uninstall        # remove the service, toast daemon, and KWin script — also kills
                                  # any orphaned alttabsucks_server.py still holding port 9876,
                                  # which plain `stop` does not

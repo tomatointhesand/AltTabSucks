@@ -1,0 +1,15 @@
+[Unit]
+Description=AltTabSucks startup manager (starts your startup apps in order, with delays)
+# Same session ordering as alttabsucks-server.service (see its comment): it launches GUI apps, so it
+# needs the session's display environment, which only graphical-session.target guarantees.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+# Runs once per logon and exits once everything is up (or when its window is closed). The apps it
+# starts go into scopes of their own (systemd-run --scope), so they don't belong to this unit.
+Type=simple
+ExecStart=/usr/bin/python3 YOUR_REPO_ROOT/linux/startup/startup_manager.py --logon
+
+[Install]
+WantedBy=graphical-session.target
