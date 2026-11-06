@@ -58,8 +58,8 @@ guessed table), then:
    listening on `localhost:9876` — same port as Windows.
 2. Installs and enables the KWin script that owns your global hotkeys.
 3. Installs the toast daemon.
-4. Installs the **startup manager** (see [Startup apps](#5-startup-apps)) and asks whether it
-   should start your autostart apps instead of Plasma.
+4. Leaves the **startup manager** (see [Startup apps](#5-startup-apps)) off; switch it on in
+   the Hotkeys page's settings.
 5. Opens extension pairing: load the extension (next step) within 10 minutes and it connects
    by itself, with no token to copy (`./installer.sh pair` opens it again later).
 
@@ -169,11 +169,13 @@ The startup manager starts your autostart apps at logon **one after another, wit
 between them**, instead of Plasma starting them all at once, and times how long each took. It's
 the Linux side of the Windows startup manager, with the same `startup.json` and history format.
 
-`./installer.sh install` asks whether to take your autostart apps over
-(`~/.config/autostart`; Plasma's own components in `/etc/xdg/autostart` are left alone). Taking an
-app over adds it to the list and switches it off in Plasma's autostart (`Hidden=true` in its
-`.desktop` file), so it isn't started twice. Uninstalling gives every entry back as it was.
-Answer without being asked with `ALTTABSUCKS_TAKE_OVER=yes ./installer.sh install` (or `no`).
+It's **off by default**. Switch it on in the Hotkeys page → **⚙ Settings** → **Startup manager**
+(or `./installer.sh startup-on`); **Open startup manager** there opens its window. Once it's on,
+its window offers to take your autostart apps over (`~/.config/autostart`; Plasma's own components
+in `/etc/xdg/autostart` are left alone). Taking an app over adds it to the list and switches it off
+in Plasma's autostart (`Hidden=true` in its `.desktop` file), so it isn't started twice. Switching
+the startup manager off (`./installer.sh startup-off`) or uninstalling gives every entry back as it
+was; switching it on again takes them over again.
 
 At logon a small window in the bottom-right corner shows each app's countdown and status
 (launching, waiting for its window, then a green check mark once it's up) and when it was ready.
@@ -190,9 +192,6 @@ shows every run (`~/.local/state/alttabsucks/startup-history.jsonl`). A notice l
 apps that aren't in the list yet, with **Take over** and **Leave them to Plasma** buttons.
 Removing a taken-over app gives it back to Plasma's autostart.
 
-Installs from before the startup manager get it with the next `Ctrl+Alt+Shift+'` (or
-`./installer.sh restart`): nothing is taken over then, and the window's notice asks at the next
-logon.
 
 ## Managing the service
 
@@ -205,6 +204,7 @@ logon.
 ./installer.sh reload-hotkeys   # rebuild + redeploy the KWin script from hotkeys.js
 ./installer.sh startup          # open the startup manager's editor
 ./installer.sh startup-import   # take your autostart apps over now
+./installer.sh startup-on       # switch the startup manager on (startup-off: off again)
 ./installer.sh uninstall        # remove the service, toast daemon, and KWin script — also kills
                                  # any orphaned alttabsucks_server.py still holding port 9876,
                                  # which plain `stop` does not

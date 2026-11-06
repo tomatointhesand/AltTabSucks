@@ -11,7 +11,8 @@ starter hotkeys, the Hotkeys UI API and the page itself in Edge (driven through 
 protocol by `cdp.ps1`), save → reload and broken edit → no reload, the `hotkeys.json` fold-in, tab
 focus / profile cycling / split / merge through the extension in Edge (keys pressed by
 `press.ahk`), launching Edge when it's closed, the tab search popup (`tab-search.ahk` opens it, types, presses keys, reads its list), folder hotkeys against real Explorer
-(`explorer-mash.ahk`), the startup manager (taking over Windows startup entries at install, a timed
+(`explorer-mash.ahk`), the startup manager (off after install, switched on and off through `/settings` and the page's
+settings panel, taking over Windows startup entries and giving them back, a timed
 run of AltTabSucks/Notepad/Charmap with the history row it records, the new-entry scan, and giving
 them back at uninstall), and uninstall.
 
@@ -69,6 +70,7 @@ Tested on Arch/CachyOS with KVM. About 30 minutes, mostly the Windows install.
    Host win11
        HostName localhost
        Port 22220
+       HostKeyAlias win11
        User Quickemu
        IdentityFile $HOME/VMs/windows-11/id_ed25519
        IdentitiesOnly yes

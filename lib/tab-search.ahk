@@ -6,7 +6,8 @@
 ; and the browser side of picking a result (POST /tab-search/action: switch, restore, open, close);
 ; this file shows the list and brings the right browser window forward, the same way FocusTab does.
 ;
-; Keys: type to filter, Up/Down select (the top result after each keystroke), Enter goes there,
+; Keys: type to filter, Up/Down select (the top result after each keystroke; they wrap around at
+; the ends), Enter goes there,
 ; Ctrl+W closes the selected open tab, Esc (or clicking elsewhere) closes the popup.
 ; Chromium-based browsers only for now.
 
@@ -166,8 +167,13 @@ _TabSearchSetGroup(lv, row, id) {
 _TabSearchMove(step) {
     if !_tsItems.Length
         return
+    n := _tsItems.Length
     row := _tsLV.GetNext(0, "F")
-    row := Max(1, Min(_tsItems.Length, (row ? row : 1) + step))
+    row := (row ? row : 1) + step
+    if Abs(step) = 1  ; Up at the top goes to the bottom, Down at the bottom to the top
+        row := Mod(row - 1 + n, n) + 1
+    else              ; PgUp/PgDn stop at the ends
+        row := Max(1, Min(n, row))
     _tsLV.Modify(0, "-Select")
     _tsLV.Modify(row, "Select Focus Vis")
 }

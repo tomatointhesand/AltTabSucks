@@ -8,7 +8,9 @@
 # is the hotkey layer here (no separate "launch AHK at login" step exists on this side either —
 # the KWin script runs inside the always-running compositor once installed).
 #
-# Usage: ./installer.sh [install|uninstall|status|start|stop|restart|configure|reload-hotkeys|pair|startup|startup-import]  (default: install)
+# Usage: ./installer.sh [install|uninstall|status|start|stop|restart|configure|reload-hotkeys|pair|startup|startup-import|startup-on|startup-off|startup-enabled]  (default: install)
+# startup-on/startup-off switch the startup manager on and off (the Hotkeys page's settings run
+# them); startup-enabled exits 0 when it's on; startup opens its editor.
 # `restart` restarts the server and toast daemon, then redeploys the KWin script — everything a
 # code change needs; the Linux side of AltTabSucks.ahk's Ctrl+Alt+Shift+' (bind it as a runCommand).
 # `configure` re-runs just the interactive browser wizard (choose_browser) to regenerate
@@ -366,9 +368,11 @@ uninstall_toast_service() {
 # Starts your startup apps at logon in order, with delays, in place of Plasma's autostart — the
 # Linux side of the Windows startup manager. A logon unit runs it; an app-menu entry opens its
 # editor. Taking the autostart entries over (Hidden=true in ~/.config/autostart, see
-# linux/startup/autostart_items.py) asks first: $1 is ask|yes|no|none ("none": decide nothing
-# now, the manager's own notice offers it at the next logon). ALTTABSUCKS_TAKE_OVER=yes|no
-# answers the question without asking.
+# linux/startup/autostart_items.py) asks first: $1 is ask|yes|no|resume ("resume": what was
+# decided before, or nothing yet, so the manager's own notice offers it at the next logon).
+# ALTTABSUCKS_TAKE_OVER=yes|no answers the question without asking.
+# Off by default: install sets it up only where it was already on; the Hotkeys page's settings
+# (POST /settings, which runs startup-on/startup-off below) switch it on and off.
 
 install_startup_manager() {
     local mode="${ALTTABSUCKS_TAKE_OVER:-${1:-ask}}" staged
@@ -409,8 +413,18 @@ DESKTOP
         yes) python3 "$AUTOSTART_ITEMS" import ;;
         no)  python3 "$AUTOSTART_ITEMS" import --no
              [ -n "$names" ] && echo "Left your autostart apps to Plasma (the startup manager's editor can take them over later)." ;;
-        *)   python3 "$AUTOSTART_ITEMS" init ;;
+        *)   python3 "$AUTOSTART_ITEMS" resume ;;
     esac
+}
+
+startup_manager_enabled() { systemctl --user is-enabled -q "$STARTUP_SERVICE_NAME" 2>/dev/null; }
+
+# Off: Plasma's autostart gets back the apps it took over (they stay in startup.json, so switching
+# it on again takes them over again), and nothing runs at logon. The editor stays in the app menu.
+disable_startup_manager() {
+    python3 "$AUTOSTART_ITEMS" restore 2>/dev/null || true
+    systemctl --user disable "$STARTUP_SERVICE_NAME" >/dev/null 2>&1 || true
+    echo "Startup manager off: Plasma starts your autostart apps again."
 }
 
 uninstall_startup_manager() {
@@ -561,7 +575,8 @@ do_install() {
     install_service
     install_kwin_script
     install_toast_service
-    install_startup_manager ask
+    # Off by default (the Hotkeys page's settings switch it on); a reinstall keeps it on.
+    if startup_manager_enabled; then install_startup_manager ask; fi
 
     # token.txt is written by the server process itself on its first run (load_or_create_token),
     # not by anything in this script — `systemctl --user enable --now` only guarantees the
@@ -630,8 +645,8 @@ do_status() {
     echo "--- toast daemon ---"
     systemctl --user status "$TOAST_SERVICE_NAME" --no-pager -l 2>&1 || echo "$TOAST_SERVICE_NAME is not installed."
     echo
-    echo "--- startup manager (runs at logon) ---"
-    systemctl --user is-enabled "$STARTUP_SERVICE_NAME" 2>/dev/null || echo "not installed"
+    echo "--- startup manager (runs at logon when on) ---"
+    startup_manager_enabled && echo "on" || echo "off (switch it on in the Hotkeys page's settings)"
     echo
     echo "--- kwin script ---"
     local loaded
@@ -712,9 +727,6 @@ PYEOF2
         echo "$detail" >&2
     fi
     install_kwin_script
-    # Installs from before the startup manager get it here (a git pull, then this restart); its
-    # notice offers taking the autostart apps over at the next logon.
-    [ -f "$STARTUP_SERVICE_DEST" ] || install_startup_manager none
     # The toast daemon was just restarted; give it a moment to claim its D-Bus name.
     for _ in $(seq 1 20); do
         gdbus call --session --dest com.github.tomatointhesand.AltTabSucksToast \
@@ -738,8 +750,11 @@ case "$ACTION" in
     pair)            do_pair ;;
     startup)         (python3 "$REPO_ROOT/linux/startup/startup_manager.py" >/dev/null 2>&1 &) ;;
     startup-import)  python3 "$AUTOSTART_ITEMS" import ;;
+    startup-on)      install_startup_manager resume ;;
+    startup-off)     disable_startup_manager ;;
+    startup-enabled) startup_manager_enabled ;;
     *)
-        echo "Usage: $0 [install|uninstall|status|start|stop|restart|configure|reload-hotkeys|pair|startup|startup-import]"
+        echo "Usage: $0 [install|uninstall|status|start|stop|restart|configure|reload-hotkeys|pair|startup|startup-import|startup-on|startup-off|startup-enabled]"
         exit 1
         ;;
 esac

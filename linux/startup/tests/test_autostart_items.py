@@ -110,6 +110,17 @@ class TakeOverTestCase(unittest.TestCase):
         self.assertEqual(A.parse_desktop((self.dir / "discord.desktop").read_text())["Hidden"], "false")
         self.assertEqual(len(A.new_entries(self.config, self.dir)), 5)
 
+    def test_switching_on_again_keeps_the_earlier_answer(self):
+        self.assertIsNone(A.resume_decision(None))  # first time on: the manager's notice asks
+        self.assertIsNone(A.resume_decision({"items": []}))
+        self.assertIs(A.resume_decision({"takeOver": False}), False)
+        # Taken over, switched off (restore gives them back), switched on: taken over again.
+        A.import_items(True, self.config, self.dir, log=self.log.append)
+        A.restore(self.config, log=self.log.append)
+        self.assertEqual(A.parse_desktop((self.dir / "discord.desktop").read_text())["Hidden"], "false")
+        A.import_items(A.resume_decision(A.read_config(self.config)), self.config, self.dir, log=self.log.append)
+        self.assertEqual(A.parse_desktop((self.dir / "discord.desktop").read_text())["Hidden"], "true")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -151,6 +151,9 @@ class AppState:
         # subprocess.run()-and-report-the-result code path without ever touching the real
         # installer.sh or the real KWin script installation.
         self.deploy_command: list = [str(REPO_ROOT / "installer.sh"), "reload-hotkeys"]
+        # The Hotkeys page's settings (GET/POST /settings, POST /startup-manager/open) run
+        # installer.sh startup-enabled|startup-on|startup-off|startup; a stub in tests.
+        self.installer_command: list = [str(REPO_ROOT / "installer.sh")]
         # Only switch_queue's GET /switchtab dequeue needs this: it's a check-then-clear
         # (read switch_queue[profile], then set it back to None) — the one read-modify-write in
         # this whole file, and now that requests can genuinely run concurrently
@@ -422,6 +425,8 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                 # single configured value instead of a per-binding field the way it used to be.
                 hk_config["browserResourceClass"] = state.chromium_resource_class
                 self._end_json(200, hk_config)
+            elif path == "/settings":
+                self._end_json(200, _settings(state))
             elif path == "/suggest-launch-command":
                 # Best-effort — see launch_command_suggester's own module docstring for the
                 # matching heuristic and why it can't promise correctness. Scanned fresh on every
@@ -516,6 +521,30 @@ def make_handler(state: AppState) -> type[BaseHTTPRequestHandler]:
                     return
                 state.switch_queue[candidates[0]] = {"openExtensionsPage": True}
                 self._end_json(200, {"profile": candidates[0]})
+
+            elif path == "/settings":
+                # The Hotkeys page's settings panel: {"startupManager": true|false} switches the
+                # startup manager on or off (installer.sh startup-on|startup-off).
+                body = self._read_body(SMALL_MAX_BODY)
+                if body is None:
+                    return
+                try:
+                    wanted = json.loads(body).get("startupManager")
+                except (json.JSONDecodeError, AttributeError):
+                    wanted = None
+                if not isinstance(wanted, bool):
+                    self._end_json(400, {"error": "expected {\"startupManager\": true|false}"})
+                    return
+                err = _run_installer(state, "startup-on" if wanted else "startup-off", 60)
+                if err:
+                    self._end_json(500, {"error": err})
+                else:
+                    self._end_json(200, _settings(state))
+
+            elif path == "/startup-manager/open":
+                self._drain_unread_body()
+                err = _run_installer(state, "startup", 10)  # returns at once; the window opens by itself
+                self._end_json(500, {"error": err}) if err else self._end_json(200, {"ok": True})
 
             elif path in ("/favicons", "/favicons/missing"):
                 # The extension uploading favicons for the tab search popup — see favicon_store.py.
@@ -676,6 +705,23 @@ def _tab_search_action(state, a: dict):
     else:
         raise ValueError(f"unknown kind {kind!r}")
     state.tab_search.finish(result)
+
+
+def _run_installer(state, action: str, timeout: int):
+    """Runs installer.sh <action>; None when it succeeded, else what went wrong."""
+    try:
+        proc = subprocess.run(state.installer_command + [action], capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return str(e)
+    if proc.returncode == 0:
+        return None
+    return (proc.stderr or proc.stdout or f"exit code {proc.returncode}").strip()
+
+
+def _settings(state) -> dict:
+    """GET /settings: the OS-specific settings the Hotkeys page shows (same shape as Windows')."""
+    return {"platform": "linux",
+            "startupManager": {"enabled": _run_installer(state, "startup-enabled", 10) is None}}
 
 
 def _read_hotkeys_js(state) -> str:

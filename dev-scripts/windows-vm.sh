@@ -23,9 +23,25 @@ VMS="${ALTTABSUCKS_VM_DIR:-$HOME/VMs}"
 DISK="$VMS/windows-11/disk.qcow2"
 SSH=(ssh -F "$VMS/windows-11/ssh_config" win11)
 
+# quickemu forwards SSH to the first free port from 22220 (the Linux VM may hold that one) and
+# says which in windows-11.ports; ssh_config follows it.
+sync_ssh_port() {
+    local port
+    port="$(cut -d, -f2 "$VMS/windows-11/windows-11.ports" 2>/dev/null || true)"
+    [ -n "$port" ] && sed -i "s/^\([[:space:]]*Port[[:space:]]\+\).*/\1$port/" "$VMS/windows-11/ssh_config"
+    # The host key is kept under the name win11, not localhost:<port>, so a new port still checks it.
+    if ! grep -q "HostKeyAlias" "$VMS/windows-11/ssh_config"; then
+        sed -i "s/^\([[:space:]]*\)Port\b.*/&\n\1HostKeyAlias win11/" "$VMS/windows-11/ssh_config"
+        sed -i "s/^\[localhost\]:[0-9]* /win11 /" "$VMS/windows-11/known_hosts"
+    fi
+    return 0
+}
+sync_ssh_port
+
 running() { pgrep -f "^/usr/bin/qemu-system-x86_64 -name windows-11," >/dev/null; }
 
 wait_ssh() {
+    sync_ssh_port
     for _ in $(seq 1 90); do
         "${SSH[@]}" "exit 0" 2>/dev/null && return 0
         sleep 2

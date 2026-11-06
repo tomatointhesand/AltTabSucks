@@ -269,6 +269,14 @@ def restore(config_file: Path = None, log=print):
             log(f"Couldn't restore {p.name} ({ex}).")
 
 
+def resume_decision(config):
+    """The take_over for switching the startup manager on again (installer.sh startup-on): the
+    answer given before (yes takes the entries Plasma got back over again), or None when there's
+    none yet, so the manager's notice asks."""
+    v = (config or {}).get("takeOver")
+    return v if isinstance(v, bool) else None
+
+
 def main(argv) -> int:
     action = argv[1] if len(argv) > 1 else ""
     if action == "scan":
@@ -276,13 +284,12 @@ def main(argv) -> int:
             print(e["name"])
     elif action == "import":
         import_items(take_over="--no" not in argv)
-    elif action == "init":  # startup.json exists, nothing decided (installer.sh restart's upgrade)
-        if read_config() is None:
-            import_items(take_over=None)
+    elif action == "resume":  # switched on again: what was decided before, or nothing yet
+        import_items(take_over=resume_decision(read_config()))
     elif action == "restore":
         restore()
     else:
-        print("usage: autostart_items.py scan | import [--no] | init | restore", file=sys.stderr)
+        print("usage: autostart_items.py scan | import [--no] | resume | restore", file=sys.stderr)
         return 2
     return 0
 

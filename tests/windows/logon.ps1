@@ -47,7 +47,9 @@ try {
         $keep = Get-Content $config -Raw
         Set-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" "E2E Notepad" "notepad.exe"
         $log = Join-Path $Work "install.log"
-        Invoke-OnDesktop "cmd.exe" "/c `"`"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Repo\installer.ps1`" -Action install -TakeOverStartup Yes < nul > `"$log`" 2>&1`"" 180
+        Invoke-OnDesktop "cmd.exe" "/c `"`"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Repo\installer.ps1`" -Action install < nul > `"$log`" 2>&1`"" 180
+        # The startup manager is off after an install; switched on, taking Notepad over.
+        Invoke-OnDesktop "cmd.exe" "/c `"`"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Repo\installer.ps1`" -Action startup-on -TakeOverStartup Yes < nul >> `"$log`" 2>&1`"" 60
         if ($p = Get-AltTabSucks) { Stop-Process -Id $p.ProcessId -Force }
         Get-Process AutoHotkey64 -ErrorAction SilentlyContinue | Stop-Process -Force  # the browser dialog's script, if it got that far
         Set-Content $config $keep -NoNewline
@@ -58,7 +60,7 @@ try {
         Remove-Item $SmHistory, $SmErrors -ErrorAction SilentlyContinue
         Stop-Process -Name notepad -ErrorAction SilentlyContinue
         Check ((Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue) -and @($sm.items | Where-Object { $_.name -eq "E2E Notepad" }).Count -eq 1) `
-            "prepare: installed, with Notepad taken over from Windows startup" (Get-Content $log -Raw -ErrorAction SilentlyContinue)
+            "prepare: installed, the startup manager switched on, with Notepad taken over from Windows startup" (Get-Content $log -Raw -ErrorAction SilentlyContinue)
 
         Set-ItemProperty $Uac EnableLUA 1 -Type DWord
         Set-ItemProperty $Uac ConsentPromptBehaviorAdmin 5 -Type DWord  # Windows' default: prompt for non-Windows binaries

@@ -106,15 +106,13 @@ deleted. Tab search is also in the tray menu.
 #### 5. Startup items
 
 Windows starts the apps in its Run keys and Startup folder late after logon, and then all of them
-at once. AltTabSucks can take that job over. The installer lists them and asks; if you agree, it
-moves them into its own list and turns them off in Windows, the way Task Manager's Startup apps page
-does. At logon its startup manager starts AltTabSucks first, then each app in order with its own
-delay. If you say no, the startup manager still starts AltTabSucks, and Windows keeps starting the
-rest.
-
-**Installed AltTabSucks before this existed?** AltTabSucks offers to set it up once, a few seconds
-after it starts. Or run `.\installer.ps1 -Action startup-setup`, which sets up only the startup
-manager and leaves your browser choice and everything else alone.
+at once. AltTabSucks' startup manager can take that job over. It's **off by default**: switch it on
+in the Hotkeys page (Ctrl+Alt+/) → **⚙ Settings** → **Startup manager**, where **Open startup
+manager** opens its window too. Once it's on, it offers to move your startup apps into its own list
+and turn them off in Windows, the way Task Manager's Startup apps page does. At logon it starts
+AltTabSucks first, then each app in order with its own delay. Switching it off gives the apps back
+to Windows, and AltTabSucks starts by itself again. From a console: `.\installer.ps1 -Action
+startup-on` (or `startup-off`).
 
 While it runs, a small window in the bottom-right corner shows each item's countdown and status
 (launching, waiting for its window, then a green check mark once it's up) and when it was ready.
@@ -129,7 +127,8 @@ after launching, so you can see what a change in delays did. An app that starts 
 shows a window, so for that one set "Ready when" to "its process is running".
 
 Apps you install later may add themselves to Windows startup again. The window says so, and
-**Take over** moves them into the list. Uninstalling turns the Windows entries back on.
+**Take over** moves them into the list. Switching the startup manager off or uninstalling turns the
+Windows entries back on.
 
 **To change them, press Ctrl+Alt+/** (or tray menu → Hotkeys UI), and add or edit app-window / tab-focus / profile-cycle / split / merge / run-command hotkeys with a key recorder and a running-process typeahead. The page shows the hotkeys in `lib\app-hotkeys.ahk` itself: every single-line hotkey it recognizes, whether you wrote it by hand or saved it from the page. Saving rewrites just those lines, leaves the rest of the file alone (your own functions, multi-line hotkeys, comments) and keeps the previous version as `app-hotkeys.ahk.bak`; AltTabSucks then reloads itself within a second. Editing the file by hand works too. A change that wouldn't load is reported in a notification instead of reloading.
 
@@ -142,12 +141,11 @@ The config heals itself: a hotkey that's no longer valid (for example after an u
 1. Registers a Task Scheduler task named **AltTabSucks** that runs `AltTabSucksServer.ps1`:
    - Starts automatically at logon (runs hidden, no console window)
    - Runs with elevated privileges so `HttpListener` can bind to port 9876
-2. Sets up the startup manager (see [Startup items](#5-startup-items)):
-   - Registers an **AltTabSucks Startup** task that runs `StartupManager.ahk` at logon, without elevation.
-   - Registers an on-demand, elevated **AltTabSucks AHK** task. The startup manager starts `AltTabSucks.ahk` through it, so there's no UAC prompt at logon.
-   - Lists the Windows startup entries and asks whether to move them into `%LOCALAPPDATA%\AltTabSucks\startup.json` (`-TakeOverStartup Yes|No` answers in advance).
-   - Removes the `AltTabSucks.bat` startup script that older versions used.
-3. Creates `lib\app-hotkeys.ahk` from the template if you don't have one yet, and deletes `lib\config.ahk` so the browser is detected again on the next launch (see below).
+2. Registers an elevated **AltTabSucks AHK** task that starts `AltTabSucks.ahk` at logon, so there's no UAC prompt, and removes the `AltTabSucks.bat` startup script that older versions used.
+3. Leaves the startup manager (see [Startup items](#5-startup-items)) off, unless it was on already. Switched on (`-Action startup-on`, which the Hotkeys page's settings run), it:
+   - Registers an **AltTabSucks Startup** task that runs `StartupManager.ahk` at logon, without elevation, and makes the **AltTabSucks AHK** task on-demand: the startup manager starts `AltTabSucks.ahk` through it.
+   - Moves the Windows startup entries into `%LOCALAPPDATA%\AltTabSucks\startup.json` if you agree (`-TakeOverStartup Yes|No` answers in advance; with no console to ask on, its window asks at the next logon).
+4. Creates `lib\app-hotkeys.ahk` from the template if you don't have one yet, and deletes `lib\config.ahk` so the browser is detected again on the next launch (see below).
 4. Disables the **Ctrl+Alt+Win+Shift** shortcut that opens Copilot/Office by redirecting the `ms-officeapp` protocol handler to a no-op (`rundll32`).
 5. Launches `AltTabSucks.ahk` immediately so the current session is live without a logon cycle.
 

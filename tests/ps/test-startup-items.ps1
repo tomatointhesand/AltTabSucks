@@ -73,4 +73,11 @@ $yes = Merge-StartupItems ((ConvertTo-Json $no.Config -Depth 10) | ConvertFrom-J
 Assert-Equal @($yes.Config.items | ForEach-Object { $_.name }) @("AltTabSucks", "Steam", "Discord", "Slack") "a later Take over adds them after all"
 Assert-Equal $yes.Config.takeOver $true "  ...and flips the choice"
 
+# Switched on from the Hotkeys page, no answer yet: nothing taken over, and no answer recorded, so
+# the manager's notice asks at logon.
+$undecided = Merge-StartupItems $null $entries $null
+Assert-Equal @($undecided.Config.items | ForEach-Object { $_.name }) @("AltTabSucks") "undecided: only AltTabSucks in the list"
+Assert-Equal @($undecided.TakeOver).Count 0 "  ...nothing switched off in Windows"
+Assert-Equal $undecided.Config.Contains("takeOver") $false "  ...and no answer recorded"
+
 Complete-Asserts

@@ -6,7 +6,9 @@ snapshot, copies in the working tree (uncommitted changes included), runs the Py
 there, then `tests/linux/e2e.sh`:
 
 - **install**: `installer.sh install` in the Plasma session, with the browser picker (Chromium,
-  its window class confirmed from a real window) and two seeded autostart entries taken over
+  its window class confirmed from a real window); the startup manager off, then switched on and
+  off through the server's `POST /settings`, and two seeded autostart entries taken over and
+  given back
 - **real key presses** on the VM's keyboard (QEMU `sendkey`, `linux-vm.sh key`), so hotkeys go
   the whole way through kglobalaccel, the KWin script and the server: the starter Text editor
   (Kate) and Downloads folder (Dolphin, showing ~/Downloads, no second window on a second press)

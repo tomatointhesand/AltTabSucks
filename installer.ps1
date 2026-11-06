@@ -4,13 +4,10 @@
 
 .DESCRIPTION
     install   - Registers AltTabSucksServer.ps1 as a Task Scheduler task (auto-start at logon,
-                restarts on crash), and the startup manager (StartupManager.ahk), which launches
-                AltTabSucks.ahk and the rest of the startup apps at logon: a logon task for it, an
-                on-demand elevated task it starts AltTabSucks.ahk through (no UAC prompt), and the
-                Windows startup entries (Run keys, Startup folders) moved into its list and turned
-                off in Windows (Server/StartupItems.ps1). Tasks rather than a Windows service
-                because both the repo and the browser profile can live on a drive that's only
-                mapped after logon.
+                restarts on crash), and an elevated task that starts AltTabSucks.ahk at logon (no
+                UAC prompt). Tasks rather than a Windows service because both the repo and the
+                browser profile can live on a drive that's only mapped after logon. The startup
+                manager stays off unless it was on already (see startup-on).
     uninstall - Stops and removes the tasks; turns the Windows startup entries back on.
     status    - Shows current task state.
     start     - Starts the task manually (if not already running).
@@ -19,13 +16,18 @@
                 Ctrl+Alt+Shift+' reload hotkey so server changes apply along with AHK ones.
     startup-scan   - Lists ("NEW<tab>name") the Windows startup entries that are on and not taken
                      over yet. Used by the startup manager's "not in this list yet" notice.
-    startup-import - Takes those over (what install does). The notice's Take over button.
-    startup-setup  - Just the startup manager part of install (tasks, startup items, removing the old
-                     AltTabSucks.bat), leaving everything else alone. AltTabSucks.ahk offers it
-                     to installs from before the startup manager existed.
+    startup-import - Takes those over. The notice's Take over button.
+    startup-on     - Switches the startup manager (StartupManager.ahk) on: it launches AltTabSucks.ahk
+                     and the rest of the startup apps at logon (a logon task for it; AltTabSucks.ahk's
+                     task then runs on demand), with the Windows startup entries (Run keys, Startup
+                     folders) moved into its list and turned off in Windows (Server/StartupItems.ps1).
+                     The Hotkeys page's settings run it.
+    startup-off    - Switches it off again: the startup entries go back to Windows, AltTabSucks.ahk's
+                     task starts at logon again.
 
-    -TakeOverStartup Ask|Yes|No: whether install / startup-setup moves the Windows startup apps into
-    the startup manager. Ask (the default) lists them and asks; with no console to ask on, No.
+    -TakeOverStartup Ask|Yes|No: whether startup-on moves the Windows startup apps into the startup
+    manager. Ask (the default) uses the answer given before, else lists them and asks; with no
+    console to ask on, leaves it to the manager's notice.
 
 .EXAMPLE
     pwsh -ExecutionPolicy Bypass -File installer.ps1
@@ -33,7 +35,7 @@
 #>
 
 param(
-    [ValidateSet("install", "uninstall", "status", "start", "stop", "restart", "pair", "startup-scan", "startup-import", "startup-setup")]
+    [ValidateSet("install", "uninstall", "status", "start", "stop", "restart", "pair", "startup-scan", "startup-import", "startup-on", "startup-off")]
     [string]$Action = "install",
     [ValidateSet("Ask", "Yes", "No")]
     [string]$TakeOverStartup = "Ask"
@@ -42,7 +44,7 @@ param(
 # install and uninstall require admin (Register/Unregister-ScheduledTask with RunLevel Highest).
 # Self-elevate via UAC rather than requiring the user to open an admin shell manually.
 # startup-import too: entries under HKLM can only be switched off by an admin.
-if ($Action -in "install","uninstall","startup-import","startup-setup") {
+if ($Action -in "install","uninstall","startup-import","startup-on","startup-off") {
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
                     [Security.Principal.WindowsBuiltInRole]::Administrator)
     if (-not $isAdmin) {
@@ -75,12 +77,15 @@ function Find-AutoHotkey {
     $null
 }
 
-# Whether to move the Windows startup apps into the startup manager (switching them off in Windows).
+# Whether to move the Windows startup apps into the startup manager (switching them off in Windows):
+# $true/$false, or $null for "not decided", which leaves it to the manager's notice at logon.
 function Confirm-StartupTakeOver {
     if ($TakeOverStartup -ne "Ask") { return $TakeOverStartup -eq "Yes" }
+    $before = (Read-StartupConfig).takeOver
+    if ($before -is [bool]) { return $before }  # switched on again: what was answered before
     $entries = @(Get-NewStartupEntries)
     if (-not $entries) { return $true }  # nothing to move yet; later ones get the manager's Take over notice
-    if ([Console]::IsInputRedirected) { return $false }
+    if ([Console]::IsInputRedirected) { return $null }  # the Hotkeys page's switch: no console to ask on
     Write-Host ""
     Write-Host "Windows starts these apps at logon, late and all at once:"
     foreach ($e in $entries) { Write-Host "  - $($e.Name)" }
@@ -89,37 +94,69 @@ function Confirm-StartupTakeOver {
     (Read-Host "Let the startup manager start them? [Y/n]") -notmatch '^\s*n'
 }
 
-# The startup manager: its logon task, the elevated task it starts AltTabSucks.ahk through, and
-# startup.json (with the Windows startup apps moved in, if the user agrees).
-function Install-StartupManager {
+function Test-StartupManagerOn { [bool](Get-ScheduledTask -TaskName $StartupTask -ErrorAction SilentlyContinue) }
+
+# The elevated task AltTabSucks.ahk runs through (no UAC prompt): at logon by itself while the
+# startup manager is off, on demand (the manager runs it) while it's on.
+function Register-AhkTask([string]$AhkExe, [bool]$AtLogon) {
+    $task = @{
+        TaskName    = $AhkTask
+        Action      = New-ScheduledTaskAction -Execute $AhkExe -Argument "`"$AhkScript`"" -WorkingDirectory $RepoRoot
+        Principal   = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -RunLevel Highest -LogonType Interactive
+        Settings    = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew `
+                          -Priority 4 -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+        Description = if ($AtLogon) { "Starts AltTabSucks.ahk elevated at logon" } else { "Starts AltTabSucks.ahk elevated; run by the AltTabSucks startup manager" }
+    }
+    if ($AtLogon) { $task.Trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME" }
+    Register-ScheduledTask @task -Force | Out-Null
+}
+
+# With no AutoHotkey64.exe to point a task at, AltTabSucks.ahk starts from the Startup folder (and
+# asks for elevation itself). Otherwise removes that old script and returns the exe.
+function Get-AhkExeForTasks {
     $ahkExe = Find-AutoHotkey
     if (-not $ahkExe) {
-        # No AutoHotkey64.exe to point the tasks at: start AltTabSucks.ahk the old way.
-        Write-Warning "AutoHotkey v2 not found; AltTabSucks.ahk starts from the Startup folder instead of the startup manager."
+        Write-Warning "AutoHotkey v2 not found; AltTabSucks.ahk starts from the Startup folder instead of a task."
         Set-Content -Path $StartupScript -Value "@echo off`r`nstart `"`" `"$AhkScript`"" -Encoding ASCII
-    } else {
-        if (Test-Path $StartupScript) {
-            Remove-Item $StartupScript -Force
-            Write-Host "Removed the old startup script ($StartupScript): the startup manager launches AltTabSucks.ahk now."
-        }
-        $user = "$env:USERDOMAIN\$env:USERNAME"
-        $taskSettings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew `
-                            -Priority 4 -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    } elseif (Test-Path $StartupScript) {
+        Remove-Item $StartupScript -Force
+        Write-Host "Removed the old startup script ($StartupScript): a task starts AltTabSucks.ahk now."
+    }
+    $ahkExe
+}
 
-        # On demand, elevated: the startup manager runs as a normal user (so the apps it starts
-        # aren't elevated) and starts AltTabSucks.ahk through this, without a UAC prompt.
-        Register-ScheduledTask -TaskName $AhkTask -Force `
-            -Action (New-ScheduledTaskAction -Execute $ahkExe -Argument "`"$AhkScript`"" -WorkingDirectory $RepoRoot) `
-            -Principal (New-ScheduledTaskPrincipal -UserId $user -RunLevel Highest -LogonType Interactive) `
-            -Settings $taskSettings `
-            -Description "Starts AltTabSucks.ahk elevated; run by the AltTabSucks startup manager" | Out-Null
+# Startup manager off (the default): AltTabSucks.ahk starts at logon through its own task, and the
+# Windows startup apps it took over go back to Windows (they stay in startup.json, so switching it
+# on again takes them over again with their settings).
+function Disable-StartupManager {
+    if (Test-StartupManagerOn) {
+        Unregister-ScheduledTask -TaskName $StartupTask -Confirm:$false
+        Write-Host "'$StartupTask' task removed."
+    }
+    Restore-StartupItems
+    Remove-Item $StartupVbs -Force -ErrorAction SilentlyContinue
+    if ($ahkExe = Get-AhkExeForTasks) {
+        Register-AhkTask $ahkExe $true
+        Write-Host "Startup manager off: '$AhkTask' starts AltTabSucks.ahk at logon."
+    }
+}
 
-        # At logon, no delay, unlike the Run keys and Startup folder, which Explorer starts
-        # late and all at once. Through a small script on the local disk that waits for
-        # StartupManager.ahk, in case the repo's drive is mapped a moment after logon.
-        New-Item $DataDir -ItemType Directory -Force | Out-Null
-        $managerScript = Join-Path $RepoRoot "StartupManager.ahk"
-        Set-Content $StartupVbs -Encoding ASCII -Value @"
+# Startup manager on (the Hotkeys page's settings): its logon task, AltTabSucks.ahk's task on
+# demand, and startup.json (with the Windows startup apps moved in, if the user agrees).
+function Enable-StartupManager {
+    $ahkExe = Get-AhkExeForTasks
+    if (-not $ahkExe) { return }
+    # The startup manager runs as a normal user (so the apps it starts aren't elevated) and
+    # starts AltTabSucks.ahk through this task.
+    Register-AhkTask $ahkExe $false
+
+    # At logon, no delay, unlike the Run keys and Startup folder, which Explorer starts
+    # late and all at once. Through a small script on the local disk that waits for
+    # StartupManager.ahk, in case the repo's drive is mapped a moment after logon.
+    $user = "$env:USERDOMAIN\$env:USERNAME"
+    New-Item $DataDir -ItemType Directory -Force | Out-Null
+    $managerScript = Join-Path $RepoRoot "StartupManager.ahk"
+    Set-Content $StartupVbs -Encoding ASCII -Value @"
 ' Written by AltTabSucks' installer.ps1: starts the startup manager at logon (the AltTabSucks Startup task).
 Set fso = CreateObject("Scripting.FileSystemObject")
 For i = 1 To 240
@@ -128,17 +165,17 @@ For i = 1 To 240
 Next
 CreateObject("WScript.Shell").Run """$ahkExe"" ""$managerScript"" --logon", 1, False
 "@
-        Register-ScheduledTask -TaskName $StartupTask -Force `
-            -Action (New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$StartupVbs`"" -WorkingDirectory $env:USERPROFILE) `
-            -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $user) `
-            -Principal (New-ScheduledTaskPrincipal -UserId $user -RunLevel Limited -LogonType Interactive) `
-            -Settings $taskSettings `
-            -Description "AltTabSucks startup manager: launches the startup apps at logon" | Out-Null
-        Write-Host "Startup manager registered ('$StartupTask' at logon, '$AhkTask' for AltTabSucks.ahk)."
+    Register-ScheduledTask -TaskName $StartupTask -Force `
+        -Action (New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$StartupVbs`"" -WorkingDirectory $env:USERPROFILE) `
+        -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $user) `
+        -Principal (New-ScheduledTaskPrincipal -UserId $user -RunLevel Limited -LogonType Interactive) `
+        -Settings (New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew `
+                       -Priority 4 -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries) `
+        -Description "AltTabSucks startup manager: launches the startup apps at logon" | Out-Null
+    Write-Host "Startup manager on ('$StartupTask' at logon, '$AhkTask' for AltTabSucks.ahk)."
 
-        Import-StartupItems -TakeOver (Confirm-StartupTakeOver) | Out-Null
-        Write-Host "Startup items: $StartupConfigPath (edit them from the tray menu's Startup items)."
-    }
+    Import-StartupItems -TakeOver (Confirm-StartupTakeOver) | Out-Null
+    Write-Host "Startup items: $StartupConfigPath (edit them from the tray menu's Startup items)."
 }
 
 if ($Action -eq "startup-scan") {
@@ -149,11 +186,8 @@ if ($Action -eq "startup-import") {
     Import-StartupItems -TakeOver $true | Out-Null
     exit 0
 }
-if ($Action -eq "startup-setup") {
-    Install-StartupManager
-    if (-not [Console]::IsInputRedirected) { Read-Host "Done. Press Enter to close" | Out-Null }
-    exit 0
-}
+if ($Action -eq "startup-on") { Enable-StartupManager; exit 0 }
+if ($Action -eq "startup-off") { Disable-StartupManager; exit 0 }
 
 # Opens pairing: for the next few minutes the browser extension fetches the token from the server
 # by itself (POST /extension-token), so nobody has to paste it into its Options page.
@@ -286,8 +320,10 @@ switch ($Action) {
             Write-Warning "Task did not reach Running state. Check Event Viewer > Task Scheduler."
         }
 
-        # --- Startup manager (StartupManager.ahk, which launches AltTabSucks.ahk) ---
-        Install-StartupManager
+        # --- How AltTabSucks.ahk starts at logon ---
+        # The startup manager (StartupManager.ahk) is off by default: the Hotkeys page's settings
+        # switch it on. A reinstall keeps it on.
+        if (Test-StartupManagerOn) { Enable-StartupManager } else { Disable-StartupManager }
 
         # Re-initialize browser config so auto-detection always runs with the current
         # default browser. Deleting config.ahk causes _PromptBrowserChoice() to re-detect
@@ -363,6 +399,7 @@ switch ($Action) {
             Write-Host "$($t.PadRight(19)): $(if ($st) { "$($st.State), last run $((Get-ScheduledTaskInfo -TaskName $t).LastRunTime)" } else { 'not registered' })"
         }
         if (Test-Path $StartupScript) { Write-Host "Startup script: $StartupScript" }
+        Write-Host "Startup manager    : $(if (Test-StartupManagerOn) { 'on' } else { "off (switch it on in the Hotkeys page's settings)" })"
 
         Write-Host ""
         Write-Host "Running AltTabSucksServer.ps1 processes:"

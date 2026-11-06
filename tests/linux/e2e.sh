@@ -4,7 +4,8 @@
 # the host: commands go over SSH (into the Plasma session where they need it), and hotkeys are
 # real key presses on the VM's keyboard (QEMU sendkey), so they go the whole way: kglobalaccel,
 # the KWin script, the bridge server.
-#   phase "main"   - install (browser picker, autostart takeover), starter hotkeys pressed for
+#   phase "main"   - install (browser picker), the startup manager switched on/off through
+#                    POST /settings with an autostart takeover, starter hotkeys pressed for
 #                    real, the extension pairing by itself, a startup manager --run, then a
 #                    reinstall that leaves things ready for the logon check
 #   phase "logon"  - after a reboot: the startup manager ran at logon, started the taken-over apps
@@ -67,22 +68,40 @@ if [ "$PHASE" = main ]; then
     wait_for 30 running chromium
     sleep 3
     # In the Plasma session, like from a terminal there: the installer talks to KWin over its D-Bus.
-    desk 'cd ~/alttabsucks && printf "1\n" | ALTTABSUCKS_TAKE_OVER=yes ./installer.sh install' > "$SHOTS/install.log" 2>&1
-    check "installer.sh install finishes" grep -q "Startup manager installed" "$SHOTS/install.log"
+    desk 'cd ~/alttabsucks && printf "1\n" | ./installer.sh install' > "$SHOTS/install.log" 2>&1
+    check "installer.sh install finishes" grep -q "Browser extension:" "$SHOTS/install.log"
     check "  ...the browser picker chose Chromium and confirmed its window class" grep -q "Confirmed via a real open window" "$SHOTS/install.log"
     check "  ...the server answers" wait_for 15 vm "curl -sf -o /dev/null http://127.0.0.1:9876/hotkeys-ui"
     check "  ...the server and toast services are running" vm "systemctl --user is-active alttabsucks-server alttabsucks-toast"
     check "  ...the KWin script is loaded" desk "qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.isScriptLoaded alttabsucks | grep -qx true"
     check "  ...hotkeys.js has the starter set" vm "grep -q 'Downloads folder' ~/alttabsucks/linux/kwin/alttabsucks/contents/code/hotkeys.js && grep -q 'Search browser tabs' ~/alttabsucks/linux/kwin/alttabsucks/contents/code/hotkeys.js"
     check "  ...the Downloads hotkey points at ~/Downloads" vm "grep -q 'focusOrOpenFolder(\"~/Downloads\")' ~/alttabsucks/linux/kwin/alttabsucks/contents/code/hotkeys.js"
-    check "  ...the startup manager runs at logon" vm "systemctl --user is-enabled alttabsucks-startup.service"
+
+    # ---- the startup manager: off after install, switched on through the Hotkeys page's API ------
+    TOKEN="$(vm 'cat ~/alttabsucks/Server/token.txt')"
+    api() {  # api METHOD PATH [JSON]: a server call with the token, from inside the VM
+        vm "curl -sf -X $1 -H 'X-AltTabSucks-Token: $TOKEN' -H 'Content-Type: application/json' ${3:+-d '$3'} http://127.0.0.1:9876$2"
+    }
+    startup_enabled() { vm "systemctl --user is-enabled -q alttabsucks-startup.service"; }
+    not_hidden() { ! hidden org.kde.kcalc && ! hidden e2e-tray; }
+    check "the startup manager is off after install" eval '! startup_enabled'
+    check "  ...and Plasma keeps its autostart apps" not_hidden
+    check "  ...and GET /settings says so" eval "api GET /settings | grep -q '\"enabled\": false'"
+    check "POST /settings switches it on" eval "api POST /settings '{\"startupManager\": true}' | grep -q '\"enabled\": true'"
+    check "  ...it runs at logon" startup_enabled
     check "  ...and is in the app menu" vm "test -f ~/.local/share/applications/org.alttabsucks.Startup.desktop"
-    check "  ...it took the autostart apps over" vm "python3 -c \"import json,os; c=json.load(open(os.path.expanduser('~/.config/alttabsucks/startup.json'))); n=[i['name'] for i in c['items']]; assert n[0]=='AltTabSucks' and 'KCalc' in n and 'E2E Tray' in n, n\""
-    check "  ...and switched them off in Plasma's autostart" both_hidden
+    check "  ...with nobody to ask, the autostart apps are left for its notice" not_hidden
+    vm 'cd ~/alttabsucks && ./installer.sh startup-import' > "$SHOTS/startup-import.log" 2>&1
+    check "taking them over puts them in startup.json" vm "python3 -c \"import json,os; c=json.load(open(os.path.expanduser('~/.config/alttabsucks/startup.json'))); n=[i['name'] for i in c['items']]; assert n[0]=='AltTabSucks' and 'KCalc' in n and 'E2E Tray' in n, n\""
+    check "  ...and switches them off in Plasma's autostart" both_hidden
     check "  ...the tray app is ready by process, KCalc by window" vm "python3 -c \"import json,os; c=json.load(open(os.path.expanduser('~/.config/alttabsucks/startup.json'))); r={i['name']:i['ready'] for i in c['items']}; assert r['E2E Tray']=='process' and r['KCalc']=='window', r\""
+    check "switched off, it no longer runs at logon" eval "api POST /settings '{\"startupManager\": false}' | grep -q '\"enabled\": false' && ! startup_enabled"
+    check "  ...and Plasma gets its autostart apps back" not_hidden
+    check "switched on again, it takes them over again" eval "api POST /settings '{\"startupManager\": true}' >/dev/null && startup_enabled && both_hidden"
+    check "POST /startup-manager/open opens its window" eval "api POST /startup-manager/open >/dev/null && wait_for 20 manager_running"
+    vm "pkill -f '[l]inux/startup/startup_manager.py'; true"
 
     # ---- the extension pairs by itself ---------------------------------------------------------
-    TOKEN="$(vm 'cat ~/alttabsucks/Server/token.txt')"
     check "the extension in Chromium fetches the token and reports its tabs" wait_for 30 vm "curl -sf -H 'X-AltTabSucks-Token: $TOKEN' http://127.0.0.1:9876/debugtabs | grep -q '==='"
 
     # ---- starter hotkeys, pressed on the VM's keyboard -------------------------------------------

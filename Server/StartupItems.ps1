@@ -85,15 +85,16 @@ function Read-WindowsStartupEntries {
 # on a new list. Old AltTabSucks.bat startup scripts are left to the installer, which deletes them.
 # With -TakeOver:$false (the user said no at install) nothing is added or switched off, and the
 # config remembers it (takeOver: false), so the manager only mentions the entries in its editor,
-# not at every logon. Returns @{ Config; TakeOver = entries to switch off }.
-function Merge-StartupItems($Config, $Entries, [bool]$TakeOver = $true) {
+# not at every logon. -TakeOver:$null (not decided yet) takes nothing over and records no answer,
+# so the manager's notice still asks. Returns @{ Config; TakeOver = entries to switch off }.
+function Merge-StartupItems($Config, $Entries, [object]$TakeOver = $true) {
     if (-not $Config) { $Config = [ordered]@{ version = 1; autoCloseSeconds = 5; readyTimeoutSeconds = 30; items = @() } }
     $items = [Collections.ArrayList]@($Config.items | Where-Object { $_ })
     if (-not ($items | Where-Object { $_.builtin -eq "alttabsucks" })) {
         $items.Insert(0, [ordered]@{ name = "AltTabSucks"; builtin = "alttabsucks"; command = ""; workingDir = ""; process = "AltTabSucks.ahk"
                                      delay = 0; afterReady = $false; ready = "process"; enabled = $true })
     }
-    $Config.takeOver = $TakeOver
+    if ($null -ne $TakeOver) { $Config.takeOver = [bool]$TakeOver }
     $switchOff = @()
     foreach ($e in $(if ($TakeOver) { $Entries } else { @() })) {
         if (-not (Test-StartupApproved $e.Previous)) { continue }  # off in Windows: the user doesn't want it
@@ -128,7 +129,7 @@ function Get-NewStartupEntries([string]$Path = $StartupConfigPath) {
     (Merge-StartupItems (Read-StartupConfig $Path) @(Read-WindowsStartupEntries)).TakeOver
 }
 
-function Import-StartupItems([bool]$TakeOver = $true, [string]$Path = $StartupConfigPath) {
+function Import-StartupItems([object]$TakeOver = $true, [string]$Path = $StartupConfigPath) {
     $r = Merge-StartupItems (Read-StartupConfig $Path) @(Read-WindowsStartupEntries) $TakeOver
     Save-StartupConfig $r.Config $Path
     # Off, the way Task Manager writes it: 03, then 3 zero bytes, then when (FILETIME).

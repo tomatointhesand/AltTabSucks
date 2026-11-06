@@ -27,7 +27,6 @@ FIREFOX_PROFILE_INI := ""
 #Include lib\app-hotkeys.ahk  ; general app + browser hotkeys
 #Include lib\json.ahk         ; Json_Parse, Json_Stringify
 #Include lib\hotkeys-ui.ahk   ; runtime for hotkeys saved from the web UI (localhost:9876/hotkeys-ui)
-#Include lib\startup-upgrade.ahk ; offers the startup manager to installs from before it existed
 #Include lib\tray-icon.ahk    ; keeps the tray icon there when this starts before the taskbar
 #Include *i lib\SC.ahk ; SC automation (scoped to SC window) — optional
 

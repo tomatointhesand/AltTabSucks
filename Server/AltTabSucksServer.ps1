@@ -111,6 +111,14 @@ function Get-ConfiguredBrowser {
     ""
 }
 
+# The Hotkeys page's settings panel: the startup manager is on when its logon task exists
+# (installer.ps1 -Action startup-on|startup-off, run by POST /settings).
+$installerPath = Join-Path $repoRoot "installer.ps1"
+function Get-OsSettings {
+    @{ platform = "windows"
+       startupManager = @{ enabled = [bool](Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue) } }
+}
+
 try { while ($listener.IsListening) {
     $res = $null
     try {
@@ -220,6 +228,34 @@ try { while ($listener.IsListening) {
                 $switchQueue[$target] = @{ openExtensionsPage = $true }
                 Send-Json $res @{ profile = $target }
             }
+
+        } elseif ($method -eq "GET" -and $path -eq "/settings") {
+            # The Hotkeys page's settings panel (same shape as Linux').
+            Send-Json $res (Get-OsSettings)
+
+        } elseif ($method -eq "POST" -and $path -eq "/settings") {
+            # {"startupManager": true|false} switches the startup manager on or off
+            # (installer.ps1 -Action startup-on|startup-off; this server is elevated, so no UAC).
+            $wanted = $null
+            if ($req.ContentLength64 -ge 0 -and $req.ContentLength64 -le 4KB) {
+                $reader = [System.IO.StreamReader]::new($req.InputStream, [System.Text.Encoding]::UTF8)
+                $body   = $reader.ReadToEnd()
+                $reader.Close()
+                try { $wanted = ($body | ConvertFrom-Json -AsHashtable).startupManager } catch {}
+            }
+            if ($wanted -isnot [bool]) {
+                Send-Json $res @{ error = 'expected {"startupManager": true|false}' } 400
+            } else {
+                $out = $null | & pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installerPath `
+                           -Action $(if ($wanted) { "startup-on" } else { "startup-off" }) 2>&1 | Out-String
+                if ($LASTEXITCODE -ne 0) { Send-Json $res @{ error = $out.Trim() } 500 }
+                else { Send-Json $res (Get-OsSettings) }
+            }
+
+        } elseif ($method -eq "POST" -and $path -eq "/startup-manager/open") {
+            # Its editor, through Explorer so it isn't elevated like this server (as the tray menu does).
+            Start-Process explorer.exe "`"$(Join-Path $repoRoot 'StartupManager.ahk')`""
+            Send-Json $res @{ ok = $true }
 
         } elseif ($method -eq "GET" -and $path -eq "/profiles") {
             # Extension Options page fetches this to populate the profile dropdown

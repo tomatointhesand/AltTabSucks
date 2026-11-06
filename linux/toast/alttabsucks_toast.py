@@ -383,8 +383,11 @@ class TabSearchWindow:
         if not rows:
             return
         current = self.list.get_selected_row()
-        i = rows.index(current) + step if current in rows else 0
-        self._select(rows[max(0, min(len(rows) - 1, i))])
+        # Up at the top goes to the bottom, Down at the bottom to the top.
+        i = (rows.index(current) + step) % len(rows) if current in rows else 0
+        self._select(rows[i])
+        if i == 0:
+            self.scroller.get_vadjustment().set_value(0)  # its section header too
 
     def _select(self, row):
         self.list.select_row(row)

@@ -489,6 +489,56 @@ class ServerTestCase(unittest.TestCase):
         self.assertFalse(result["deployed"])
         self.assertIn("deploy failed", result["note"])
 
+    # ---- settings (the Hotkeys page's settings panel) --------------------------------------
+
+    def fake_installer(self, fail_on=""):
+        """A stand-in installer.sh: startup-on/off flip a state file, startup-enabled reads it,
+        every action is logged; fail_on makes that action fail with a message."""
+        d = Path(self._hotkeys_tmpdir.name)
+        script = d / "installer.sh"
+        script.write_text(f"""#!/bin/sh
+echo "$1" >> "{d}/actions.log"
+[ "$1" = "{fail_on}" ] && {{ echo "it broke" >&2; exit 1; }}
+case "$1" in
+  startup-on) touch "{d}/on" ;;
+  startup-off) rm -f "{d}/on" ;;
+  startup-enabled) test -f "{d}/on" ;;
+esac
+""")
+        script.chmod(0o755)
+        self.state.installer_command = [str(script)]
+        return d / "actions.log"
+
+    def test_settings_report_and_switch_the_startup_manager(self):
+        log = self.fake_installer()
+        status, _, body = self.request("GET", "/settings")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), {"platform": "linux", "startupManager": {"enabled": False}})
+        status, _, body = self.request("POST", "/settings", json_body={"startupManager": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)["startupManager"]["enabled"])
+        status, _, body = self.request("POST", "/settings", json_body={"startupManager": False})
+        self.assertFalse(json.loads(body)["startupManager"]["enabled"])
+        self.assertEqual(log.read_text().split(),
+                         ["startup-enabled", "startup-on", "startup-enabled", "startup-off", "startup-enabled"])
+
+    def test_settings_post_reports_a_failure_and_rejects_bad_bodies(self):
+        self.fake_installer(fail_on="startup-on")
+        status, _, body = self.request("POST", "/settings", json_body={"startupManager": True})
+        self.assertEqual((status, json.loads(body)["error"]), (500, "it broke"))
+        status, _, _ = self.request("POST", "/settings", json_body={"startupManager": "yes"})
+        self.assertEqual(status, 400)
+        status, _, _ = self.request("POST", "/settings", json_body=[1])
+        self.assertEqual(status, 400)
+        status, _, _ = self.request("POST", "/settings", token=None, json_body={"startupManager": True})
+        self.assertEqual(status, 403)
+
+    def test_open_startup_manager_runs_its_editor(self):
+        log = self.fake_installer()
+        status, _, _ = self.request("POST", "/startup-manager/open")
+        self.assertEqual(status, 200)
+        self.assertEqual(log.read_text().split(), ["startup"])
+
     def test_legacy_hotkeys_json_is_folded_into_hotkeys_js_once(self):
         from alttabsucks_server import fold_legacy_hotkeys_json
         self.state.legacy_hotkeys_json_path.write_text(json.dumps({"bindings": [

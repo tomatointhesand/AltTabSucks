@@ -19,7 +19,7 @@ Set-Content (Join-Path $Repo "Server\token.txt") $TestToken -NoNewline -Encoding
 
 function Get-Token { (Get-Content (Join-Path $Repo "Server\token.txt") -Raw).Trim() }
 function Invoke-Api([string]$method, [string]$path, $body = $null) {
-    $p = @{ Uri = "$Server$path"; Method = $method; Headers = @{ "X-AltTabSucks-Token" = (Get-Token) }; UseBasicParsing = $true; TimeoutSec = 20 }
+    $p = @{ Uri = "$Server$path"; Method = $method; Headers = @{ "X-AltTabSucks-Token" = (Get-Token) }; UseBasicParsing = $true; TimeoutSec = 60 }
     if ($null -ne $body) { $p.Body = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $body -Depth 10 -Compress)); $p.ContentType = "application/json" }
     try {
         $r = Invoke-WebRequest @p -SkipHttpErrorCheck  # 4xx/5xx come back as results, not exceptions
@@ -43,7 +43,7 @@ try {
     $driverOut = Join-Path $Work "first-run.txt"
     Start-OnDesktop $Ahk "`"$Here\drive-first-run.ahk`" `"$driverOut`"" | Out-Null
     $installLog = Join-Path $Work "install.log"
-    Invoke-OnDesktop "cmd.exe" "/c `"`"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Repo\installer.ps1`" -Action install -TakeOverStartup Yes > `"$installLog`" 2>&1`"" 180
+    Invoke-OnDesktop "cmd.exe" "/c `"`"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Repo\installer.ps1`" -Action install > `"$installLog`" 2>&1`"" 180
 
     $task = Get-ScheduledTask -TaskName "AltTabSucks" -ErrorAction SilentlyContinue
     Check ($null -ne $task) "installer registers the AltTabSucks scheduled task" (Get-Content $installLog -Raw -ErrorAction SilentlyContinue)
@@ -69,16 +69,32 @@ try {
     Check ((Get-Status POST "/extension-token" @{ Origin = "https://evil.example.com" }) -eq 403) "  ...but a web page doesn't"
     Check (Test-Path $AppHk) "installer created lib\app-hotkeys.ahk from the template"
 
+    # The startup manager is off by default: AltTabSucks.ahk starts at logon through its own task.
+    $ahkTask = Get-ScheduledTask -TaskName "AltTabSucks AHK" -ErrorAction SilentlyContinue
+    Check (-not (Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue)) "the startup manager is off after install"
+    Check ($ahkTask -and "$($ahkTask.Principal.RunLevel)" -eq "Highest" -and $ahkTask.Triggers[0].CimClass.CimClassName -eq "MSFT_TaskLogonTrigger") `
+        "  ...AltTabSucks.ahk starts at logon through its own elevated task" "$($ahkTask.Triggers | Out-String) $($ahkTask.Principal | Out-String)"
+    Check (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AltTabSucks.bat")) "  ...instead of a Startup folder script"
+    Check ($null -eq (Get-ItemProperty $ApprovedRun -ErrorAction SilentlyContinue)."E2E Notepad") "  ...and the Windows startup entries are left alone"
+    $settings = Invoke-Api GET "/settings"
+    Check ($settings.Status -eq 200 -and $settings.Json.platform -eq "windows" -and $settings.Json.startupManager.enabled -eq $false) "  ...and GET /settings says so" ($settings.Json | ConvertTo-Json -Compress)
+
+    # Switched on (the Hotkeys page's settings switch; the page itself is driven further down).
+    $on = Invoke-Api POST "/settings" @{ startupManager = $true }
+    Check ($on.Status -eq 200 -and $on.Json.startupManager.enabled -eq $true) "POST /settings switches the startup manager on" ($on.Json | ConvertTo-Json -Compress)
     $smTask = Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue
     Check ($smTask -and $smTask.Triggers[0].CimClass.CimClassName -eq "MSFT_TaskLogonTrigger" -and "$($smTask.Principal.RunLevel)" -eq "Limited" -and $smTask.Settings.Priority -eq 4) `
-        "installer registers the startup manager's logon task (not elevated, normal priority)" "$($smTask.Triggers | Out-String) $($smTask.Principal | Out-String) priority $($smTask.Settings.Priority)"
+        "  ...its logon task (not elevated, normal priority)" "$($smTask.Triggers | Out-String) $($smTask.Principal | Out-String) priority $($smTask.Settings.Priority)"
     $ahkTask = Get-ScheduledTask -TaskName "AltTabSucks AHK" -ErrorAction SilentlyContinue
-    Check ($ahkTask -and "$($ahkTask.Principal.RunLevel)" -eq "Highest" -and -not $ahkTask.Triggers) "  ...and the on-demand elevated task it starts AltTabSucks.ahk through"
-    Check (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\AltTabSucks.bat")) "  ...instead of a Startup folder script"
+    Check ($ahkTask -and "$($ahkTask.Principal.RunLevel)" -eq "Highest" -and -not $ahkTask.Triggers) "  ...and AltTabSucks.ahk's task now runs on demand (the manager starts it)"
+    $sm = Get-Content $SmConfig -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json -AsHashtable
+    Check ($sm.items[0].builtin -eq "alttabsucks" -and -not $sm.Contains("takeOver") -and ($null -eq (Get-ItemProperty $ApprovedRun -ErrorAction SilentlyContinue)."E2E Notepad")) `
+        "  ...with no console to ask on, the Windows startup apps are left for its notice" (Get-Content $SmConfig -Raw -ErrorAction SilentlyContinue)
+    & $Pwsh -NoProfile -ExecutionPolicy Bypass -File "$Repo\installer.ps1" -Action startup-import | Out-Null
     $sm = Get-Content $SmConfig -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
     $smNotepad = @($sm.items | Where-Object { $_.name -eq "E2E Notepad" })[0]
     Check ($sm.items[0].builtin -eq "alttabsucks" -and $smNotepad.process -eq "notepad.exe" -and $smNotepad.windows.valueName -eq "E2E Notepad") `
-        "install moves the Windows startup entries into startup.json, after AltTabSucks" (Get-Content $SmConfig -Raw -ErrorAction SilentlyContinue)
+        "taking them over moves the Windows startup entries into startup.json, after AltTabSucks" (Get-Content $SmConfig -Raw -ErrorAction SilentlyContinue)
     Check ((Get-ItemProperty $ApprovedRun -ErrorAction SilentlyContinue)."E2E Notepad"[0] -eq 3) "  ...and turns them off in Windows startup"
 
     Check (Wait-Until { (Get-Content $driverOut -Raw) -match "answered both" } 60) "first launch asks for a browser, then about the default browser" (Get-Content $driverOut -Raw -ErrorAction SilentlyContinue)
@@ -453,6 +469,20 @@ blankRow = () => [...document.querySelectorAll(".binding")].find(r => inputs(r).
     Check (Wait-Status "^Not saved") "saving after the file was edited elsewhere is refused on the page" (Page 'statusEl().textContent')
     $text = Get-Content $AppHk -Raw
     Check ($text -match "edited by hand while the page was open" -and $text -notmatch "Renamed after a hand edit") "  ...leaving the hand edit intact"
+
+    # The settings panel: hidden until the Settings button opens it; the startup manager switch.
+    function Wait-SettingsStatus([string]$pattern) { Wait-Until { (Page 'document.getElementById("settingsStatus").textContent') -match $pattern } 60 }
+    Check ((Page 'document.getElementById("settingsPanel").hidden') -eq $true) "the settings panel starts hidden"
+    Page 'document.getElementById("settingsToggle").click(); true' | Out-Null
+    Check (Wait-Until { (Page '(s => !document.getElementById("settingsPanel").hidden && !s.disabled && s.checked)(document.getElementById("startupManagerSwitch"))') -eq $true } 15) `
+        "  ...Settings opens it, showing the startup manager on" (Page 'document.getElementById("settingsTitle").textContent + " / " + document.getElementById("startupManagerState").textContent')
+    Check ((Page 'document.getElementById("settingsTitle").textContent') -eq "Settings — Windows") "  ...with the Windows settings"
+    Page 'document.getElementById("startupManagerSwitch").click(); true' | Out-Null
+    Check ((Wait-SettingsStatus "^Startup manager off") -and -not (Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue)) `
+        "  ...switching it off removes its logon task" (Page 'document.getElementById("settingsStatus").textContent')
+    Page 'document.getElementById("startupManagerSwitch").click(); true' | Out-Null
+    Check ((Wait-SettingsStatus "^Startup manager on") -and (Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue)) `
+        "  ...and on again registers it" (Page 'document.getElementById("settingsStatus").textContent')
     Disconnect-Cdp
 
     # ---- a new browser profile's extension connects by itself -------------------------------------
@@ -570,38 +600,24 @@ blankRow = () => [...document.querySelectorAll(".binding")].find(r => inputs(r).
     [IO.File]::WriteAllText($SmConfig, $smSaved)
     Check (-not (Test-Path $SmErrors)) "  ...without errors" (Get-Content $SmErrors -Raw -ErrorAction SilentlyContinue)
 
-    # ---- installs from before the startup manager get offered it ------------------------------
-    # Like an old install: the server task, no startup manager task. AltTabSucks.ahk asks 8 s
-    # after it starts; No is remembered, Yes runs installer.ps1 -Action startup-setup.
-    $declined = "$env:LOCALAPPDATA\AltTabSucks\startup-setup-declined"
-    function Restart-AltTabSucks {
-        if ($p = Get-AltTabSucks) { Stop-Process -Id $p.ProcessId -Force; Start-Sleep -Seconds 1 }
-        Start-OnDesktop $Ahk "`"$Repo\AltTabSucks.ahk`"" | Out-Null
-    }
-    $boxOut = Join-Path $Work "msgbox.txt"
-    Unregister-ScheduledTask -TaskName "AltTabSucks Startup" -Confirm:$false
-    Start-OnDesktop $Ahk "`"$Here\answer-msgbox.ahk`" `"$boxOut`" `"AltTabSucks: startup manager`" Button2 40" | Out-Null
-    Restart-AltTabSucks
-    Check (Wait-Until { (Get-Content $boxOut -Raw) -match "answered" } 45) "an install without the startup manager offers it" (Get-Content $boxOut -Raw -ErrorAction SilentlyContinue)
-    Check (Wait-Until { Test-Path $declined } 5) "  ...and remembers a No"
-    Start-OnDesktop $Ahk "`"$Here\answer-msgbox.ahk`" `"$boxOut`" `"AltTabSucks: startup manager`" Button2 20" | Out-Null
-    Restart-AltTabSucks
-    Check (-not (Wait-Until { (Get-Content $boxOut -Raw) -match "answered" } 20)) "  ...by not asking again"
-    Remove-Item $declined
-    Start-OnDesktop $Ahk "`"$Here\answer-msgbox.ahk`" `"$boxOut`" `"AltTabSucks: startup manager`" Button1 40" | Out-Null
-    Restart-AltTabSucks
-    Check (Wait-Until { Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue } 60) "  ...and Yes sets it up (installer.ps1 -Action startup-setup)" (Get-Content $boxOut -Raw -ErrorAction SilentlyContinue)
-    # It waits for Enter in its console at the end.
-    Get-CimInstance Win32_Process -Filter "Name = 'pwsh.exe'" | Where-Object { $_.CommandLine -like "*startup-setup*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    # ---- switching the startup manager off and on again ----------------------------------------
+    $off = Invoke-Api POST "/settings" @{ startupManager = $false }
+    Check ($off.Status -eq 200 -and $off.Json.startupManager.enabled -eq $false -and -not (Get-ScheduledTask -TaskName "AltTabSucks Startup" -ErrorAction SilentlyContinue)) `
+        "switched off, the startup manager's logon task is gone" ($off.Json | ConvertTo-Json -Compress)
+    Check ((Get-ScheduledTask -TaskName "AltTabSucks AHK").Triggers[0].CimClass.CimClassName -eq "MSFT_TaskLogonTrigger") "  ...AltTabSucks.ahk's task starts it at logon again"
+    Check ($null -eq (Get-ItemProperty $ApprovedRun -ErrorAction SilentlyContinue)."E2E Notepad") "  ...and the Windows startup entries it took over are back on"
+    $on = Invoke-Api POST "/settings" @{ startupManager = $true }
+    Check ($on.Json.startupManager.enabled -eq $true -and (Get-ItemProperty $ApprovedRun -ErrorAction SilentlyContinue)."E2E Notepad"[0] -eq 3) `
+        "switched on again, it takes them over again (the earlier answer)" ($on.Json | ConvertTo-Json -Compress)
 
     Set-ItemProperty $RunKey "E2E Later" "notepad.exe"
     $scan = @(& $Pwsh -NoProfile -ExecutionPolicy Bypass -File "$Repo\installer.ps1" -Action startup-scan)
     Check (($scan -join "|") -eq "NEW`tE2E Later") "startup-scan finds a Windows startup entry added after install (for the manager's notice)" ($scan -join "|")
 
     # Saying no to the takeover: the entry stays on in Windows, and the choice is remembered.
-    Invoke-OnDesktop "cmd.exe" "/c `"`"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Repo\installer.ps1`" -Action startup-setup -TakeOverStartup No < nul > `"$Work\setup-no.log`" 2>&1`"" 60
+    Invoke-OnDesktop "cmd.exe" "/c `"`"$Pwsh`" -NoProfile -ExecutionPolicy Bypass -File `"$Repo\installer.ps1`" -Action startup-on -TakeOverStartup No < nul > `"$Work\setup-no.log`" 2>&1`"" 60
     $sm = Get-Content $SmConfig -Raw | ConvertFrom-Json
-    Check ($sm.takeOver -eq $false -and -not @($sm.items | Where-Object { $_.name -eq "E2E Later" })) "startup-setup -TakeOverStartup No leaves new Windows startup apps out of the list" (Get-Content "$Work\setup-no.log" -Raw -ErrorAction SilentlyContinue)
+    Check ($sm.takeOver -eq $false -and -not @($sm.items | Where-Object { $_.name -eq "E2E Later" })) "startup-on -TakeOverStartup No leaves new Windows startup apps out of the list" (Get-Content "$Work\setup-no.log" -Raw -ErrorAction SilentlyContinue)
     Check ($null -eq (Get-ItemProperty $ApprovedRun -ErrorAction SilentlyContinue)."E2E Later") "  ...and on in Windows"
 
     # ---- uninstall ------------------------------------------------------------------------------

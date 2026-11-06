@@ -165,6 +165,37 @@
     max-height: 220px; overflow-y: auto; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   }
   .suggestion-item { padding: 6px 9px; font-size: 13px; cursor: pointer; }
+  /* The settings panel (the header's Settings button): options for this OS, hidden until asked for. */
+  .header-actions button[aria-expanded=true] { border-color: var(--accent); color: var(--accent); }
+  .settings-panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 20px;
+  }
+  .settings-panel[hidden] { display: none; }
+  .settings-panel h2 {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--text-dim); margin: 0 0 8px;
+  }
+  .setting { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; padding: 6px 0; }
+  .setting-text { flex: 1 1 320px; }
+  .setting-name { font-size: 14px; font-weight: 600; }
+  .setting-desc { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .setting-state { font-size: 12px; color: var(--text-dim); min-width: 24px; }
+  /* An on/off switch: a real checkbox (keyboard and screen readers work), drawn as a slider. */
+  .switch { position: relative; display: inline-block; width: 40px; height: 22px; margin: 0; flex: 0 0 auto; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+  .switch .slider {
+    position: absolute; inset: 0; border-radius: 11px; background: var(--border); transition: background 0.15s;
+  }
+  .switch .slider::before {
+    content: ""; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; transition: transform 0.15s;
+  }
+  .switch input:checked + .slider { background: var(--accent); }
+  .switch input:checked + .slider::before { transform: translateX(18px); }
+  .switch input:focus-visible + .slider { box-shadow: 0 0 0 2px var(--accent); }
+  .switch input:disabled { cursor: wait; }
+  .switch input:disabled + .slider { opacity: 0.6; }
   .suggestion-item:hover, .suggestion-item.active { background: var(--accent); color: #fff; }
 </style>
 </head>
@@ -177,9 +208,28 @@
       <div class="sub" id="browserInfo"></div>
     </div>
     <div class="header-actions">
+      <button id="settingsToggle" aria-expanded="false" aria-controls="settingsPanel" title="Settings for this computer">⚙ Settings</button>
       <a href="#" id="manageExtension" class="ext-link" title="Open the AltTabSucks extension in your browser's extension manager">Manage extension</a>
     </div>
   </div>
+
+  <!-- Settings for this OS (GET/POST /settings), opened by the header's Settings button. -->
+  <section id="settingsPanel" class="settings-panel" hidden>
+    <h2 id="settingsTitle">Settings</h2>
+    <div class="setting">
+      <label class="switch" title="Start your startup apps through the startup manager">
+        <input type="checkbox" id="startupManagerSwitch" role="switch" aria-labelledby="startupManagerName" aria-describedby="startupManagerDesc">
+        <span class="slider"></span>
+      </label>
+      <span class="setting-state" id="startupManagerState"></span>
+      <div class="setting-text">
+        <div class="setting-name" id="startupManagerName">Startup manager</div>
+        <div class="setting-desc" id="startupManagerDesc"></div>
+      </div>
+      <button id="openStartupManager">Open startup manager</button>
+    </div>
+    <div id="settingsStatus" class="status"></div>
+  </section>
 
   <div id="bindings"></div>
   <!-- The resourceClass typeahead's suggestion box (see showSuggestionsFor) is created and
@@ -997,6 +1047,94 @@ document.getElementById("manageExtension").addEventListener("click", async (e) =
   } catch (err) {
     setStatus("Couldn't open it (" + err.message + ") — open your browser's extensions page " +
       "(e.g. brave://extensions) and look for AltTabSucks.", true);
+  }
+});
+
+// ---- settings panel (GET/POST /settings) -------------------------------------------------------
+// Options for the OS this server runs on. The panel stays hidden until the header's Settings
+// button opens it; its state is read each time it opens, since the installer can change it too.
+const SETTINGS_TEXT = {
+  windows: {
+    title: "Settings — Windows",
+    startupManager: "Starts AltTabSucks, then your other startup apps, at logon: one after another, with delays you " +
+      "choose, instead of Windows' late all-at-once startup, and shows how long each takes. " +
+      "Off: AltTabSucks starts by itself, and Windows starts your apps again.",
+  },
+  linux: {
+    title: "Settings — Linux",
+    startupManager: "Starts AltTabSucks, then your other startup apps, at logon: one after another, with delays you " +
+      "choose, instead of Plasma's autostart, and shows how long each takes. " +
+      "Off: Plasma's autostart starts your apps again.",
+  },
+};
+const settingsPanel = document.getElementById("settingsPanel");
+const settingsToggle = document.getElementById("settingsToggle");
+const startupSwitch = document.getElementById("startupManagerSwitch");
+
+function setSettingsStatus(msg, isError) {
+  const el = document.getElementById("settingsStatus");
+  el.textContent = msg;
+  el.className = "status " + (isError ? "err" : "ok");
+}
+
+function showSettings(settings) {
+  const text = SETTINGS_TEXT[settings.platform] || SETTINGS_TEXT.linux;
+  document.getElementById("settingsTitle").textContent = text.title;
+  document.getElementById("startupManagerDesc").textContent = text.startupManager;
+  const on = !!(settings.startupManager && settings.startupManager.enabled);
+  startupSwitch.checked = on;
+  document.getElementById("startupManagerState").textContent = on ? "On" : "Off";
+}
+
+async function loadSettings() {
+  startupSwitch.disabled = true;
+  try {
+    showSettings(await apiGet("/settings"));
+  } catch (e) {
+    setSettingsStatus("Couldn't read the settings: " + e.message, true);
+  } finally {
+    startupSwitch.disabled = false;
+  }
+}
+
+settingsToggle.addEventListener("click", () => {
+  const open = settingsPanel.hidden;
+  settingsPanel.hidden = !open;
+  settingsToggle.setAttribute("aria-expanded", String(open));
+  if (open) loadSettings();
+});
+
+startupSwitch.addEventListener("change", async () => {
+  const wanted = startupSwitch.checked;
+  startupSwitch.disabled = true;
+  document.getElementById("startupManagerState").textContent = "…";
+  setSettingsStatus(wanted ? "Switching the startup manager on…" : "Switching the startup manager off…", false);
+  try {
+    const res = await fetch("/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ startupManager: wanted }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
+    showSettings(result);
+    setSettingsStatus(wanted
+      ? "Startup manager on: it starts AltTabSucks and your startup apps at your next logon. Open it to choose the apps and their delays."
+      : "Startup manager off: AltTabSucks starts by itself at logon, and your startup apps are back with the system.", false);
+  } catch (e) {
+    setSettingsStatus("Couldn't switch the startup manager " + (wanted ? "on" : "off") + ": " + e.message, true);
+    await loadSettings();  // show what it really is now
+  } finally {
+    startupSwitch.disabled = false;
+  }
+});
+
+document.getElementById("openStartupManager").addEventListener("click", async () => {
+  try {
+    const res = await fetch("/startup-manager/open", { method: "POST" });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    setSettingsStatus("Opening the startup manager…", false);
+  } catch (e) {
+    setSettingsStatus("Couldn't open the startup manager: " + e.message, true);
   }
 });
 
