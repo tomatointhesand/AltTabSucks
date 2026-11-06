@@ -487,6 +487,15 @@ for info in comp.allShortcutInfos():
 " 2>/dev/null || true
 }
 
+kwin_script_loaded_within() {  # kwin_script_loaded_within <seconds>
+    local i
+    for i in $(seq 1 $(($1 * 4))); do
+        qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.isScriptLoaded "$KWIN_PLUGIN_ID" 2>/dev/null | grep -q true && return 0
+        sleep 0.25
+    done
+    return 1
+}
+
 install_kwin_script() {
     # Starter hotkeys, each offered once (switched off if its key is taken): the whole set to a
     # new hotkeys.js, which this creates, and hotkeys for new features to an existing one — see
@@ -522,6 +531,17 @@ install_kwin_script() {
     # registration ready to replace them.
     unregister_alttabsucks_shortcuts
     qdbus6 org.kde.KWin /KWin reconfigure
+    # reconfigure reloads a script that was loaded before (the upgrade path above), but on a fresh
+    # install KWin 6.8 doesn't load the newly enabled one: no hotkeys until the next logon (found
+    # on the Linux test VM). Neither does Scripting.start() for the first seconds after
+    # kpackagetool6 installed it (KWin's package list hasn't caught up). Loading it straight from
+    # its installed main.js, under the same plugin name, does.
+    if ! kwin_script_loaded_within 3; then
+        local main_js="${XDG_DATA_HOME:-$HOME/.local/share}/kwin/scripts/$KWIN_PLUGIN_ID/contents/code/main.js" id
+        id="$(qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$main_js" "$KWIN_PLUGIN_ID" 2>/dev/null)"
+        [ -n "$id" ] && [ "$id" -ge 0 ] 2>/dev/null && qdbus6 org.kde.KWin "/Scripting/Script$id" org.kde.kwin.Script.run >/dev/null 2>&1
+        kwin_script_loaded_within 3 || echo "KWin didn't load the script; log out and back in to start your hotkeys." >&2
+    fi
     echo "KWin script installed and enabled: $KWIN_PLUGIN_ID"
 }
 
