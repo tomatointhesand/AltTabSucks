@@ -20,7 +20,8 @@ there, then `tests/linux/e2e.sh`:
   autostart), the window closing itself; then **uninstall** giving the autostart entries back
 
 Screenshots and logs go to `$ALTTABSUCKS_TEST_SHOTS` (default `/tmp/alttabsucks-linux-e2e`).
-`--no-reset` reuses the running VM and runs only the unit suites.
+`--no-reset` reuses the running VM and runs only the unit suites. The VM is shut down when the run
+ends (passed, failed or interrupted); `--keep-vm` leaves it running to look into a failure.
 
 The VM takes about 5 GB of disk (20 GB thin disk), 2 cores and 4 GB of memory while running.
 

@@ -4,15 +4,24 @@
 # (uncommitted changes included) to ~tester/alttabsucks, runs the Python unit suites there, then
 # tests/linux/e2e.sh: install, real hotkey presses, the extension pairing, a startup manager run,
 # then a reboot and the real logon, then uninstall.
-# Usage: dev-scripts/run-linux-tests.sh [--no-reset]
+# Usage: dev-scripts/run-linux-tests.sh [--no-reset] [--keep-vm]
 #   --no-reset reuses the running VM and runs the unit suites only.
+#   The VM is shut down when the run ends; --keep-vm leaves it running (for debugging a failure).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 VM="$HERE/linux-vm.sh"
 export ALTTABSUCKS_TEST_SHOTS="${ALTTABSUCKS_TEST_SHOTS:-${TMPDIR:-/tmp}/alttabsucks-linux-e2e}"
 overall=0
-reset=1
-[ "${1:-}" = "--no-reset" ] && reset=0
+reset=1 keep=0
+for arg in "$@"; do
+    case "$arg" in
+        --no-reset) reset=0 ;;
+        --keep-vm) keep=1 ;;
+        *) echo "Unknown option: $arg" >&2; exit 2 ;;
+    esac
+done
+# The VM stays off when nothing is being tested: shut it down however the run ends.
+[ "$keep" = 1 ] || trap '"$VM" stop >/dev/null 2>&1 || true' EXIT
 
 if [ "$reset" = 1 ]; then "$VM" reset; else "$VM" start; fi || exit 1
 "$VM" sync >/dev/null || exit 1

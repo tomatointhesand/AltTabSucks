@@ -145,10 +145,11 @@ Tested on Arch/CachyOS with KVM. About 30 minutes, mostly the Windows install.
 ## Day to day
 
 ```bash
-bash dev-scripts/run-windows-tests.sh              # reset, sync, all suites (~3 min)
-bash dev-scripts/run-windows-tests.sh --no-reset   # unit suites only, on the running VM
+bash dev-scripts/run-windows-tests.sh              # reset, sync, all suites (~3 min), then shut down
+bash dev-scripts/run-windows-tests.sh --no-reset   # unit suites only (starts the VM if it's off)
+bash dev-scripts/run-windows-tests.sh --keep-vm    # leave the VM running afterwards, to debug
 dev-scripts/windows-vm.sh ssh                      # a PowerShell prompt in the VM
-dev-scripts/windows-vm.sh stop                     # when done
+dev-scripts/windows-vm.sh stop                     # when done with a kept VM
 ```
 
 Windows' resolution follows the size of the VM's window on the host, so shrinking that window
