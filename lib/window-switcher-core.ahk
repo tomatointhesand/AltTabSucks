@@ -59,6 +59,7 @@ _mouseHookCb             := 0
 
 ShowWindowSwitcher(dir := "down", persistent := false) {
     global _switcherGui, _switcherItems, _switcherLV, _switcherEdit, _switcherCurrentRow, _switcherPersistent
+    global _switcherLVHoverSX, _switcherLVHoverSY
     static _msgHooked := false
     if !_msgHooked {
         OnMessage(0x0100, _SwitcherKeyHandler)   ; WM_KEYDOWN
@@ -204,6 +205,7 @@ ShowWindowSwitcher(dir := "down", persistent := false) {
 
     ; Single show at exact computed client size — no post-show resize, no flash.
     ; clientH = marginY(10) + [hintH(20)+gap(4) when hints on] + editH(32) + gap(6) + lvH + marginY(10)
+    _SwitcherCursorPos(&_switcherLVHoverSX, &_switcherLVHoverSY)  ; ignore the move Show causes
     g.Show("w640 h" (58 + hintH + lvH) " Center")
     if !IsObject(_switcherGui)  ; WM_ACTIVATE may have fired during Show and destroyed the GUI
         return

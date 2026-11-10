@@ -1,5 +1,15 @@
 ; window-switcher-mouse.ahk — hover/click/× column, nav throttle, wheel hook
 
+; Windows sends a WM_MOUSEMOVE when a window appears (or is rebuilt) under a resting cursor.
+; Seeding the last-seen hover position with the cursor's current one makes that message a
+; repeat, so hover only selects once the mouse actually moves.
+_SwitcherCursorPos(&sx, &sy) {
+    pt := Buffer(8, 0)
+    DllCall("GetCursorPos", "Ptr", pt)
+    sx := NumGet(pt, 0, "Int")
+    sy := NumGet(pt, 4, "Int")
+}
+
 ; Track cursor position over the × column and request WM_MOUSELEAVE via TrackMouseEvent.
 _SwitcherMouseMove(wParam, lParam, msg, hwnd) {
     global _switcherGui, _switcherLV, _switcherHoveredCloseRow, _switcherMouseTracking

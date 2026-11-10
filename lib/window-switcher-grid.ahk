@@ -79,7 +79,7 @@ _GridFlowLayout(thumbH, rowH, aspects, maxW, gap, &outSlots) {
 _SwitcherGridUpdate() {
     global _switcherGui, _switcherItems, _switcherCurrentRow
     global _gridTopGui, _gridBotGui, _gridRingGui, _gridSlots, _gridThumbH
-    global _gridRingInnerW, _gridRingInnerH
+    global _gridRingInnerW, _gridRingInnerH, _gridHoverSX, _gridHoverSY
 
     if !IsObject(_switcherGui) {
         _SwitcherGridClose()
@@ -198,6 +198,7 @@ _SwitcherGridUpdate() {
     fg      := isDark ? "EFEFEF" : "1A1A1A"
 
     _MakeGridCanvas(&cgRef, label, x, y, w, h, show) {
+        global _gridHoverSX, _gridHoverSY
         if !IsObject(_switcherGui)  ; switcher may have closed while this timer was running
             return
         cg := Gui("+AlwaysOnTop -Caption +ToolWindow", "AltTabSucks_Grid_" . label)
@@ -205,8 +206,11 @@ _SwitcherGridUpdate() {
         cg.SetFont("s9 c" fg, "Segoe UI")
         WinSetExStyle("+0x08000000", "ahk_id " cg.Hwnd)
         DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", cg.Hwnd, "UInt", 33, "Int*", 2, "UInt", 4)
-        if show
+        if show {
+            if _gridHoverSX = -99999  ; first canvas since the grid opened: ignore the move Show causes
+                _SwitcherCursorPos(&_gridHoverSX, &_gridHoverSY)
             cg.Show("NA x" x " y" y " w" w " h" h)
+        }
         cgRef := cg
     }
     ; Guard: the key-up handler may have closed the switcher while this timer fired.
