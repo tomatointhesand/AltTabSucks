@@ -547,7 +547,10 @@ class ManagerWindow(Gtk.ApplicationWindow):
             return True
 
     def _tick(self):
-        if self.runner.tick():
+        self.runner.tick()
+        # Not just on the tick that returns True: start_run's own tick can already finish the run
+        # (AltTabSucks answering at once), and that one isn't seen here.
+        if self.runner.finished and not self.history_written:
             self.run_finished()
         # The countdown starts once everything is up, even if that's after the run finished (an
         # item that timed out showed up late). Not while something is still missing.
