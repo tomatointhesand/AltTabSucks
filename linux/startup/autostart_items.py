@@ -232,10 +232,44 @@ def merge(config, entries: list, take_over=True) -> dict:
     return {"config": config, "takeOver": switch_off}
 
 
+def _taken_over_files(config) -> set:
+    items = (config.get("items") or []) if isinstance(config, dict) else []
+    return {(i.get("autostart") or {}).get("file") for i in items if isinstance(i, dict)} - {None, ""}
+
+
 def new_entries(config_file: Path = None, directory: Path = None) -> list:
     """The entries import_items would take over now (on, not the startup manager's yet), for the
-    manager's "not in this list yet" notice."""
-    return merge(read_config(config_file), read_entries(directory))["takeOver"]
+    manager's "not in this list yet" notice. One that's already an item but on again isn't new:
+    retake_known switches it back off."""
+    config = read_config(config_file)
+    known = _taken_over_files(config)
+    return [e for e in merge(config, read_entries(directory))["takeOver"] if e["file"] not in known]
+
+
+def retake_known(config_file: Path = None, directory: Path = None, log=print) -> list:
+    """Switches back off the entries the startup manager took over that are on again: apps like
+    Discord rewrite their autostart file each time they start, which drops Hidden=true (so the
+    desktop would start them a second time). Records their new Hidden value as the one to restore.
+    Returns those entries."""
+    config = read_config(config_file)
+    known = _taken_over_files(config)
+    back = [e for e in read_entries(directory) if e["on"] and e["file"] in known]
+    if not back:
+        return []
+    by_file = {e["file"]: e for e in back}
+    for item in config["items"]:
+        e = by_file.get((item.get("autostart") or {}).get("file")) if isinstance(item, dict) else None
+        if e is not None:
+            item["autostart"]["previous"] = e["hidden"]
+    save_config(config, config_file)
+    for e in back:
+        try:
+            p = Path(e["file"])
+            p.write_text(set_hidden(p.read_text(encoding="utf-8"), "true"), encoding="utf-8")
+            log(f"Switched {e['name']} off in autostart again (it had switched itself back on)")
+        except OSError as ex:
+            log(f"Couldn't switch {e['name']} off in autostart ({ex}); it may start twice.")
+    return back
 
 
 def import_items(take_over=True, config_file: Path = None, directory: Path = None, log=print) -> dict:

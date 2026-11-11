@@ -121,6 +121,28 @@ class TakeOverTestCase(unittest.TestCase):
         A.import_items(A.resume_decision(A.read_config(self.config)), self.config, self.dir, log=self.log.append)
         self.assertEqual(A.parse_desktop((self.dir / "discord.desktop").read_text())["Hidden"], "true")
 
+    def test_an_entry_that_switched_itself_back_on_is_retaken_not_new(self):
+        A.import_items(True, self.config, self.dir, log=self.log.append)
+        self.assertEqual(A.retake_known(self.config, self.dir, log=self.log.append), [])
+        # Discord rewrites its autostart file each time it starts: Hidden=true is gone.
+        (self.dir / "discord.desktop").write_text(DISCORD)
+        (self.dir / "newapp.desktop").write_text("[Desktop Entry]\nType=Application\nName=New app\nExec=newapp\n")
+        self.assertEqual([e["name"] for e in A.new_entries(self.config, self.dir)], ["New app"])
+        self.assertEqual([e["name"] for e in A.retake_known(self.config, self.dir, log=self.log.append)], ["Discord"])
+        self.assertEqual(A.parse_desktop((self.dir / "discord.desktop").read_text())["Hidden"], "true")
+        self.assertNotIn("Hidden", A.parse_desktop((self.dir / "newapp.desktop").read_text()))
+        cfg = A.read_config(self.config)
+        self.assertEqual(next(i for i in cfg["items"] if i["name"] == "Discord")["autostart"]["previous"],
+                         A.parse_desktop(DISCORD).get("Hidden"))
+        self.assertEqual(len(cfg["items"]), 6)  # nothing added
+        self.assertEqual(cfg["takeOver"], True)
+
+    def test_restored_entries_are_not_new(self):
+        # Switched off: given back, still listed (for switching on again), not "not in this list yet".
+        A.import_items(True, self.config, self.dir, log=self.log.append)
+        A.restore(self.config, log=self.log.append)
+        self.assertEqual(A.new_entries(self.config, self.dir), [])
+
 
 if __name__ == "__main__":
     unittest.main()

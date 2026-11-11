@@ -300,6 +300,13 @@ class ManagerWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title=TITLE)
         self.app, self.mode = app, mode
         self.config_error = ""
+        # A run (the manager is on) switches back off what it took over and an app switched back on.
+        # Not the editor: it also opens while the manager is off, when those entries are given back.
+        if mode != "edit":
+            try:  # before loading: it updates the saved items' "previous"
+                A.retake_known(log=log_error)
+            except OSError as e:
+                log_error(f"couldn't check the taken-over autostart entries: {e}")
         self.config = self._load_config()
         self.items = self.config["items"]
         self.probes = SystemProbes()
@@ -531,6 +538,15 @@ class ManagerWindow(Gtk.ApplicationWindow):
         self.runner.tick()  # launch whatever is due at 0 s right away
 
     def tick(self):
+        # A GLib timeout whose callback raises is removed: one error would freeze the window (no
+        # more launches, statuses or auto-close). Log it and keep ticking.
+        try:
+            return self._tick()
+        except Exception:
+            log_error("tick failed:\n" + traceback.format_exc().rstrip())
+            return True
+
+    def _tick(self):
         if self.runner.tick():
             self.run_finished()
         # The countdown starts once everything is up, even if that's after the run finished (an
@@ -631,6 +647,8 @@ class ManagerWindow(Gtk.ApplicationWindow):
             footer = f"Closing in {max(0, int(self.close_at - time.monotonic() + 0.999))} s (click here to keep it open)"
         elif self.history_written and not self.runner.running and not self.keep_open and up < total:
             footer = "Staying open until everything is up"
+        elif self.close_at is not None and not self.keep_open and self.new_entries:
+            footer = "Staying open for the autostart apps above: take them over or leave them to Plasma"
         else:
             footer = ""
         if self.footer.get_text() != footer and not self.footer.get_text().startswith("Couldn't save"):
