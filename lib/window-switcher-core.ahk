@@ -649,5 +649,5 @@ _SwitcherSetHotkeysEnabled(enabled) {
         try Hotkey(hk, action)
 }
 
-; Apply configured startup state immediately.
-_SwitcherSetHotkeysEnabled(SWITCHER_ENABLED)
+; AltTabSucks.ahk applies the configured state once config.ahk has loaded (not here: this file
+; is included before it, so SWITCHER_ENABLED would still be the default).

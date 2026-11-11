@@ -21,6 +21,7 @@ CHROMIUM_EXTRA_FLAGS := ""
 FIREFOX_EXE := ""
 FIREFOX_PROFILE_INI := ""
 #Include *i lib\config.ahk    ; browser paths (gitignored — auto-detected on first launch if absent)
+_SwitcherSetHotkeysEnabled(SWITCHER_ENABLED)  ; after config.ahk, which may switch it on
 #Include lib\chromium.ahk     ; Chromium profile cycling + tab focus via AltTabSucks server
 #Include lib\firefox.ahk      ; Firefox profile cycling + tab focus via AltTabSucks server
 #Include lib\tab-search.ahk   ; tab search popup (ShowTabSearch, Ctrl+Alt+Shift+A)
