@@ -180,9 +180,26 @@ _PromptBrowserChoice() {
         FileAppend(content, configPath, "UTF-8")
     }
 
-    if MsgBox("Open Windows Default Apps to set " . b.name . " as your default browser?",
-        "Set default browser?", "YesNo Icon?") = "Yes"
+    ; Only offer to change the default browser when it isn't already this one (or can't be read).
+    if StrLower(_DefaultBrowserExe()) != StrLower(b.exe)
+        && MsgBox("Open Windows Default Apps to set " . b.name . " as your default browser?",
+            "Set default browser?", "YesNo Icon?") = "Yes"
         Run("ms-settings:defaultapps")
+}
+
+; Exe path of the app Windows opens https links with, or "" if it can't be read. Windows 11 keeps
+; the choice in UserChoiceLatest\ProgId (newer builds) and UserChoice; the ProgId's open command
+; names the exe.
+_DefaultBrowserExe() {
+    key := "HKCU\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\"
+    for choiceKey in ["UserChoiceLatest\ProgId", "UserChoice"] {
+        try {
+            cmd := RegRead("HKCR\" . RegRead(key . choiceKey, "ProgId") . "\shell\open\command")
+            if RegExMatch(cmd, '^\s*(?:"([^"]+)"|(\S+))', &m)
+                return m[1] != "" ? m[1] : m[2]
+        }
+    }
+    return ""
 }
 
 ; Pushes the profile display-name list to the server so the extension Options page can
