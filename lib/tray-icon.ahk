@@ -10,11 +10,13 @@
 ; Included by AltTabSucks.ahk (TrayIconKeep) and StartupManager.ahk (TrayIconShown, for when the
 ; AltTabSucks item counts as ready).
 
-TRAY_ICON_ID := 1028  ; the uID AutoHotkey v2 gives its tray icon (AHK_NOTIFYICON)
-
 ; True if the tray icon of the script whose main window is hwnd is in the taskbar (shown or in the
 ; overflow area).
 TrayIconShown(hwnd) {
+    ; A static, not a global set in this file's body: AltTabSucks.ahk calls TrayIconKeep() at its
+    ; very top, so the check timer can fire before startup reaches this file's #Include (a slow
+    ; first run, e.g. the browser prompt) and a global would still be unassigned.
+    static TRAY_ICON_ID := 1028  ; the uID AutoHotkey v2 gives its tray icon (AHK_NOTIFYICON)
     x64 := A_PtrSize = 8
     nii := Buffer(x64 ? 40 : 28, 0)  ; NOTIFYICONIDENTIFIER
     NumPut("uint", nii.Size, nii, 0)
