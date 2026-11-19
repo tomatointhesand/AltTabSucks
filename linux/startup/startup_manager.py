@@ -65,6 +65,7 @@ SERVICES = ["alttabsucks-server.service", "alttabsucks-toast.service"]
 CSS = b"""
 .summary { font-weight: bold; font-size: 115%; }
 .colhead { font-weight: bold; opacity: 0.8; }
+.runhead { font-weight: bold; }
 .ok { color: #2fa84f; }
 .warn { color: #d4880f; }
 .error { color: #e0443e; }
@@ -292,7 +293,9 @@ def label(text="", css=None, width=None, xalign=0.0, ellipsize=True, hexpand=Fal
 
 
 COLS = [("Name", 230), ("Delay", 120), ("Status", None), ("Ready at", 80), ("Took", 80)]
-READY_CHOICES = ["its first window appears", "its process is running", "AltTabSucks answers"]
+READY_CHOICES = ["its first window appears", "its process is running", "it's launched (don't wait)",
+                 "AltTabSucks answers"]
+READY_VALUES = ["window", "process", "launched"]  # by choice; the last choice is the built-in item's
 
 
 class ManagerWindow(Gtk.ApplicationWindow):
@@ -376,8 +379,14 @@ class ManagerWindow(Gtk.ApplicationWindow):
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=10, margin_bottom=10,
                        margin_start=12, margin_end=12)
         self.set_child(root)
-        self.summary = label(css="summary")
-        root.append(self.summary)
+        # Summary, and the Items/History switch: up here, where neither view's list can cover it.
+        top = Gtk.Box(spacing=8)
+        self.summary = label(css="summary", hexpand=True)
+        top.append(self.summary)
+        self.view_btn = Gtk.Button(label="History")
+        self.view_btn.connect("clicked", self.toggle_view)
+        top.append(self.view_btn)
+        root.append(top)
 
         # Items view: header + list.
         self.items_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, vexpand=True)
@@ -410,10 +419,6 @@ class ManagerWindow(Gtk.ApplicationWindow):
             b.connect("clicked", fn)
             bar.append(b)
             self.edit_widgets.append(b)
-        bar.append(Gtk.Box(hexpand=True))
-        self.view_btn = Gtk.Button(label="History")
-        self.view_btn.connect("clicked", self.toggle_view)
-        bar.append(self.view_btn)
         root.append(bar)
 
         # Edit fields.
@@ -674,7 +679,8 @@ class ManagerWindow(Gtk.ApplicationWindow):
         self.f_process.set_text(item.get("process", "") if item else "")
         self.f_delay.set_text(f"{L.num(item, 'delay'):.1f}".removesuffix(".0") if item else "")
         self.f_after.set_active(bool(item and item.get("afterReady")))
-        self.f_ready.set_selected(2 if builtin else 1 if item and item.get("ready") == "process" else 0)
+        ready = item.get("ready", "window") if item else "window"
+        self.f_ready.set_selected(len(READY_VALUES) if builtin else READY_VALUES.index(ready) if ready in READY_VALUES else 0)
         self.filling = False
         for f in (self.f_name, self.f_delay, self.f_after):
             f.set_sensitive(item is not None)
@@ -721,9 +727,9 @@ class ManagerWindow(Gtk.ApplicationWindow):
         elif widget is self.f_after:
             item["afterReady"] = 1 if widget.get_active() else 0
         elif widget is self.f_ready:
-            if widget.get_selected() == 2:  # AltTabSucks' own (that item can't be edited here)
+            if widget.get_selected() >= len(READY_VALUES):  # AltTabSucks' own (that item can't be edited here)
                 widget.set_selected(0)
-            item["ready"] = "process" if widget.get_selected() == 1 else "window"
+            item["ready"] = READY_VALUES[widget.get_selected()]
         self.save_soon()
 
     def on_add(self, *_):
@@ -876,14 +882,21 @@ class ManagerWindow(Gtk.ApplicationWindow):
                     pass
         except OSError:
             pass
-        t = L.history_table(rows[-200:], [i.get("name", "") for i in self.items])
+        t = L.history_table(rows[-200:])
         for c, h in enumerate(t["header"]):
             self.hist_grid.attach(label(h, css="colhead", ellipsize=False), c, 0, 1, 1)
-        for r, line in enumerate(t["rows"]):
-            for c, text in enumerate(line):
-                self.hist_grid.attach(label(text, ellipsize=False), c, r + 1, 1, 1)
-        if not t["rows"]:
-            self.hist_grid.attach(label("No startup runs recorded yet."), 0, 1, 4, 1)
+        r = 1
+        for run in t["runs"]:
+            title = label(run["title"], css="runhead", ellipsize=False)
+            title.set_margin_top(0 if r == 1 else 8)
+            self.hist_grid.attach(title, 0, r, len(t["header"]), 1)
+            r += 1
+            for line in run["rows"]:
+                for c, text in enumerate(line):
+                    self.hist_grid.attach(label(text, ellipsize=False), c, r, 1, 1)
+                r += 1
+        if not t["runs"]:
+            self.hist_grid.attach(label("No startup runs recorded yet."), 0, 1, len(t["header"]), 1)
 
 
 class App(Gtk.Application):

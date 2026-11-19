@@ -9,8 +9,8 @@ anywhere. startup_manager.py keeps the live state, calls into this every tick, a
 answer.
 
 An item is a dict from startup.json: name, command, workingDir, process, delay (seconds),
-afterReady (1: wait for the previous item to be ready, not just launched), ready ("window" or
-"process"), enabled, and optionally builtin ("alttabsucks"), windowClass (a window's resourceClass
+afterReady (1: wait for the previous item to be ready, not just launched), ready ("window",
+"process", or "launched": done once it's launched, nothing watched), enabled, and optionally builtin ("alttabsucks"), windowClass (a window's resourceClass
 that also counts as this app's window) and autostart (the XDG autostart entry it took over, kept by
 autostart_items.py).
 
@@ -21,7 +21,8 @@ ms since the manager started. Statuses:
   running   - process seen, waiting for its first window (ready = "window")
   ready     - first window seen (or process seen, for ready = "process")
   nowindow  - process seen, but no window before the timeout (still watched: it can turn ready)
-  noprocess - its process never showed up before the timeout (likewise)
+  noprocess - its process never showed up before the timeout (likewise); for an item that isn't
+              watched (see watched()), it was launched, which is all there is to wait for
   failed    - the launch itself failed (state["error"] says why)
   already   - was already running, so not launched
   off       - disabled, or not launched because this isn't a startup run (the editor)
@@ -38,6 +39,23 @@ DONE = {"ready", "nowindow", "noprocess", "failed", "already"}
 
 def is_done(status: str) -> bool:
     return status in DONE
+
+
+SCRIPT_EXTENSIONS = (".bat", ".cmd", ".ps1", ".vbs", ".js", ".wsf")
+
+
+def watched(item: dict) -> bool:
+    """Whether there's anything to watch for after launching: otherwise the item is done as soon
+    as it's launched (✔ launched). Not with ready = "launched", nothing to look for, or a process
+    name that's a script's (a script runs inside its interpreter, so no process ever has it)."""
+    if item.get("builtin"):
+        return True
+    if item.get("ready") == "launched":
+        return False
+    process = str(item.get("process", "")).lower()
+    if process.endswith(SCRIPT_EXTENSIONS):
+        process = ""
+    return bool(process or item.get("windowClass"))
 
 
 def num(item: dict, key: str) -> float:
@@ -114,8 +132,8 @@ def status_text(items: list, i: int, st: dict, planned, now_ms: int) -> str:
     if s == "nowindow":
         return "AltTabSucks not answering yet" if builtin else "no window yet (Ready: process?)"
     if s == "noprocess":
-        p = item.get("process", "")
-        return f"{CHECK} launched" if not p else f"no {p} seen yet"
+        p = item.get("process", "") or item.get("windowClass", "")
+        return f"no {p} seen yet" if watched(item) else f"{CHECK} launched"
     if s == "failed":
         return "failed: " + st.get("error", "")
     if s == "already":
@@ -133,7 +151,7 @@ def outcome(item: dict, st: dict) -> str:
     if s in ("ready", "already"):
         return "ok"
     if s == "noprocess":
-        return "ok" if not item.get("process", "") else "warn"
+        return "warn" if watched(item) else "ok"
     if s == "nowindow":
         return "warn"
     if s == "failed":
@@ -162,6 +180,8 @@ def history_row(items: list, states: list, trigger: str, time: str, boot_to_star
         r = {"name": item.get("name", ""), "status": st["status"],
              "delayMs": round(num(item, "delay") * 1000), "afterReady": 1 if item.get("afterReady") else 0,
              "ready": item.get("ready", "window")}
+        if not watched(item):
+            r["watched"] = 0
         for k in ("launchMs", "processMs", "readyMs"):
             if k in st:
                 r[k] = st[k]
@@ -172,37 +192,38 @@ def history_row(items: list, states: list, trigger: str, time: str, boot_to_star
             "allReadyMs": all_ready, "items": rows}
 
 
-def _history_cell(it: dict) -> str:
+HISTORY_HEADER = ["Item", "Result", "Launched at", "Ready at", "Took"]
+
+
+def _history_result(it: dict) -> str:
     s = it.get("status", "")
-    if s in ("ready", "nowindow"):
-        at = it.get("readyMs", it.get("processMs", ""))
-        own = f" ({format_seconds(at - it['launchMs'])})" if at != "" and "launchMs" in it else ""
-        return format_seconds(at) + own + (" no window" if s == "nowindow" else "")
+    if s == "ready":
+        return "ready"
+    if s == "nowindow":
+        return "no window" + (f" (process at {format_seconds(it['processMs'])})" if "processMs" in it else "")
+    if s == "noprocess":
+        return "launched" if it.get("watched", 1) == 0 else "not seen"
     if s == "already":
         return "already running"
-    return s
+    return s  # failed, off, or an unfinished status
 
 
-def history_table(history_rows: list, current_names: list) -> dict:
-    """The History view: newest run first, one column per item name (current order first, then
-    names only older runs have). {"header": [...], "rows": [[...], ...]}."""
-    names, seen = [], set()
-    for n in current_names:
-        if n.lower() not in seen:
-            names.append(n)
-            seen.add(n.lower())
-    for row in history_rows:
-        for it in row.get("items", []):
-            n = it.get("name", "")
-            if n.lower() not in seen:
-                names.append(n)
-                seen.add(n.lower())
-    header = ["When", "Trigger", "Logon to start", "All ready"] + names
-    out = []
+def history_table(history_rows: list) -> dict:
+    """The History view: newest run first, each run a heading ("when · trigger · started N s after
+    logon · all ready at N s") over one row per item, in that run's order, with HISTORY_HEADER's
+    columns. {"header": [...], "runs": [{"title": str, "rows": [[...], ...]}, ...]}. Times are
+    since the manager started."""
+    runs = []
     for row in reversed(history_rows):
-        cells = {it.get("name", "").lower(): _history_cell(it) for it in row.get("items", [])}
-        line = [str(row.get("time", "")).replace("T", " "), row.get("trigger", ""),
-                format_seconds(row.get("logonToStartMs", "")), format_seconds(row.get("allReadyMs", ""))]
-        line += [cells.get(n.lower(), "") for n in names]
-        out.append(line)
-    return {"header": header, "rows": out}
+        title = [str(row.get("time", "")).replace("T", " "), str(row.get("trigger", ""))]
+        if row.get("logonToStartMs", "") != "":
+            title.append(f"started {format_seconds(row['logonToStartMs'])} after logon")
+        if row.get("allReadyMs", "") != "":
+            title.append(f"all ready at {format_seconds(row['allReadyMs'])}")
+        lines = []
+        for it in row.get("items", []):
+            launched, ready = it.get("launchMs", ""), it.get("readyMs", "")
+            took = format_seconds(ready - launched) if ready != "" and launched != "" else ""
+            lines.append([it.get("name", ""), _history_result(it), format_seconds(launched), format_seconds(ready), took])
+        runs.append({"title": " · ".join(t for t in title if t), "rows": lines})
+    return {"header": list(HISTORY_HEADER), "runs": runs}

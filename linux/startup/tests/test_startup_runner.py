@@ -123,6 +123,15 @@ class RunnerTestCase(unittest.TestCase):
         self.assertNotIn("New", self.p.launched)
         self.assertIn("Kate", self.p.launched)
 
+    def test_a_launched_only_item_always_runs_and_is_done_at_once(self):
+        self.p.processes = {"brave"}  # the browser the script starts is already up
+        items = [item("Script", 0, process="brave", ready="launched")]
+        r = R.Runner(items, {}, self.p, lambda: self.t)
+        r.start()
+        self.assertTrue(r.tick())
+        self.assertEqual(self.p.launched, ["Script"])
+        self.assertEqual(r.states[0]["status"], "noprocess")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,7 @@ FIREFOX_PROFILE_INI := ""
 _SwitcherSetHotkeysEnabled(SWITCHER_ENABLED)  ; after config.ahk, which may switch it on
 #Include lib\chromium.ahk     ; Chromium profile cycling + tab focus via AltTabSucks server
 #Include lib\firefox.ahk      ; Firefox profile cycling + tab focus via AltTabSucks server
+#Include lib\listview-groups.ahk  ; ListView group headers (tab search)
 #Include lib\tab-search.ahk   ; tab search popup (ShowTabSearch, Ctrl+Alt+Shift+A)
 #Include lib\app-hotkeys.ahk  ; general app + browser hotkeys
 #Include lib\json.ahk         ; Json_Parse, Json_Stringify

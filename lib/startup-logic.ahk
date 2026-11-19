@@ -5,7 +5,8 @@
 ; every tick, and acts on the answer.
 ;
 ; An item is a Map from startup.json: name, command, workingDir, process, delay (seconds), afterReady
-; (1: wait for the previous item to be ready, not just launched), ready ("window" or "process"),
+; (1: wait for the previous item to be ready, not just launched), ready ("window", "process", or
+; "launched": done once it's launched, nothing watched),
 ; enabled, and optionally builtin ("alttabsucks") and windows (the Windows startup entry it took
 ; over, kept by Server/StartupItems.ps1).
 ;
@@ -16,13 +17,35 @@
 ;   running   - process seen, waiting for its first window (ready = "window")
 ;   ready     - first window seen (or process seen, for ready = "process")
 ;   nowindow  - process seen, but no window before the timeout (still watched: it can turn ready)
-;   noprocess - its process never showed up before the timeout (likewise)
+;   noprocess - its process never showed up before the timeout (likewise); for an item that isn't
+;               watched (StartupWatched), it was launched, which is all there is to wait for
 ;   failed    - the launch itself failed (state["error"] says why)
 ;   already   - was already running, so not launched
 ;   off       - disabled, or not launched because this isn't a startup run (the editor)
 
 StartupIsDone(status) {
     return status = "ready" || status = "nowindow" || status = "noprocess" || status = "failed" || status = "already"
+}
+
+; Whether there's anything to watch for after launching: otherwise the item is done as soon as it's
+; launched (✔ launched). Not with ready = "launched", no process, or a process name that's a
+; script's (a script runs inside cmd.exe/powershell.exe/wscript.exe, so no process ever has it).
+StartupWatched(item) {
+    if item.Get("builtin", "") != ""
+        return true
+    if item.Get("ready", "window") = "launched"
+        return false
+    proc := item.Get("process", "")
+    return proc != "" && !StartupIsScript(proc)
+}
+
+StartupIsScript(name) {
+    return RegExMatch(name, "i)\.(bat|cmd|ps1|vbs|js|wsf)$") != 0
+}
+
+; Whether a command runs a script: nothing to watch, so it's ready once it's launched.
+StartupCommandIsScript(command) {
+    return StartupIsScript(_StartupProgramOf(command))
 }
 
 STARTUP_CHECK := Chr(0x2714)  ; heavy check mark, shown green
@@ -33,7 +56,7 @@ STARTUP_CHECK := Chr(0x2714)  ; heavy check mark, shown green
 StartupOutcome(item, st) {
     switch st["status"] {
         case "ready", "already": return "ok"
-        case "noprocess":        return item.Get("process", "") = "" ? "ok" : "warn"
+        case "noprocess":        return StartupWatched(item) ? "warn" : "ok"
         case "nowindow":         return "warn"
         case "failed":           return "error"
     }
@@ -109,8 +132,7 @@ StartupStatusText(item, st, planned, nowMs) {
         case "ready":    return STARTUP_CHECK
         case "nowindow": return item.Get("builtin", "") = "alttabsucks" ? "no tray icon yet" : "no window yet (Ready: process?)"
         case "noprocess":
-            p := item.Get("process", "")
-            return p = "" ? STARTUP_CHECK " launched" : "no " p " seen yet"
+            return StartupWatched(item) ? "no " item.Get("process", "") " seen yet" : STARTUP_CHECK " launched"
         case "failed":   return "failed: " st.Get("error", "")
         case "already":  return STARTUP_CHECK " already running"
         case "off":      return item.Get("enabled", 1) ? "" : "off"
@@ -124,14 +146,20 @@ StartupFormatSeconds(ms) {
 }
 
 ; The process whose window marks a command as ready: Discord-style "Update.exe --processStart
-; Discord.exe" launchers name it in their arguments; otherwise it's the program the command runs.
+; Discord.exe" launchers name it in their arguments; otherwise it's the program the command runs,
+; "" for a script (no process has its name).
 StartupProcessFromCommand(command) {
-    command := Trim(command)
     if RegExMatch(command, 'i)--processStart\s+"?([^"\s]+)', &m)
         return m[1]
+    name := _StartupProgramOf(command)
+    return StartupIsScript(name) ? "" : name
+}
+
+_StartupProgramOf(command) {
+    command := Trim(command)
     if SubStr(command, 1, 1) = '"'
         exe := SubStr(command, 2, InStr(command, '"', , 2) - 2)
-    else if RegExMatch(command, "i)^.*?\.exe(?=\s|$)", &m)
+    else if RegExMatch(command, "i)^.*?\.(exe|bat|cmd|ps1|vbs|js|wsf)(?=\s|$)", &m)
         exe := m[0]
     else
         exe := StrSplit(command, " ")[1]
@@ -149,6 +177,8 @@ StartupHistoryRow(items, states, trigger, time, bootToStartMs, logonToStartMs) {
         r := Map("name", item["name"], "status", st["status"],
                  "delayMs", Round(_StartupNum(item, "delay") * 1000), "afterReady", item.Get("afterReady", 0) ? 1 : 0,
                  "ready", item.Get("ready", "window"))
+        if !StartupWatched(item)
+            r["watched"] := 0
         for k in ["launchMs", "processMs", "readyMs"]
             if st.Has(k)
                 r[k] := st[k]
@@ -160,47 +190,39 @@ StartupHistoryRow(items, states, trigger, time, bootToStartMs, logonToStartMs) {
                "allReadyMs", allReady, "items", rows)
 }
 
-; The history tab's table from parsed history rows (oldest first): newest first, one column per item
-; name (the current list's order, then names only seen in older rows), each cell the item's ready
-; time and, in brackets, how long it took after launching. Returns {header, rows}.
-StartupHistoryTable(historyRows, currentNames) {
-    names := [], seen := Map()
-    seen.CaseSense := false
-    for n in currentNames
-        if !seen.Has(n)
-            names.Push(n), seen[n] := 1
-    for row in historyRows
-        for it in row.Get("items", [])
-            if !seen.Has(it["name"])
-                names.Push(it["name"]), seen[it["name"]] := 1
-    header := ["When", "Trigger", "Logon to start", "All ready"]
-    for n in names
-        header.Push(n)
-    out := []
+STARTUP_HISTORY_HEADER := ["Item", "Result", "Launched at", "Ready at", "Took"]
+
+; The History view from parsed history rows (oldest first): newest run first, each run a heading
+; ("when · trigger · started N s after logon · all ready at N s") over one row per item, in that
+; run's order, with STARTUP_HISTORY_HEADER's columns. Times are since the manager started.
+; Returns {header, runs: [{title, rows}]}.
+StartupHistoryTable(historyRows) {
+    runs := []
     i := historyRows.Length
     while i >= 1 {
         row := historyRows[i--]
-        cells := Map()
-        cells.CaseSense := false
-        for it in row.Get("items", [])
-            cells[it["name"]] := _StartupHistoryCell(it)
-        line := [StrReplace(row.Get("time", ""), "T", " "), row.Get("trigger", ""),
-                 StartupFormatSeconds(row.Get("logonToStartMs", "")), StartupFormatSeconds(row.Get("allReadyMs", ""))]
-        for n in names
-            line.Push(cells.Get(n, ""))
-        out.Push(line)
+        title := StrReplace(row.Get("time", ""), "T", " ") " · " row.Get("trigger", "")
+        if row.Get("logonToStartMs", "") != ""
+            title .= " · started " StartupFormatSeconds(row["logonToStartMs"]) " after logon"
+        if row.Get("allReadyMs", "") != ""
+            title .= " · all ready at " StartupFormatSeconds(row["allReadyMs"])
+        lines := []
+        for it in row.Get("items", []) {
+            launched := it.Get("launchMs", ""), ready := it.Get("readyMs", "")
+            lines.Push([it.Get("name", ""), _StartupHistoryResult(it), StartupFormatSeconds(launched),
+                        StartupFormatSeconds(ready), ready != "" && launched != "" ? StartupFormatSeconds(ready - launched) : ""])
+        }
+        runs.Push({title: title, rows: lines})
     }
-    return {header: header, rows: out}
+    return {header: STARTUP_HISTORY_HEADER, runs: runs}
 }
 
-_StartupHistoryCell(it) {
+_StartupHistoryResult(it) {
     switch it.Get("status", "") {
-        case "ready", "nowindow":
-            at := it.Has("readyMs") ? it["readyMs"] : it.Get("processMs", "")
-            own := at != "" && it.Has("launchMs") ? " (" StartupFormatSeconds(at - it["launchMs"]) ")" : ""
-            return StartupFormatSeconds(at) own (it["status"] = "nowindow" ? " no window" : "")
-        case "already": return "already running"
-        case "off": return "off"
+        case "ready":     return "ready"
+        case "nowindow":  return "no window" (it.Has("processMs") ? " (process at " StartupFormatSeconds(it["processMs"]) ")" : "")
+        case "noprocess": return it.Get("watched", 1) = 0 ? "launched" : "not seen"
+        case "already":   return "already running"
     }
-    return it.Get("status", "")
+    return it.Get("status", "")  ; failed, off, or an unfinished status
 }

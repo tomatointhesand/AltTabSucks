@@ -28,6 +28,10 @@ Assert-Equal (Get-StartupReadyMode '"C:\x\app.exe" --start-minimized') "process"
 Assert-Equal (Get-StartupReadyMode '"C:\x\app.exe" /tray') "process" "/tray"
 Assert-Equal (Get-StartupReadyMode '"C:\x\app.exe" --processStart app.exe') "window" "--processStart isn't a tray flag"
 Assert-Equal (Get-StartupReadyMode '"C:\Program Files\Hidden Gem\gem.exe"') "window" "a word in the path isn't a flag"
+Assert-Equal (Get-StartupProcessName '"C:\x\brave debug.bat" --flag') "" "a script has no process of its own"
+Assert-Equal (Get-StartupProcessName 'C:\My Scripts\start brave.cmd') "" "  ...unquoted with spaces too"
+Assert-Equal (Get-StartupReadyMode '"C:\x\brave debug.bat"') "launched" "a script is ready once it's launched"
+Assert-Equal (Get-StartupReadyMode 'C:\x\run.ps1 -silent') "launched" "  ...even with a tray-style flag"
 
 # ---- Merge-StartupItems -----------------------------------------------------------------------
 $entries = @(

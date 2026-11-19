@@ -24,19 +24,29 @@ function Test-StartupApproved([byte[]]$Value) {
 }
 
 # The process whose window marks a command as ready (same rules as StartupProcessFromCommand in
-# lib/startup-logic.ahk): "--processStart X.exe" launchers name it; otherwise the program run.
-function Get-StartupProcessName([string]$Command) {
+# lib/startup-logic.ahk): "--processStart X.exe" launchers name it; otherwise the program run,
+# "" for a script (it runs inside cmd.exe/powershell.exe/wscript.exe: no process has its name).
+$StartupScriptPattern = '(?i)\.(bat|cmd|ps1|vbs|js|wsf)$'
+
+function Get-StartupProgramName([string]$Command) {
     $Command = $Command.Trim()
-    if ($Command -match '--processStart\s+"?([^"\s]+)') { return $Matches[1] }
     $exe = if ($Command.StartsWith('"')) { $Command.Substring(1, $Command.IndexOf('"', 1) - 1) }
-           elseif ($Command -match '^.*?\.exe(?=\s|$)') { $Matches[0] }
+           elseif ($Command -match '(?i)^.*?\.(exe|bat|cmd|ps1|vbs|js|wsf)(?=\s|$)') { $Matches[0] }
            else { ($Command -split ' ')[0] }
     Split-Path $exe -Leaf
 }
 
+function Get-StartupProcessName([string]$Command) {
+    if ($Command -match '--processStart\s+"?([^"\s]+)') { return $Matches[1] }
+    $name = Get-StartupProgramName $Command
+    if ($name -match $StartupScriptPattern) { "" } else { $name }
+}
+
 # Apps started with a flag like this usually go straight to the tray, so they never show a window:
 # for them, "ready" means their process is running.
+# A script is ready once it's launched: there's nothing of its own to watch.
 function Get-StartupReadyMode([string]$Command) {
+    if ((Get-StartupProgramName $Command) -match $StartupScriptPattern) { return "launched" }
     if ($Command -match '(?i)(^|\s)[-/]{1,2}[\w-]*(minimi[sz]ed|tray|background|silent|hidden|startup|autostart|autorun)\b') { "process" } else { "window" }
 }
 

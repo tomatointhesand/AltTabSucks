@@ -18,7 +18,7 @@ def state(status, **kw):
 
 class PlanTestCase(unittest.TestCase):
     def setUp(self):
-        self.items = [item("A", 0), item("B", 2), item("C", 1.5)]
+        self.items = [item("A", 0, process="a"), item("B", 2, process="b"), item("C", 1.5, process="c")]
 
     def test_delays_count_from_the_previous_launch(self):
         p = L.plan(self.items, [state("pending")] * 3)
@@ -94,7 +94,7 @@ class OutcomeTestCase(unittest.TestCase):
 
 class HistoryTestCase(unittest.TestCase):
     def setUp(self):
-        self.items = [item("A", 0), item("B", 2), item("C", 1.5)]
+        self.items = [item("A", 0, process="a"), item("B", 2, process="b"), item("C", 1.5, process="c")]
         self.states = [state("ready", launchMs=10, processMs=40, readyMs=900, doneMs=900),
                        state("nowindow", launchMs=2900, processMs=3000, doneMs=32900),
                        state("already", launchMs=2900, doneMs=2900)]
@@ -111,17 +111,31 @@ class HistoryTestCase(unittest.TestCase):
         line = json.dumps(L.history_row(self.items, self.states, "logon", "2026-10-26T08:00:00", 41000, 1200))
         older = json.loads(line)
         older["time"] = "2026-10-25T08:00:00"
+        older["trigger"], older["logonToStartMs"] = "manual", ""
         older["items"][0]["name"] = "Old app"
-        t = L.history_table([older, json.loads(line)], ["C", "A", "B"])
-        self.assertEqual(t["header"][4:], ["C", "A", "B", "Old app"])
-        newest = t["rows"][0]
-        self.assertEqual(newest[0], "2026-10-26 08:00:00")
-        self.assertEqual(newest[2] + " | " + newest[3], "1.2 s | 32.9 s")
-        self.assertEqual(newest[5], "0.9 s (0.9 s)")
-        self.assertEqual(newest[6], "3.0 s (0.1 s) no window")
-        self.assertEqual(newest[4], "already running")
-        self.assertEqual(t["rows"][1][5] + " | " + t["rows"][1][7], " | 0.9 s (0.9 s)")
+        t = L.history_table([older, json.loads(line)])
+        self.assertEqual(t["header"], ["Item", "Result", "Launched at", "Ready at", "Took"])
+        newest, oldest = t["runs"]
+        self.assertEqual(newest["title"], "2026-10-26 08:00:00 · logon · started 1.2 s after logon · all ready at 32.9 s")
+        self.assertEqual(oldest["title"], "2026-10-25 08:00:00 · manual · all ready at 32.9 s")
+        self.assertEqual(newest["rows"], [["A", "ready", "0.0 s", "0.9 s", "0.9 s"],
+                                          ["B", "no window (process at 3.0 s)", "2.9 s", "", ""],
+                                          ["C", "already running", "2.9 s", "", ""]])
+        self.assertEqual(oldest["rows"][0][0], "Old app")
 
+    def test_unwatched_items(self):
+        bat = {"name": "Brave debug", "command": "C:\\x\\brave-debug.bat", "process": "brave-debug.bat", "ready": "window"}
+        self.assertFalse(L.watched(bat))  # a script's name is no process's
+        self.assertFalse(L.watched({"process": "brave.exe", "ready": "launched"}))
+        self.assertTrue(L.watched({"process": "brave.exe"}))
+        self.assertTrue(L.watched({"builtin": "alttabsucks", "ready": "launched"}))
+        st = state("noprocess", launchMs=5, doneMs=5)
+        self.assertEqual(L.outcome(bat, st), "ok")
+        self.assertEqual(L.status_text([bat], 0, st, None, 0), "✔ launched")
+        self.assertEqual(L.outcome({"process": "brave.exe"}, st), "warn")
+        row = L.history_row([bat], [st], "logon", "2026-10-26T08:00:00", "", "")
+        self.assertEqual(row["items"][0]["watched"], 0)
+        self.assertEqual(L.history_table([row])["runs"][0]["rows"][0][:2], ["Brave debug", "launched"])
 
 if __name__ == "__main__":
     unittest.main()

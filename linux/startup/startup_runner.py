@@ -29,12 +29,6 @@ class Probes:
         raise NotImplementedError
 
 
-def watchable(item: dict) -> bool:
-    """Whether there's anything to watch for after launching: otherwise the item is done as soon
-    as it's launched (✔ launched)."""
-    return bool(item.get("builtin") or item.get("process") or item.get("windowClass"))
-
-
 class Runner:
     def __init__(self, items: list, config: dict, probes: Probes, now):
         self.items = items          # the same list the window edits
@@ -98,14 +92,15 @@ class Runner:
         item, st = self.items[i], self.states[i]
         st["launchMs"] = self.now()
         try:
-            if not item.get("builtin") and self.probes.already_running(item):
+            # Not for one that isn't watched: a script that starts something always runs.
+            if not item.get("builtin") and L.watched(item) and self.probes.already_running(item):
                 st["status"], st["doneMs"] = "already", self.now()
                 return
             self.handles[i] = self.probes.launch(item)
         except (OSError, ValueError) as e:
             st["status"], st["error"], st["doneMs"] = "failed", str(e).splitlines()[0] if str(e) else type(e).__name__, self.now()
             return
-        if watchable(item):
+        if L.watched(item):
             st["status"] = "launched"
         else:  # nothing to watch for: done as soon as it's launched
             st["status"], st["doneMs"] = "noprocess", self.now()
@@ -125,7 +120,7 @@ class Runner:
             st = self.states[i]
             s = st["status"]
             late = s in ("nowindow", "noprocess")
-            if not (s in ("launched", "running") or late) or not watchable(item):
+            if not (s in ("launched", "running") or late) or not L.watched(item):
                 continue
             handle = self.handles[i]
             if s in ("launched", "noprocess") and (item.get("builtin") or self.probes.process_seen(item, handle)):

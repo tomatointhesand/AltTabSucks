@@ -148,7 +148,7 @@ _SmWatch() {
         st := _sm.states[item], s := st["status"]
         proc := item.Get("process", "")
         late := s = "nowindow" || s = "noprocess"
-        if !(s = "launched" || s = "running" || late) || proc = ""
+        if !(s = "launched" || s = "running" || late) || !StartupWatched(item)
             continue
         if (s = "launched" || s = "noprocess") && _SmProcessRunning(proc)
             st["processMs"] := _SmNow(), s := st["status"] := late ? "nowindow" : "running"
@@ -178,7 +178,8 @@ _SmNow() => A_TickCount - _sm.runStart
 _SmLaunch(item) {
     st := _sm.states[item]
     st["launchMs"] := _SmNow()
-    if _SmProcessRunning(item.Get("process", "")) {
+    ; Not for one that isn't watched: a script that starts something always runs.
+    if StartupWatched(item) && _SmProcessRunning(item.Get("process", "")) {
         st["status"] := "already", st["doneMs"] := _SmNow()
         return
     }
@@ -187,7 +188,7 @@ _SmLaunch(item) {
             _SmLaunchAltTabSucks()
         else
             Run(item.Get("command", ""), item.Get("workingDir", ""))
-        st["status"] := item.Get("process", "") = "" ? "noprocess" : "launched"
+        st["status"] := StartupWatched(item) ? "launched" : "noprocess"
         if st["status"] = "noprocess"  ; nothing to watch for: done as soon as it's launched
             st["doneMs"] := _SmNow()
     } catch as e {
@@ -372,13 +373,19 @@ _SmBuildGui(mode) {
         return e
     }
     g.SetFont("s11 Bold")
-    _sm.summary := g.AddText("x12 y10 w676 h24")
+    _sm.summary := g.AddText("x12 y10 w566 h24")
     g.SetFont("s10 Norm")
+    ; The Items/History switch: up here, where neither view's list can cover it.
+    _sm.viewBtn := g.AddButton("x588 y6 w100 h28", "History")
+    _sm.viewBtn.OnEvent("Click", _SmToggleView)
     _sm.lv := g.AddListView("x12 y38 w676 h250 Checked -Multi NoSortHdr", ["Name", "Delay", "Status", "Ready at", "Took"])
-    _sm.lvHist := g.AddListView("x12 y38 w676 h450 Hidden NoSortHdr", ["When"])
+    _sm.lvHist := g.AddListView("x12 y38 w676 h450 Hidden NoSortHdr -Multi", STARTUP_HISTORY_HEADER)
+    LvEnableGroups(_sm.lvHist)  ; one group per run
     for lv in [_sm.lv, _sm.lvHist]
         if dark
             lv.Opt("+Background1E1E1E"), DllCall("uxtheme\SetWindowTheme", "ptr", lv.Hwnd, "str", "DarkMode_Explorer", "ptr", 0)
+    if dark  ; ItemsView draws the run headings (group headers) light on dark; Explorer's are dark blue
+        DllCall("uxtheme\SetWindowTheme", "ptr", _sm.lvHist.Hwnd, "str", "DarkMode_ItemsView", "ptr", 0)
     _sm.lv.ModifyCol(1, 230), _sm.lv.ModifyCol(2, 110), _sm.lv.ModifyCol(3, 180), _sm.lv.ModifyCol(4, 70), _sm.lv.ModifyCol(5, 70)
     _sm.lv.OnEvent("ItemSelect", _SmOnSelect)
     _sm.lv.OnEvent("ItemCheck", _SmOnCheck)
@@ -397,8 +404,6 @@ _SmBuildGui(mode) {
     add(g.AddButton("x88 y296 w80", "Remove")).OnEvent("Click", _SmRemove)
     add(g.AddButton("x174 y296 w50", "Up")).OnEvent("Click", (*) => _SmMove(-1))
     add(g.AddButton("x230 y296 w60", "Down")).OnEvent("Click", (*) => _SmMove(1))
-    _sm.viewBtn := g.AddButton("x588 y296 w100", "History")
-    _sm.viewBtn.OnEvent("Click", _SmToggleView)
     add(g.AddText("x12 y334 w80", "Name"))
     _sm.fName := add(edit("x96 y330 w250"))
     add(g.AddText("x360 y334 w60", "Process"))
@@ -411,7 +416,7 @@ _SmBuildGui(mode) {
     _sm.fDelay := add(edit("x96 y390 w60"))
     _sm.fAfter := add(g.AddCheckbox("x168 y393 w520", "Count it from when the previous item is ready, not launched"))
     add(g.AddText("x12 y424 w80", "Ready when"))
-    _sm.fReady := add(g.AddDropDownList("x96 y420 w250", ["its first window appears", "its process is running", "its tray icon appears"]))
+    _sm.fReady := add(g.AddDropDownList("x96 y420 w250", ["its first window appears", "its process is running", "it's launched (don't wait)", "its tray icon appears"]))
     _sm.editCtrls := editCtrls
     for f in [_sm.fName, _sm.fProcess, _sm.fCommand, _sm.fDelay]
         f.OnEvent("Change", _SmOnEdit)
@@ -471,7 +476,8 @@ _SmRecordLayout() {
     below := lvY + lvH  ; controls under the items list move down with the window's bottom edge
     special := Map(_sm.summary.Hwnd, "w", _sm.lv.Hwnd, "wh", _sm.lvHist.Hwnd, "wh",
                    _sm.fProcess.Hwnd, "yw", _sm.fCommand.Hwnd, "yw", _sm.notice.Hwnd, "yw", _sm.footer.Hwnd, "yw")
-    for c in [_sm.viewBtn, _sm.fBrowse, _sm.takeOver, _sm.launchAll, _sm.runNow, _sm.closeBtn]
+    special[_sm.viewBtn.Hwnd] := "x"
+    for c in [_sm.fBrowse, _sm.takeOver, _sm.launchAll, _sm.runNow, _sm.closeBtn]
         special[c.Hwnd] := "xy"
     _sm.anchors := []
     for hwnd, ctrl in g {
@@ -591,12 +597,14 @@ _SmUpdateUi() {
     else if _sm.historyWritten
         summary := "Startup: " up " of " total " up, still watching for the rest"
     else
-        summary := _sm.items.Length " startup items, launched in this order at logon. Changes save as you make them."
+        summary := _sm.items.Length " startup items, launched in this order at logon"
     if _sm.summary.Value != summary
         _sm.summary.Value := summary
     footer := _sm.closeAt && !_sm.keepOpen && !_sm.newEntries.Length
         ? "Closing in " Ceil((_sm.closeAt - A_TickCount) / 1000) " s (click here to keep it open)"
-        : _sm.historyWritten && !_sm.running && !_sm.keepOpen && up < total ? "Staying open until everything is up" : ""
+        : _sm.historyWritten && !_sm.running && !_sm.keepOpen && up < total ? "Staying open until everything is up"
+        : _sm.closeAt && !_sm.keepOpen ? "Staying open for the startup apps listed above"
+        : !_sm.running && !_sm.historyWritten ? "Changes save as you make them" : ""
     if _sm.footer.Value != footer && SubStr(_sm.footer.Value, 1, 13) != "Couldn't save"
         _sm.footer.Value := footer
     if _sm.view = "items" {
@@ -699,19 +707,20 @@ _SmShowHistory() {
             try rows.Push(Json_Parse(lines[start + A_Index - 1]))
         }
     }
-    names := []
-    for item in _sm.items
-        names.Push(item.Get("name", ""))
-    t := StartupHistoryTable(rows, names)
+    t := StartupHistoryTable(rows)
     lv := _sm.lvHist
     lv.Opt("-Redraw")
     lv.Delete()
-    while lv.GetCount("Col") > 1
-        lv.DeleteCol(2)
-    for i, h in t.header
-        i = 1 ? lv.ModifyCol(1, , h) : lv.InsertCol(i, , h)
-    for r in t.rows
-        lv.Add(, r*)
+    LvRemoveGroups(lv)
+    for i, run in t.runs {
+        LvAddGroup(lv, i, run.title)
+        for r in run.rows
+            LvSetGroup(lv, lv.Add(, r*), i)
+    }
+    if !t.runs.Length {  ; an empty group isn't drawn
+        LvAddGroup(lv, 1, "No startup runs recorded yet")
+        LvSetGroup(lv, lv.Add(, "(they're recorded at each logon and Run startup now)"), 1)
+    }
     loop t.header.Length
         lv.ModifyCol(A_Index, "AutoHdr")
     lv.Opt("+Redraw")
@@ -729,7 +738,8 @@ _SmSelect(row) {
     _sm.fProcess.Value := row ? item.Get("process", "") : ""
     _sm.fDelay.Value := row ? RegExReplace(Format("{:.1f}", _StartupNum(item, "delay")), "\.0$") : ""
     _sm.fAfter.Value := row ? (item.Get("afterReady", 0) ? 1 : 0) : 0
-    _sm.fReady.Value := builtin ? 3 : row && item.Get("ready", "window") = "process" ? 2 : 1  ; 3: AltTabSucks only
+    ready := row ? item.Get("ready", "window") : "window"
+    _sm.fReady.Value := builtin ? 4 : ready = "process" ? 2 : ready = "launched" ? 3 : 1  ; 4: AltTabSucks only
     _sm.filling := false
     for f in [_sm.fName, _sm.fDelay, _sm.fAfter]
         f.Enabled := row != 0
@@ -771,6 +781,10 @@ _SmOnEdit(ctrl, *) {
                 item["process"] := StartupProcessFromCommand(ctrl.Value)
                 _sm.filling := true, _sm.fProcess.Value := item["process"], _sm.filling := false
             }
+            if StartupCommandIsScript(ctrl.Value) && !StartupCommandIsScript(item.Get("command", "")) {
+                item["ready"] := "launched"  ; a script: nothing to wait for
+                _sm.filling := true, _sm.fReady.Value := 3, _sm.filling := false
+            }
             item["command"] := ctrl.Value
         case _sm.fProcess:
             item["process"] := Trim(ctrl.Value)
@@ -781,9 +795,9 @@ _SmOnEdit(ctrl, *) {
         case _sm.fAfter:
             item["afterReady"] := ctrl.Value ? 1 : 0
         case _sm.fReady:
-            if ctrl.Value = 3  ; the tray icon is AltTabSucks' own (that item can't be edited here)
+            if ctrl.Value = 4  ; the tray icon is AltTabSucks' own (that item can't be edited here)
                 ctrl.Value := 1
-            item["ready"] := ctrl.Value = 2 ? "process" : "window"
+            item["ready"] := ["window", "process", "launched"][ctrl.Value]
     }
     SetTimer(_SmSave, -500)
 }

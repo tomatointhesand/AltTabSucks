@@ -42,7 +42,7 @@ ShowTabSearch() {
     _ApplySwitcherTheme(g, edit, lv, isDark)
     lv.SetImageList(_TabSearchImageList(), 1)
     lv.ModifyCol(1, 470), lv.ModifyCol(2, 260)
-    SendMessage(0x109D, 1, 0, lv)  ; LVM_ENABLEGROUPVIEW: section headers
+    LvEnableGroups(lv)  ; section headers
 
     _tsGui := g, _tsLV := lv, _tsEdit := edit
     edit.OnEvent("Change", (*) => _TabSearchRefresh())
@@ -117,7 +117,7 @@ _TabSearchRefresh() {
     lv := _tsLV
     lv.Opt("-Redraw")
     lv.Delete()
-    SendMessage(0x10A0, 0, 0, lv)  ; LVM_REMOVEALLGROUPS
+    LvRemoveGroups(lv)
     _tsItems := []
     showProfile := false, group := 0
     labels := Map("tabs", "Open tabs", "recent", "Recently closed", "bookmarks", "Bookmarks")
@@ -128,40 +128,21 @@ _TabSearchRefresh() {
         if f[1] = "showProfile"
             showProfile := f.Length >= 2 && f[2] = "1"
         else if f[1] = "section" && f.Length >= 2
-            _TabSearchAddGroup(lv, ++group, labels.Has(f[2]) ? labels[f[2]] : f[2])
+            LvAddGroup(lv, ++group, labels.Has(f[2]) ? labels[f[2]] : f[2])
         else if f[1] = "item" && f.Length >= 10 {
             item := { kind: f[2], profile: f[3], windowId: f[4], tabId: f[5], sessionId: f[6], iconKey: f[7],
                       live: f[8], title: f[9], url: f[10], group: group }
             title := (showProfile ? "[" item.profile "] " : "") (item.title != "" ? item.title : item.url)
             row := lv.Add("Icon" _TabSearchIcon(item.iconKey), title, item.url)
-            _TabSearchSetGroup(lv, row, group)
+            LvSetGroup(lv, row, group)
             _tsItems.Push(item)
         }
     }
     if _tsItems.Length
         lv.Modify(1, "Select Focus Vis")
     else
-        _TabSearchAddGroup(lv, 1, text = "" ? "Server unavailable" : "No matches")
+        LvAddGroup(lv, 1, text = "" ? "Server unavailable" : "No matches")
     lv.Opt("+Redraw")
-}
-
-; LVGROUP (comctl32 v5 part): cbSize, mask, pszHeader, cchHeader, pszFooter, cchFooter, iGroupId.
-_TabSearchAddGroup(lv, id, header) {
-    grp := Buffer(A_PtrSize = 8 ? 56 : 40, 0)
-    NumPut("UInt", grp.Size, grp, 0)
-    NumPut("UInt", 0x1 | 0x10, grp, 4)  ; LVGF_HEADER | LVGF_GROUPID
-    NumPut("Ptr", StrPtr(header), grp, 8)
-    NumPut("Int", id, grp, A_PtrSize = 8 ? 36 : 24)
-    SendMessage(0x1091, -1, grp, lv)  ; LVM_INSERTGROUP at the end
-}
-
-; LVITEM: mask, iItem, ..., iGroupId (offset 52 on x64, 40 on x86).
-_TabSearchSetGroup(lv, row, id) {
-    it := Buffer(A_PtrSize = 8 ? 88 : 60, 0)
-    NumPut("UInt", 0x100, it, 0)  ; LVIF_GROUPID
-    NumPut("Int", row - 1, it, 4)
-    NumPut("Int", id, it, A_PtrSize = 8 ? 52 : 40)
-    SendMessage(0x104C, 0, it, lv)  ; LVM_SETITEMW
 }
 
 _TabSearchMove(step) {

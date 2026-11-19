@@ -48,6 +48,9 @@ AssertEq(StartupProcessFromCommand('"C:\Program Files\Steam\steam.exe" -silent')
 AssertEq(StartupProcessFromCommand('C:\Program Files\App\app.exe /min'), "app.exe", "unquoted exe with spaces in the path")
 AssertEq(StartupProcessFromCommand('C:\Users\me\AppData\Local\Discord\Update.exe --processStart Discord.exe'), "Discord.exe", "Update.exe --processStart names the real process")
 AssertEq(StartupProcessFromCommand('notepad'), "notepad", "bare command")
+AssertEq(StartupProcessFromCommand('"C:\x\brave debug.bat" --flag'), "", "a script has no process of its own")
+AssertEq(StartupProcessFromCommand('C:\My Scripts\start brave.cmd'), "", "  ...unquoted with spaces too")
+AssertEq(StartupCommandIsScript('C:\My Scripts\start brave.cmd /x') StartupCommandIsScript('"C:\x\app.exe" a.bat'), "10", "StartupCommandIsScript looks at the program run")
 
 ; ---- StartupPlan --------------------------------------------------------------------------------
 a := Item("A", 0), b := Item("B", 2), c := Item("C", 1.5)
@@ -104,6 +107,11 @@ AssertEq(StartupOutcome(b, State("ready")) StartupOutcome(b, State("already")), 
 AssertEq(StartupOutcome(Map("process", ""), State("noprocess")), "ok", "  ...and launched with nothing to watch")
 AssertEq(StartupOutcome(Map("process", "x.exe"), State("noprocess")) StartupOutcome(b, State("nowindow")), "warnwarn", "timeouts are warnings")
 AssertEq(StartupOutcome(b, State("failed")), "error", "a failed launch is an error")
+bat := Map("name", "Brave debug", "process", "brave-debug.bat", "ready", "window")
+AssertEq(StartupWatched(bat), false, "a script's name is no process's: not watched")
+AssertEq(StartupWatched(Map("process", "brave.exe", "ready", "launched")) StartupWatched(Map("process", "brave.exe")), "01", "ready = launched: not watched")
+AssertEq(StartupWatched(Map("builtin", "alttabsucks", "ready", "launched")), true, "AltTabSucks is always watched")
+AssertEq(StartupOutcome(bat, State("noprocess")) " | " StartupStatusText(bat, State("noprocess"), "", 0), "ok | " STARTUP_CHECK " launched", "  ...so it's up once launched")
 AssertEq(StartupOutcome(b, State("running")) StartupOutcome(b, State("pending")), "", "not done yet")
 two := [Item("A"), Item("B")]
 AssertEq(StartupAllUp(two, StatesFor(two, State("ready"), State("off"))), true, "everything up (off items don't count)")
@@ -111,6 +119,7 @@ AssertEq(StartupAllUp(two, StatesFor(two, State("ready"), State("nowindow"))), f
 AssertEq(StartupAllUp(two, StatesFor(two, State("ready"), State("running"))), false, "  ...or is still starting")
 
 ; ---- history ------------------------------------------------------------------------------------
+a["process"] := "a.exe", b["process"] := "b.exe", c["process"] := "c.exe"
 st := StatesFor(items, State("ready", "launchMs", 10, "processMs", 40, "readyMs", 900, "doneMs", 900),
                        State("nowindow", "launchMs", 2900, "processMs", 3000, "doneMs", 32900),
                        State("already", "launchMs", 2900, "doneMs", 2900))
@@ -123,15 +132,17 @@ AssertEq(InStr(line, "`n"), 0, "a history row is one line")
 
 older := Json_Parse(line)
 older["time"] := "2026-10-25T08:00:00"
+older["trigger"] := "manual", older["logonToStartMs"] := ""
 older["items"][1]["name"] := "Old app"
-t := StartupHistoryTable([older, Json_Parse(line)], ["C", "A", "B"])
-AssertEq(t.header.Length, 8, "history header: 4 fixed columns + one per item name ever seen")
-AssertEq(t.header[5] " " t.header[6] " " t.header[7] " " t.header[8], "C A B Old app", "  ...current order first, then older names")
-AssertEq(t.rows[1][1], "2026-10-26 08:00:00", "newest row first")
-AssertEq(t.rows[1][3] " | " t.rows[1][4], "1.2 s | 32.9 s", "  ...with logon-to-start and all-ready times")
-AssertEq(t.rows[1][6], "0.9 s (0.9 s)", "a cell: ready time (time after launch)")
-AssertEq(t.rows[1][7], "3.0 s (0.1 s) no window", "  ...no window: process time")
-AssertEq(t.rows[1][5], "already running", "  ...already running")
-AssertEq(t.rows[2][6] " | " t.rows[2][8], " | 0.9 s (0.9 s)", "an item missing from an old row is blank")
+t := StartupHistoryTable([older, Json_Parse(line)])
+AssertEq(Json_Stringify(t.header), '["Item","Result","Launched at","Ready at","Took"]', "history columns: item names are data, not columns")
+AssertEq(t.runs.Length, 2, "a group per run")
+AssertEq(t.runs[1].title, "2026-10-26 08:00:00 · logon · started 1.2 s after logon · all ready at 32.9 s", "newest run first, its heading")
+AssertEq(t.runs[2].title, "2026-10-25 08:00:00 · manual · all ready at 32.9 s", "  ...no logon time for a manual run")
+AssertEq(Json_Stringify(t.runs[1].rows), '[["A","ready","0.0 s","0.9 s","0.9 s"],["B","no window (process at 3.0 s)","2.9 s","",""],["C","already running","2.9 s","",""]]', "a row per item")
+AssertEq(t.runs[2].rows[1][1], "Old app", "  ...with the names that run had")
+row := StartupHistoryRow([bat], Map(bat, State("noprocess", "launchMs", 5, "doneMs", 5)), "logon", "2026-10-26T08:00:00", "", "")
+AssertEq(row["items"][1]["watched"], 0, "an item that isn't watched is marked so")
+AssertEq(StartupHistoryTable([row]).runs[1].rows[1][2], "launched", "  ...and shows as launched, not timed out")
 
 AssertDone()
